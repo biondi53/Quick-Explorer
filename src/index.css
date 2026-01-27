@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+/* 1. Global Defaults (Neon Theme) */
+:root {
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: dark;
+  background-color: transparent;
+
+  /* Default (Deep Neon) - Distinct Navy Blue */
+  --bg-deep: #0b0e1c;
+  --bg-surface: rgba(20, 24, 40, 0.7);
+  --bg-sidebar: rgba(13, 16, 28, 0.6);
+  --accent-primary: #6366f1;
+  --accent-rgb: 99, 102, 241;
+  --accent-secondary: #06b6d4;
+  --accent-glow: rgba(99, 102, 241, 0.5);
+  --text-main: #ffffff;
+  --text-dim: #cbd5e1;
+  /* From 94a3b8 (zinc-400) to slate-300 approx */
+  --text-muted: #94a3b8;
+  /* From 64748b (zinc-500) to zinc-400 */
+  --border-glow: rgba(255, 255, 255, 0.15);
+  --border-active: rgba(99, 102, 241, 0.7);
+  --mica-bg: rgba(11, 14, 28, 0.6);
+}
+
+/* 2. Theme Overrides */
+:root[data-theme='emerald'] {
+  /* Lush Jungle Green */
+  --bg-deep: #05140b;
+  --bg-surface: rgba(10, 30, 20, 0.7);
+  --bg-sidebar: rgba(6, 22, 12, 0.6);
+  --accent-primary: #10b981;
+  --accent-rgb: 16, 185, 129;
+  --accent-secondary: #a3e635;
+  --accent-glow: rgba(16, 185, 129, 0.5);
+  --border-active: rgba(16, 185, 129, 0.7);
+  --mica-bg: rgba(5, 20, 11, 0.6);
+}
+
+:root[data-theme='sunset'] {
+  /* Deep Copper/Espresso */
+  --bg-deep: #1a0f0a;
+  --bg-surface: rgba(40, 20, 10, 0.7);
+  --bg-sidebar: rgba(30, 14, 8, 0.6);
+  --accent-primary: #f97316;
+  --accent-rgb: 249, 115, 22;
+  --accent-secondary: #fbbf24;
+  --accent-glow: rgba(249, 115, 22, 0.5);
+  --border-active: rgba(249, 115, 22, 0.7);
+  --mica-bg: rgba(26, 15, 10, 0.6);
+}
+
+:root[data-theme='cyber'] {
+  /* Vivid Deep Violet */
+  --bg-deep: #130a1c;
+  --bg-surface: rgba(40, 15, 50, 0.7);
+  --bg-sidebar: rgba(25, 10, 35, 0.6);
+  --accent-primary: #d946ef;
+  --accent-rgb: 217, 70, 239;
+  --accent-secondary: #818cf8;
+  --accent-glow: rgba(217, 70, 239, 0.5);
+  --border-active: rgba(217, 70, 239, 0.7);
+  --mica-bg: rgba(19, 10, 28, 0.6);
+}
+
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: transparent !important;
+  background-color: var(--bg-deep);
+  /* Fallback */
+  color: var(--text-main);
+}
+
+#root {
+  height: 100%;
+}
+
+/* Mica Effect Simulation */
+.mica-container {
+  background: var(--mica-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Component Utilities */
+.file-row {
+  transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.context-menu-shadow {
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+
+.toolbar-btn {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background-color: rgba(var(--accent-rgb), 0.1);
+  box-shadow: 0 0 15px rgba(var(--accent-rgb), 0.2);
+  color: white;
+}
+
+.toolbar-btn:active:not(:disabled) {
+  transform: scale(0.9);
+  background-color: rgba(var(--accent-rgb), 0.2);
+  transition: all 0.1s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.virtual-item {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 42px;
+}
+
+[data-tauri-drag-region] {
+  -webkit-app-region: drag !important;
+  transition: none !important;
+}
+
+.no-drag,
+button,
+a,
+input,
+textarea,
+select,
+[role="button"] {
+  -webkit-app-region: no-drag !important;
+}
