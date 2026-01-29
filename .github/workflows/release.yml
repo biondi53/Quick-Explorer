@@ -38,7 +38,7 @@ jobs:
 
       - name: generate changelog
         shell: bash
-        run: node scripts/generate_changelog.js > CHANGELOG_RELEASE.md
+        run: node scripts/generate_changelog.cjs > CHANGELOG_RELEASE.md
 
       - uses: tauri-apps/tauri-action@v0
         env:
