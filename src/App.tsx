@@ -283,43 +283,44 @@ export default function App() {
   const [clipboardPopup, setClipboardPopup] = useState<{ x: number, y: number } | null>(null);
   const [lastCutPaths, setLastCutPaths] = useState<string[]>([]);
 
-  // Panel Resizing State
-  // Panel Resizing State
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const saved = localStorage.getItem('speedexplorer-sidebar-width');
-    const width = saved ? parseInt(saved, 10) : 240;
-    return Math.min(width, winWidth * 0.15);
-  });
-  const [infoPanelWidth, setInfoPanelWidth] = useState(() => {
-    const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const saved = localStorage.getItem('speedexplorer-info-width');
-    const width = saved ? parseInt(saved, 10) : 300;
-    return Math.min(width, winWidth * 0.25);
-  });
-  const [searchBarWidth, setSearchBarWidth] = useState(256);
-  const [isResizing, setIsResizing] = useState<'sidebar' | 'info' | 'search' | null>(null);
+  // Window Size Tracker for Responsive Panels
+  const [windowWidth, setWindowWidth] = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1200);
 
-  // Persist panel widths when resizing stops
   useEffect(() => {
-    // Clamp panels to 25% max and ensure 50% center
-    const clampPanels = () => {
-      const winWidth = window.innerWidth;
-      setSidebarWidth(prev => Math.min(prev, winWidth * 0.15));
-      setInfoPanelWidth(prev => Math.min(prev, winWidth * 0.25));
-    };
-
-    clampPanels();
-    window.addEventListener('resize', clampPanels);
-    return () => window.removeEventListener('resize', clampPanels);
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+
+  // Panel Resizing State (Ratios)
+  const [infoPanelRatio, setInfoPanelRatio] = useState(() => {
+    const saved = localStorage.getItem('speedexplorer-info-ratio');
+    if (saved) return parseFloat(saved);
+
+    // Migration: if no ratio but pixels exist
+    const savedPixels = localStorage.getItem('speedexplorer-info-width');
+    if (savedPixels) return parseInt(savedPixels, 10) / (typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+    return 300 / 1200; // Default 25%
+  });
+
+  // Sidebar is now fixed at 220px
+  const sidebarWidth = 220;
+  // Derived Pixel Widths (with strict minimums)
+  const infoPanelWidth = Math.max(windowWidth * infoPanelRatio, 350);
+
+  const [searchBarWidth, setSearchBarWidth] = useState(256);
+  const [isResizing, setIsResizing] = useState<'info' | 'search' | null>(null);
+
+  // Removed automatic clamping effect to prevent panel size reset on window resize or maximize.
+
+  // Persistence for ratios
   useEffect(() => {
     if (!isResizing) {
-      localStorage.setItem('speedexplorer-sidebar-width', String(sidebarWidth));
-      localStorage.setItem('speedexplorer-info-width', String(infoPanelWidth));
+      localStorage.setItem('speedexplorer-info-ratio', String(infoPanelRatio));
     }
-  }, [isResizing, sidebarWidth, infoPanelWidth]);
+  }, [isResizing, infoPanelRatio]);
 
   const checkClipboard = useCallback(async () => {
     try {
@@ -989,35 +990,25 @@ export default function App() {
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing) return;
 
-    const winWidth = window.innerWidth;
-    const MIN_SIDEBAR_WIDTH = 160;
-    const MAX_SIDEBAR_PERCENT = 0.15;
-    const MIN_INFO_WIDTH = 200;
+    const MIN_INFO_WIDTH = 350;
     const MAX_INFO_PERCENT = 0.25;
-    const MIN_CENTER_PERCENT = 0.60;
+    const MIN_CENTER_PERCENT = 0.50;
+    const MIN_CENTER_WIDTH_PX = 800;
 
-    const MIN_CENTER_WIDTH_PX = 400; // Minimum pixels to avoid horizontal scroll in FileTable
-    const minCenterWidth = Math.max(winWidth * MIN_CENTER_PERCENT, MIN_CENTER_WIDTH_PX);
+    const minCenterWidth = Math.max(windowWidth * MIN_CENTER_PERCENT, MIN_CENTER_WIDTH_PX);
 
-    if (isResizing === 'sidebar') {
-      const maxAllowedByCenter = winWidth - infoPanelWidth - minCenterWidth;
-      const maxAllowedByPercent = winWidth * MAX_SIDEBAR_PERCENT;
+    if (isResizing === 'info') {
+      const maxAllowedByCenter = windowWidth - sidebarWidth - minCenterWidth;
+      const maxAllowedByPercent = windowWidth * MAX_INFO_PERCENT;
       const maxWidth = Math.min(maxAllowedByPercent, maxAllowedByCenter);
 
-      const newWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(e.clientX, maxWidth));
-      setSidebarWidth(newWidth);
-    } else if (isResizing === 'info') {
-      const maxAllowedByCenter = winWidth - sidebarWidth - minCenterWidth;
-      const maxAllowedByPercent = winWidth * MAX_INFO_PERCENT;
-      const maxWidth = Math.min(maxAllowedByPercent, maxAllowedByCenter);
-
-      const newWidth = Math.max(MIN_INFO_WIDTH, Math.min(winWidth - e.clientX, maxWidth));
-      setInfoPanelWidth(newWidth);
+      const newWidth = Math.max(MIN_INFO_WIDTH, Math.min(windowWidth - e.clientX, maxWidth));
+      setInfoPanelRatio(newWidth / windowWidth);
     } else if (isResizing === 'search') {
-      const newWidth = Math.max(150, Math.min(500, winWidth - infoPanelWidth - e.clientX - 40));
+      const newWidth = Math.max(150, Math.min(500, windowWidth - infoPanelWidth - e.clientX - 40));
       setSearchBarWidth(newWidth);
     }
-  }, [isResizing, infoPanelWidth, sidebarWidth]);
+  }, [isResizing, infoPanelWidth, sidebarWidth, windowWidth]);
 
   const handleMouseUp = useCallback(() => {
     setIsResizing(null);
@@ -1084,11 +1075,7 @@ export default function App() {
             onRefreshRecycleBin={fetchRecycleBinStatus}
           />
 
-          {/* Sidebar Resizer */}
-          <div
-            className={`w-1 cursor-col-resize hover:bg-[var(--accent-primary)]/30 transition-colors z-50 flex-shrink-0 ${isResizing === 'sidebar' ? 'bg-[var(--accent-primary)]/50' : 'bg-white/5'}`}
-            onMouseDown={() => setIsResizing('sidebar')}
-          />
+
 
           <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg-surface)]">
             {/* Tab Bar */}
