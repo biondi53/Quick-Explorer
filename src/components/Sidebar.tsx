@@ -1,6 +1,7 @@
 import { useState, useEffect, memo } from 'react';
 import { Home, Download, FileText, Image, HardDrive, ChevronRight, Monitor, Trash2, Trash } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { handleWindowDrag } from '../utils/windowDrag';
 import { RecycleBinStatus } from '../types';
 
 interface FileEntry {
@@ -91,7 +92,8 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
             className="flex flex-col bg-[var(--bg-sidebar)] border-r border-white/10 backdrop-blur-2xl h-full select-none shadow-2xl"
             style={{ width }}
             onMouseEnter={onRefreshRecycleBin}
-            data-tauri-drag-region
+            onMouseDown={handleWindowDrag}
+            onContextMenu={(e) => e.preventDefault()}
             onClick={(e) => {
                 if (e.target === e.currentTarget) {
                     onClearSelection();

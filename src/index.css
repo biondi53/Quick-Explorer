@@ -143,10 +143,8 @@ body {
   contain-intrinsic-size: 1px 42px;
 }
 
-[data-tauri-drag-region] {
-  -webkit-app-region: drag !important;
-  transition: none !important;
-}
+
+/* [data-tauri-drag-region] removed for custom handling */
 
 .no-drag,
 button,

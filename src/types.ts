@@ -44,6 +44,8 @@ export interface Tab {
 
 export interface ClipboardInfo {
     has_files: boolean;
+    paths: string[];
+    is_cut: boolean;
     file_count: number;
     file_summary: string | null;
     has_image: boolean;

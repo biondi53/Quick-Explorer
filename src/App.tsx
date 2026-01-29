@@ -41,7 +41,7 @@ import './App.css';
 import { useTabs } from './hooks/useTabs';
 import { SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus } from './types';
 import SplashScreen from './components/SplashScreen';
-import { Window, getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export default function App() {
   const [isLoadingApp, setIsLoadingApp] = useState(true);
@@ -205,8 +205,11 @@ export default function App() {
     fetchSystemPaths();
     // Show window after a short delay to ensure black background is rendered
     // or just show immediately if we trust the blackout
+    // Show window after a short delay to ensure black background is rendered
+    // or just show immediately if we trust the blackout
     const showWindow = async () => {
-      const win = new Window('main');
+      const win = getCurrentWindow();
+      await win.maximize();
       await win.show();
       await win.setFocus();
     };
@@ -281,10 +284,42 @@ export default function App() {
   const [lastCutPaths, setLastCutPaths] = useState<string[]>([]);
 
   // Panel Resizing State
-  const [sidebarWidth, setSidebarWidth] = useState(240);
-  const [infoPanelWidth, setInfoPanelWidth] = useState(300);
+  // Panel Resizing State
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const saved = localStorage.getItem('speedexplorer-sidebar-width');
+    const width = saved ? parseInt(saved, 10) : 240;
+    return Math.min(width, winWidth * 0.15);
+  });
+  const [infoPanelWidth, setInfoPanelWidth] = useState(() => {
+    const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const saved = localStorage.getItem('speedexplorer-info-width');
+    const width = saved ? parseInt(saved, 10) : 300;
+    return Math.min(width, winWidth * 0.25);
+  });
   const [searchBarWidth, setSearchBarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState<'sidebar' | 'info' | 'search' | null>(null);
+
+  // Persist panel widths when resizing stops
+  useEffect(() => {
+    // Clamp panels to 25% max and ensure 50% center
+    const clampPanels = () => {
+      const winWidth = window.innerWidth;
+      setSidebarWidth(prev => Math.min(prev, winWidth * 0.15));
+      setInfoPanelWidth(prev => Math.min(prev, winWidth * 0.25));
+    };
+
+    clampPanels();
+    window.addEventListener('resize', clampPanels);
+    return () => window.removeEventListener('resize', clampPanels);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) {
+      localStorage.setItem('speedexplorer-sidebar-width', String(sidebarWidth));
+      localStorage.setItem('speedexplorer-info-width', String(infoPanelWidth));
+    }
+  }, [isResizing, sidebarWidth, infoPanelWidth]);
 
   const checkClipboard = useCallback(async () => {
     try {
@@ -764,10 +799,14 @@ export default function App() {
 
     // Default Paste (Files)
     try {
-      await invoke('paste_items', { targetPath });
+      const pastedPaths = await invoke<string[]>('paste_items', { targetPath });
 
-      // Refresh all tabs viewing the target directory
-      refreshTabsViewing(targetPath);
+      // If pasting into current tab, reload it directly with selection
+      if (isCurrentView) {
+        await loadFilesForTab(currentTab.id, targetPath, undefined, pastedPaths);
+      } else {
+        refreshTabsViewing(targetPath);
+      }
 
       // If it was a cut operation, also refresh the source directories
       if (lastCutPaths.length > 0) {
@@ -783,14 +822,57 @@ export default function App() {
     }
   };
 
-  const handleContextMenuAction = (action: string, file: FileEntry | null) => {
+  const handleContextMenuAction = async (action: string, data?: any) => {
+    if (!currentTab) return;
+    const selectedFiles = currentTab.selectedFiles;
+    const file = selectedFiles.length === 1 ? selectedFiles[0] : null;
+
+    if (action === 'move-to-tab' && data) {
+      const { targetPath, tabId } = data;
+      if (selectedFiles.length === 0) return;
+      try {
+        await invoke('move_items', { paths: selectedFiles.map(f => f.path), targetPath });
+
+        // Auto-close tabs looking at moved FOLDERS
+        const movedFolders = selectedFiles.filter(f => f.is_dir).map(f => f.path.toLowerCase());
+        if (movedFolders.length > 0) {
+          tabs.forEach(t => {
+            if (t.path && movedFolders.some(folderPath =>
+              t.path.toLowerCase() === folderPath || t.path.toLowerCase().startsWith(folderPath + '\\')
+            )) {
+              closeTab(t.id);
+            }
+          });
+        }
+
+        refreshCurrentTab();
+        loadFilesForTab(tabId, targetPath);
+      } catch (err) {
+        updateTab(currentTab.id, { error: String(err) });
+      }
+      return;
+    }
+
+    if (action === 'delete') {
+      handleDelete(selectedFiles);
+      return;
+    } else if (action === 'copy') {
+      handleCopy(selectedFiles);
+      return;
+    } else if (action === 'cut') {
+      handleCut(selectedFiles);
+      return;
+    }
+
     if (!file) {
       // Actions for empty space
       if (action === 'paste') {
         handlePaste();
       } else if (action === 'properties') {
-        // Show current folder properties? Not implemented yet but safe.
+        // Show current folder properties
         if (currentTab) invoke('show_item_properties', { path: currentTab.path });
+      } else if (action === 'open-terminal') {
+        invoke('open_terminal', { path: currentTab.path });
       }
       return;
     }
@@ -819,12 +901,6 @@ export default function App() {
       navigator.clipboard.writeText(file.path);
     } else if (action === 'properties') {
       invoke('show_item_properties', { path: file.path });
-    } else if (action === 'delete') {
-      handleDelete(currentTab.selectedFiles);
-    } else if (action === 'copy') {
-      handleCopy(currentTab.selectedFiles);
-    } else if (action === 'cut') {
-      handleCut(currentTab.selectedFiles);
     } else if (action === 'paste') {
       // Logic: If file is a directory, paste INTO it. Else paste into current dir.
       if (file.is_dir) {
@@ -861,7 +937,21 @@ export default function App() {
 
     if (confirmed && currentTab) {
       try {
-        await invoke('delete_items', { paths: files.map(f => f.path) });
+        const deletedPaths = files.map(f => f.path);
+        await invoke('delete_items', { paths: deletedPaths });
+
+        // Auto-close tabs looking at deleted FOLDERS
+        const deletedFolders = files.filter(f => f.is_dir).map(f => f.path.toLowerCase());
+        if (deletedFolders.length > 0) {
+          tabs.forEach(t => {
+            if (t.path && deletedFolders.some(folderPath =>
+              t.path.toLowerCase() === folderPath || t.path.toLowerCase().startsWith(folderPath + '\\')
+            )) {
+              closeTab(t.id);
+            }
+          });
+        }
+
         // Refresh all tabs viewing the parent directories of deleted items
         const parents = Array.from(new Set(files.map(f => {
           const lastSlash = f.path.lastIndexOf('\\');
@@ -899,17 +989,35 @@ export default function App() {
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing) return;
 
+    const winWidth = window.innerWidth;
+    const MIN_SIDEBAR_WIDTH = 160;
+    const MAX_SIDEBAR_PERCENT = 0.15;
+    const MIN_INFO_WIDTH = 200;
+    const MAX_INFO_PERCENT = 0.25;
+    const MIN_CENTER_PERCENT = 0.60;
+
+    const MIN_CENTER_WIDTH_PX = 400; // Minimum pixels to avoid horizontal scroll in FileTable
+    const minCenterWidth = Math.max(winWidth * MIN_CENTER_PERCENT, MIN_CENTER_WIDTH_PX);
+
     if (isResizing === 'sidebar') {
-      const newWidth = Math.max(160, Math.min(480, e.clientX));
+      const maxAllowedByCenter = winWidth - infoPanelWidth - minCenterWidth;
+      const maxAllowedByPercent = winWidth * MAX_SIDEBAR_PERCENT;
+      const maxWidth = Math.min(maxAllowedByPercent, maxAllowedByCenter);
+
+      const newWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(e.clientX, maxWidth));
       setSidebarWidth(newWidth);
     } else if (isResizing === 'info') {
-      const newWidth = Math.max(200, Math.min(600, window.innerWidth - e.clientX));
+      const maxAllowedByCenter = winWidth - sidebarWidth - minCenterWidth;
+      const maxAllowedByPercent = winWidth * MAX_INFO_PERCENT;
+      const maxWidth = Math.min(maxAllowedByPercent, maxAllowedByCenter);
+
+      const newWidth = Math.max(MIN_INFO_WIDTH, Math.min(winWidth - e.clientX, maxWidth));
       setInfoPanelWidth(newWidth);
     } else if (isResizing === 'search') {
-      const newWidth = Math.max(150, Math.min(500, window.innerWidth - infoPanelWidth - e.clientX - 40));
+      const newWidth = Math.max(150, Math.min(500, winWidth - infoPanelWidth - e.clientX - 40));
       setSearchBarWidth(newWidth);
     }
-  }, [isResizing, infoPanelWidth]);
+  }, [isResizing, infoPanelWidth, sidebarWidth]);
 
   const handleMouseUp = useCallback(() => {
     setIsResizing(null);
@@ -939,6 +1047,14 @@ export default function App() {
   }, [activeTabId, updateTab]);
 
   const debouncedSelectedFiles = useDebouncedValue(currentTab?.selectedFiles || [], 100);
+
+  useEffect(() => {
+    const handleDefaultContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('contextmenu', handleDefaultContextMenu);
+    return () => window.removeEventListener('contextmenu', handleDefaultContextMenu);
+  }, []);
 
   return (
     <div className="flex h-screen w-screen bg-[var(--bg-deep)] text-[var(--text-main)] overflow-hidden select-none mica-container">
@@ -1308,6 +1424,7 @@ export default function App() {
                         renamingPath={currentTab?.renamingPath || null}
                         onRenameSubmit={handleRenameSubmit}
                         onRenameCancel={handleRenameCancel}
+                        clipboardInfo={clipboardInfo}
                       />
                     ) : (
                       <FileTable
@@ -1339,6 +1456,7 @@ export default function App() {
                         onToggleColumn={handleToggleColumn}
                         columnWidths={columnWidths}
                         onColumnsResize={handleColumnsResize}
+                        clipboardInfo={clipboardInfo}
                       />
                     )}
 
@@ -1370,12 +1488,14 @@ export default function App() {
               x={contextMenu.x}
               y={contextMenu.y}
               onClose={() => setContextMenu(null)}
-              onAction={(action) => handleContextMenuAction(action, contextMenu.file)}
+              onAction={handleContextMenuAction}
               selectedFiles={currentTab?.selectedFiles || []}
               pinnedFolders={quickAccessConfig.pinnedFolders}
               allowRename={!contextMenu.fromSidebar}
               fromSidebar={contextMenu.fromSidebar}
               recycleBinStatus={recycleBinStatus}
+              tabs={tabs}
+              activeTabId={activeTabId}
             />
           )}
 

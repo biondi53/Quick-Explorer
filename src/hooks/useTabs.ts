@@ -63,15 +63,44 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         setTabs(prev => prev.map(t => t.id === tabId ? { ...t, ...updates } : t));
     }, []);
 
-    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean) => {
+    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[]) => {
         updateTab(tabId, { loading: true, error: null });
         try {
             const result = await invoke<FileEntry[]>('list_files', { path, showHidden: showHidden ?? showHiddenFiles });
-            updateTab(tabId, { files: result, path, selectedFiles: [], lastSelectedFile: null, loading: false });
+
+            let selectedFiles: FileEntry[] = [];
+            let lastSelectedFile: FileEntry | null = null;
+
+            if (pathsToSelect && pathsToSelect.length > 0) {
+                const normalizedToSelect = pathsToSelect.map(normalizePath);
+                selectedFiles = result.filter(f => normalizedToSelect.includes(normalizePath(f.path)));
+                if (selectedFiles.length > 0) {
+                    lastSelectedFile = selectedFiles[selectedFiles.length - 1];
+                }
+            } else {
+                // Try to preserve existing selection if files still exist
+                // Access current tab state from the 'tabs' state variable in scope
+                // We use a functional update in setTabs/updateTab usually, but here we need current value.
+                // 'tabs' dependency is needed or we find it in the list.
+                // However, 'loadFilesForTab' depends on 'updateTab'. If we add 'tabs' to dependency it might cause loops?
+                // Actually, let's look at the implementation. 'tabs' IS in the outer scope.
+                const targetTab = tabs.find(t => t.id === tabId);
+                if (targetTab && targetTab.selectedFiles.length > 0) {
+                    const currentSelectedPaths = targetTab.selectedFiles.map(f => normalizePath(f.path));
+                    selectedFiles = result.filter(f => currentSelectedPaths.includes(normalizePath(f.path)));
+                    if (selectedFiles.length > 0) {
+                        // Try to keep the same lastSelectedFile if it still exists
+                        const lastPath = targetTab.lastSelectedFile ? normalizePath(targetTab.lastSelectedFile.path) : null;
+                        lastSelectedFile = selectedFiles.find(f => normalizePath(f.path) === lastPath) || selectedFiles[0];
+                    }
+                }
+            }
+
+            updateTab(tabId, { files: result, path, selectedFiles, lastSelectedFile, loading: false });
         } catch (err) {
             updateTab(tabId, { error: String(err), loading: false });
         }
-    }, [updateTab, showHiddenFiles]);
+    }, [updateTab, showHiddenFiles, tabs]);
 
     const refreshTabsViewing = useCallback((paths: string | string[]) => {
         const pathList = (Array.isArray(paths) ? paths : [paths]).map(normalizePath);
@@ -189,6 +218,14 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             lastSelectedFile: null
         });
     }, [currentTab, updateTab]);
+
+    // Restore content for all opened tabs on startup
+    useEffect(() => {
+        tabs.forEach(tab => {
+            loadFilesForTab(tab.id, tab.path);
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return {
         tabs,

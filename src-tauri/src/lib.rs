@@ -31,6 +31,8 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[derive(Clone, Serialize)]
 struct ClipboardInfo {
     has_files: bool,
+    paths: Vec<String>,
+    is_cut: bool,
     file_count: usize,
     file_summary: Option<String>,
     has_image: bool,
@@ -726,7 +728,7 @@ fn get_next_available_path(target_dir: &str, original_name: &str) -> std::path::
         .map(|e| format!(".{}", e.to_string_lossy()))
         .unwrap_or_default();
 
-    let copy_name = format!("{} - copia{}", stem, extension);
+    let copy_name = format!("{} - Copia{}", stem, extension);
     let mut check_path = std::path::Path::new(target_dir).join(&copy_name);
     if !check_path.exists() {
         return check_path;
@@ -734,7 +736,7 @@ fn get_next_available_path(target_dir: &str, original_name: &str) -> std::path::
 
     let mut count = 2;
     loop {
-        let name = format!("{} - copia ({}){}", stem, count, extension);
+        let name = format!("{} - Copia ({}){}", stem, count, extension);
         check_path = std::path::Path::new(target_dir).join(&name);
         if !check_path.exists() {
             return check_path;
@@ -846,7 +848,7 @@ fn save_clipboard_image(target_path: String) -> Result<FileEntry, String> {
 }
 
 #[tauri::command]
-fn paste_items(target_path: String) -> Result<(), String> {
+fn paste_items(target_path: String) -> Result<Vec<String>, String> {
     let paths: Vec<String> = clipboard_win::get_clipboard(formats::FileList).unwrap_or_default();
 
     if paths.is_empty() {
@@ -869,22 +871,101 @@ fn paste_items(target_path: String) -> Result<(), String> {
     }
 
     let mut from_wide: Vec<u16> = Vec::new();
+    let mut to_wide: Vec<u16> = Vec::new();
+    let mut pasted_paths: Vec<String> = Vec::new();
+
+    for f in &paths {
+        from_wide.extend(OsStr::new(f).encode_wide());
+        from_wide.push(0);
+
+        let path_obj = std::path::Path::new(f);
+        let filename = path_obj
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_else(|| "unknown".into());
+
+        // Calculate unique destination path to avoid overwrite
+        // This handles the "- Copia" suffix logic
+        let dest_path_buf = get_next_available_path(&target_path, &filename);
+        let dest_path_str = dest_path_buf.to_string_lossy().to_string();
+        pasted_paths.push(dest_path_str.clone());
+
+        to_wide.extend(dest_path_buf.as_os_str().encode_wide());
+        to_wide.push(0);
+    }
+    from_wide.push(0); // Double null termination
+    to_wide.push(0); // Double null termination
+
+    unsafe {
+        let mut file_op = SHFILEOPSTRUCTW {
+            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+            wFunc: operation,
+            pFrom: PCWSTR(from_wide.as_ptr()),
+            pTo: PCWSTR(to_wide.as_ptr()),
+            fFlags: (FOF_ALLOWUNDO.0 as u16) | (FOF_MULTIDESTFILES.0 as u16),
+            fAnyOperationsAborted: windows::Win32::Foundation::BOOL(0),
+            hNameMappings: std::ptr::null_mut(),
+            lpszProgressTitle: PCWSTR(std::ptr::null()),
+        };
+
+        let result = SHFileOperationW(&mut file_op);
+        if result != 0 {
+            return Err(format!("Windows Copy/Move failed with code: {}", result));
+        }
+
+        // Always empty the clipboard after success so the UI dimming is removed immediately.
+        // Retry a few times in case check_clipboard holds the lock
+        let mut cleared = false;
+        for i in 0..10 {
+            use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
+
+            unsafe {
+                if OpenClipboard(None).is_ok() {
+                    if EmptyClipboard().is_ok() {
+                        cleared = true;
+                    } else {
+                        println!("Failed to EmptyClipboard on attempt {}", i);
+                    }
+                    let _ = CloseClipboard();
+                } else {
+                    println!("Failed to OpenClipboard on attempt {}", i);
+                }
+            }
+
+            if cleared {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        if !cleared {
+            println!("CRITICAL: Failed to clear clipboard after 10 attempts.");
+        }
+    }
+    Ok(pasted_paths)
+}
+
+#[tauri::command]
+fn move_items(paths: Vec<String>, target_path: String) -> Result<(), String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+
+    let mut from_wide: Vec<u16> = Vec::new();
     for f in &paths {
         from_wide.extend(OsStr::new(f).encode_wide());
         from_wide.push(0);
     }
     from_wide.push(0);
 
-    let to_wide: Vec<u16> = OsStr::new(&target_path)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .chain(std::iter::once(0))
-        .collect();
+    let mut to_wide: Vec<u16> = OsStr::new(&target_path).encode_wide().collect();
+    to_wide.push(0);
+    to_wide.push(0);
 
     unsafe {
         let mut file_op = SHFILEOPSTRUCTW {
             hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            wFunc: operation,
+            wFunc: FO_MOVE,
             pFrom: PCWSTR(from_wide.as_ptr()),
             pTo: PCWSTR(to_wide.as_ptr()),
             fFlags: (FOF_ALLOWUNDO.0 as u16),
@@ -894,8 +975,15 @@ fn paste_items(target_path: String) -> Result<(), String> {
         };
 
         let result = SHFileOperationW(&mut file_op);
+
+        CoUninitialize();
+
         if result != 0 {
-            return Err(format!("Windows Copy/Move failed with code: {}", result));
+            return Err(format!("Windows Move failed with code: {}", result));
+        }
+
+        if file_op.fAnyOperationsAborted.0 != 0 {
+            return Err("Move aborted by user".to_string());
         }
     }
     Ok(())
@@ -1151,6 +1239,8 @@ fn get_system_default_paths() -> Result<std::collections::HashMap<String, String
 fn get_clipboard_info(state: tauri::State<'_, ClipboardCache>) -> Result<ClipboardInfo, String> {
     let mut info = ClipboardInfo {
         has_files: false,
+        paths: Vec::new(),
+        is_cut: false,
         file_count: 0,
         file_summary: None,
         has_image: false,
@@ -1168,104 +1258,133 @@ fn get_clipboard_info(state: tauri::State<'_, ClipboardCache>) -> Result<Clipboa
         }
     }
 
-    if let Ok(_clip) = Clipboard::new() {
-        if let Ok(paths) = clipboard_win::get_clipboard::<Vec<String>, _>(formats::FileList) {
-            if !paths.is_empty() {
-                info.has_files = true;
-                info.file_count = paths.len();
+    // 1. Extract raw data (Paths, PreferredDropEffect, DIB) QUICKLY while holding the lock
+    let (paths, is_cut, dib_bytes) = {
+        let mut p = Vec::new();
+        let mut c = false;
+        let mut d = Vec::new();
 
-                // If it's a single image file, try to load it for preview
-                if paths.len() == 1 {
-                    let path_obj = std::path::Path::new(&paths[0]);
-                    let ext = path_obj
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
+        if let Ok(_clip) = Clipboard::new() {
+            if let Ok(fetched_paths) =
+                clipboard_win::get_clipboard::<Vec<String>, _>(formats::FileList)
+            {
+                p = fetched_paths;
+            }
 
-                    if ["png", "jpg", "jpeg", "bmp", "webp", "gif"].contains(&ext.as_str()) {
-                        // Use shell thumbnail (fast, uses Windows cache) instead of image::open
-                        if let Ok(data_uri) = generate_shell_thumbnail(&paths[0], 1200) {
-                            info.has_image = true;
-                            info.image_data = Some(data_uri);
+            if !p.is_empty() {
+                if let Some(format_id) = clipboard_win::register_format("Preferred DropEffect") {
+                    if clipboard_win::is_format_avail(format_id.get()) {
+                        let raw_format = formats::RawData(format_id.get());
+                        if let Ok(buffer) = clipboard_win::get_clipboard::<Vec<u8>, _>(raw_format) {
+                            if buffer.len() >= 4 {
+                                let val = u32::from_ne_bytes(buffer[0..4].try_into().unwrap());
+                                if val == 2 {
+                                    c = true;
+                                }
+                            }
                         }
                     }
                 }
+            }
 
-                // If no image data loaded yet (wasn't a single image or failed to load), treat as file summary
-                if info.image_data.is_none() {
-                    let mut extensions = std::collections::HashMap::new();
-                    for path in &paths {
-                        let path_obj = std::path::Path::new(&path);
-                        if path_obj.is_dir() {
-                            *extensions.entry("FOLDER".to_string()).or_insert(0) += 1;
-                        } else {
-                            let ext = path_obj
-                                .extension()
-                                .map(|e| e.to_string_lossy().to_uppercase())
-                                .unwrap_or_else(|| "FILE".to_string());
-                            *extensions.entry(ext).or_insert(0) += 1;
-                        }
-                    }
-                    let mut summary_parts = extensions
-                        .into_iter()
-                        .map(|(ext, count)| format!("{} {}", count, ext))
-                        .collect::<Vec<_>>();
-                    summary_parts.sort();
-                    info.file_summary = Some(summary_parts.join(", "));
+            if clipboard_win::is_format_avail(formats::CF_DIB.into()) {
+                if let Ok(bytes) = clipboard_win::get_clipboard::<Vec<u8>, _>(formats::RawData(
+                    formats::CF_DIB.into(),
+                )) {
+                    d = bytes;
+                }
+            }
+        }
+        (p, c, d)
+    };
+
+    // 2. Process data (Thumbnails, etc.) WITHOUT holding the clipboard lock
+    if !paths.is_empty() {
+        info.has_files = true;
+        info.paths = paths.clone();
+        info.file_count = paths.len();
+        info.is_cut = is_cut;
+
+        // If it's a single image file, try to load it for preview
+        if paths.len() == 1 {
+            let path_obj = std::path::Path::new(&paths[0]);
+            let ext = path_obj
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            if ["png", "jpg", "jpeg", "bmp", "webp", "gif"].contains(&ext.as_str()) {
+                // Use shell thumbnail (fast, uses Windows cache) instead of image::open
+                if let Ok(data_uri) = generate_shell_thumbnail(&paths[0], 1200) {
+                    info.has_image = true;
+                    info.image_data = Some(data_uri);
                 }
             }
         }
 
-        if clipboard_win::is_format_avail(formats::CF_DIB.into()) {
-            if let Ok(dib_bytes) =
-                clipboard_win::get_clipboard::<Vec<u8>, _>(formats::RawData(formats::CF_DIB.into()))
+        // If no image data loaded yet
+        if info.image_data.is_none() {
+            let mut extensions = std::collections::HashMap::new();
+            for path in &paths {
+                let path_obj = std::path::Path::new(&path);
+                if path_obj.is_dir() {
+                    *extensions.entry("FOLDER".to_string()).or_insert(0) += 1;
+                } else {
+                    let ext = path_obj
+                        .extension()
+                        .map(|e| e.to_string_lossy().to_uppercase())
+                        .unwrap_or_else(|| "FILE".to_string());
+                    *extensions.entry(ext).or_insert(0) += 1;
+                }
+            }
+            let mut summary_parts = extensions
+                .into_iter()
+                .map(|(ext, count)| format!("{} {}", count, ext))
+                .collect::<Vec<_>>();
+            summary_parts.sort();
+            info.file_summary = Some(summary_parts.join(", "));
+        }
+    } else if !dib_bytes.is_empty() {
+        // Process copied image data (e.g. from Snipping Tool)
+        if dib_bytes.len() >= 40 {
+            let bi_size = u32::from_le_bytes(dib_bytes[0..4].try_into().unwrap());
+            let bi_bit_count = u16::from_le_bytes(dib_bytes[14..16].try_into().unwrap());
+            let bi_compression = u32::from_le_bytes(dib_bytes[16..20].try_into().unwrap());
+
+            let mut offset = 14 + bi_size;
+
+            if bi_bit_count <= 8 {
+                let mut colors_used = u32::from_le_bytes(dib_bytes[32..36].try_into().unwrap());
+                if colors_used == 0 {
+                    colors_used = 1 << bi_bit_count;
+                }
+                offset += colors_used * 4;
+            } else if bi_compression == 3 {
+                offset += 12;
+            }
+
+            let mut bmp_data = Vec::with_capacity(14 + dib_bytes.len());
+            bmp_data.extend_from_slice(b"BM");
+            let file_size = (14 + dib_bytes.len()) as u32;
+            bmp_data.extend_from_slice(&file_size.to_le_bytes());
+            bmp_data.extend_from_slice(&[0, 0, 0, 0]);
+            bmp_data.extend_from_slice(&offset.to_le_bytes());
+            bmp_data.extend_from_slice(&dib_bytes);
+
+            if let Ok(img) = image::load_from_memory_with_format(&bmp_data, image::ImageFormat::Bmp)
             {
-                if dib_bytes.len() >= 40 {
-                    let bi_size = u32::from_le_bytes(dib_bytes[0..4].try_into().unwrap());
-                    let bi_bit_count = u16::from_le_bytes(dib_bytes[14..16].try_into().unwrap());
-                    let bi_compression = u32::from_le_bytes(dib_bytes[16..20].try_into().unwrap());
-
-                    let mut offset = 14 + bi_size;
-
-                    if bi_bit_count <= 8 {
-                        let mut colors_used =
-                            u32::from_le_bytes(dib_bytes[32..36].try_into().unwrap());
-                        if colors_used == 0 {
-                            colors_used = 1 << bi_bit_count;
-                        }
-                        offset += colors_used * 4;
-                    } else if bi_compression == 3 {
-                        offset += 12;
-                    }
-
-                    let mut bmp_data = Vec::with_capacity(14 + dib_bytes.len());
-                    bmp_data.extend_from_slice(b"BM");
-                    let file_size = (14 + dib_bytes.len()) as u32;
-                    bmp_data.extend_from_slice(&file_size.to_le_bytes());
-                    bmp_data.extend_from_slice(&[0, 0, 0, 0]);
-                    bmp_data.extend_from_slice(&offset.to_le_bytes());
-                    bmp_data.extend_from_slice(&dib_bytes);
-
-                    if let Ok(img) =
-                        image::load_from_memory_with_format(&bmp_data, image::ImageFormat::Bmp)
-                    {
-                        info.has_image = true;
-
-                        // Resize for preview (larger now for 70% screen usage)
-                        let resized = img.resize(1200, 1200, image::imageops::FilterType::Triangle);
-
-                        let mut cursor = std::io::Cursor::new(Vec::new());
-                        if resized
-                            .write_to(&mut cursor, image::ImageFormat::Jpeg)
-                            .is_ok()
-                        {
-                            let base64_data = base64::engine::general_purpose::STANDARD
-                                .encode(cursor.into_inner());
-                            info.image_data =
-                                Some(format!("data:image/jpeg;base64,{}", base64_data));
-                        }
-                    }
+                info.has_image = true;
+                // Resize for preview
+                let resized = img.resize(1200, 1200, image::imageops::FilterType::Triangle);
+                let mut cursor = std::io::Cursor::new(Vec::new());
+                if resized
+                    .write_to(&mut cursor, image::ImageFormat::Jpeg)
+                    .is_ok()
+                {
+                    let base64_data =
+                        base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
+                    info.image_data = Some(format!("data:image/jpeg;base64,{}", base64_data));
                 }
             }
         }
@@ -1330,7 +1449,11 @@ pub fn run() {
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             #[cfg(target_os = "windows")]
-            let _ = apply_mica(&window, None);
+            {
+                let _ = apply_mica(&window, None);
+
+                // Disable system menu via Style (First layer)
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1345,6 +1468,7 @@ pub fn run() {
             copy_items,
             cut_items,
             paste_items,
+            move_items,
             get_clipboard_info,
             delete_items,
             get_video_thumbnail,

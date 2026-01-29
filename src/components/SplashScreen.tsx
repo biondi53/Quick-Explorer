@@ -34,12 +34,10 @@ export default function SplashScreen({ finishLoading }: SplashScreenProps) {
 
             {/* Title with Gradient */}
             <h1 className="text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white via-zinc-200 to-zinc-500 mb-2">
-                SpeedExplorer
+                Quick Explorer
             </h1>
 
-            <p className="text-zinc-500 text-sm font-medium tracking-widest uppercase opacity-60 mb-12">
-                High Performance File Manager
-            </p>
+
 
             {/* Custom Loader */}
             <div className="w-48 h-1 bg-white/10 rounded-full overflow-hidden">

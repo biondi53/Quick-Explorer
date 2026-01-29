@@ -1,5 +1,6 @@
 import { useMemo, memo } from 'react';
 import { File, Folder, Info, Eye, PlayCircle, Loader2 } from 'lucide-react';
+import { handleWindowDrag } from '../utils/windowDrag';
 import { useFilePreview } from '../hooks/useFilePreview';
 
 interface FileEntry {
@@ -48,7 +49,8 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
             <aside
                 className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl items-center justify-center text-zinc-500 p-8 text-center"
                 style={{ width }}
-                data-tauri-drag-region
+                onMouseDown={handleWindowDrag}
+                onContextMenu={(e) => e.preventDefault()}
             >
                 <Info size={48} className="opacity-10 mb-4" />
                 <p className="text-sm font-bold tracking-tight">Select a file or folder to view its properties</p>
@@ -68,10 +70,11 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
             <aside
                 className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl h-full select-none"
                 style={{ width }}
-                data-tauri-drag-region
+                onMouseDown={handleWindowDrag}
+                onContextMenu={(e) => e.preventDefault()}
             >
                 <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-transparent to-[var(--accent-primary)]/5">
-                    <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-8 shadow-[0_0_50px_rgba(99,102,241,0.15)] relative group transition-transform hover:scale-105 duration-500">
+                    <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-8 shadow-[0_0_50px_rgba(99,102,241,0.15)] relative group transition-transform duration-500">
                         <div className="absolute -inset-4 bg-[var(--accent-primary)]/10 rounded-full blur-3xl opacity-40"></div>
                         <div className="relative">
                             <File size={64} className="text-[var(--accent-primary)] opacity-30 translate-x-3 -translate-y-3" />
@@ -95,7 +98,8 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
         <aside
             className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl h-full overflow-hidden select-none"
             style={{ width }}
-            data-tauri-drag-region
+            onMouseDown={handleWindowDrag}
+            onContextMenu={(e) => e.preventDefault()}
         >
             <div
                 className="flex-1 overflow-y-auto p-6 space-y-8 flex flex-col items-center"
@@ -149,10 +153,10 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                                 ) : previewUrl ? (
                                     <>
                                         <div className="absolute -inset-4 bg-[var(--accent-primary)]/20 rounded-full blur-3xl opacity-40"></div>
-                                        <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-2xl border border-white/10 group">
+                                        <div className="relative w-fit mx-auto rounded-xl overflow-hidden shadow-2xl border border-white/10 group">
                                             <img
                                                 src={previewUrl}
-                                                className="w-full h-full object-contain bg-black/20 transition-transform duration-700 group-hover:scale-105"
+                                                className="max-w-full max-h-[70vh] w-auto h-auto object-contain bg-black/20 transition-transform duration-700"
                                                 alt="Preview"
                                             />
                                             {fileType === 'video' && (
@@ -173,7 +177,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                             </div>
                         ) : (
                             <div className="flex flex-col items-center text-zinc-600">
-                                <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-6 relative group transform transition-transform hover:scale-105 duration-500">
+                                <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-6 relative group transform transition-transform duration-500">
                                     <div className="absolute inset-0 bg-white/5 rounded-[2.5rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                     <div className="relative">
                                         {selectedFile.is_dir ? (

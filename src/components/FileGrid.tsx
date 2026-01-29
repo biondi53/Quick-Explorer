@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 
-import { FileEntry } from '../types';
+import { FileEntry, ClipboardInfo } from '../types';
 
 interface FileGridProps {
     files: FileEntry[];
@@ -21,6 +21,7 @@ interface FileGridProps {
     renamingPath: string | null;
     onRenameSubmit: (file: FileEntry, newName: string) => void;
     onRenameCancel: () => void;
+    clipboardInfo: ClipboardInfo | null;
 }
 
 const ITEM_SIZE = 120;
@@ -107,9 +108,10 @@ interface GridItemProps {
     isRenaming: boolean;
     onRenameSubmit: (file: FileEntry, newName: string) => void;
     onRenameCancel: () => void;
+    isClipboardItem: boolean;
 }
 
-const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel }: GridItemProps) => {
+const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem }: GridItemProps) => {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [editValue, setEditValue] = useState("");
@@ -157,6 +159,7 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
             className={`
                 flex flex-col items-center justify-center p-2 rounded-xl cursor-pointer
                 transition-all duration-150 group
+                ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
                 ${isSelected
                     ? 'bg-[var(--accent-primary)]/20 ring-2 ring-[var(--accent-primary)]/50'
                     : 'hover:bg-white/5'
@@ -246,7 +249,8 @@ export default function FileGrid({
     onClearSelection,
     renamingPath,
     onRenameSubmit,
-    onRenameCancel
+    onRenameCancel,
+    clipboardInfo
 }: FileGridProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
@@ -293,6 +297,17 @@ export default function FileGrid({
     const selectedPaths = useMemo(() => {
         return new Set(selectedFiles.map(f => f.path));
     }, [selectedFiles]);
+
+    // Auto-scroll to last selected file
+    useEffect(() => {
+        if (lastSelectedFile) {
+            const index = files.findIndex(f => f.path === lastSelectedFile.path);
+            if (index !== -1) {
+                const rowIndex = Math.floor(index / columns);
+                rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
+            }
+        }
+    }, [lastSelectedFile, files, columns, rowVirtualizer]);
 
     const handleSelect = useCallback((file: FileEntry, event: React.MouseEvent) => {
         event.stopPropagation();
@@ -378,6 +393,7 @@ export default function FileGrid({
                                     isRenaming={renamingPath === file.path}
                                     onRenameSubmit={onRenameSubmit}
                                     onRenameCancel={onRenameCancel}
+                                    isClipboardItem={clipboardInfo?.paths.includes(file.path) || false}
                                 />
                             ))}
                         </div>

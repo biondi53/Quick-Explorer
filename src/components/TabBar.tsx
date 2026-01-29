@@ -1,4 +1,5 @@
 import { X, Plus } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import WindowControls from './WindowControls';
 
 interface Tab {
@@ -24,28 +25,42 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
 
     return (
         <div
-            className="h-10 bg-[var(--bg-deep)] border-b border-white/10 flex items-center px-2 gap-1 backdrop-blur-3xl shadow-xl z-20"
-            data-tauri-drag-region
+            className="relative h-10 bg-[var(--bg-deep)] border-b border-white/10 flex items-stretch px-2 gap-1 backdrop-blur-3xl shadow-xl z-20"
+            onMouseDown={(e) => {
+                if (e.defaultPrevented) return;
+
+                const target = e.target as HTMLElement;
+                if (target.closest('.no-drag, button')) return;
+
+                if (e.detail === 2) {
+                    getCurrentWindow().toggleMaximize();
+                } else {
+                    getCurrentWindow().startDragging();
+                }
+            }}
+            onContextMenu={(e) => e.preventDefault()}
         >
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+            {/* Tabs Container */}
+            <div className="relative z-10 flex items-center gap-1 overflow-x-auto no-scrollbar">
                 {tabs.map((tab) => (
                     <div
                         key={tab.id}
                         onClick={() => onTabClick(tab.id)}
-                        onMouseDown={(e) => {
+                        onAuxClick={(e) => {
                             // Middle click to close
                             if (e.button === 1) {
+                                e.stopPropagation();
                                 e.preventDefault();
                                 onTabClose(tab.id);
                             }
                         }}
-                        className={`group relative flex items-center gap-2 h-8 px-4 rounded-t-xl cursor-pointer transition-all max-w-[200px] min-w-[120px] no-drag
+                        className={`group relative flex items-center gap-2 h-full px-4 rounded-t-xl cursor-pointer transition-all max-w-[200px] min-w-[120px] no-drag
                             ${tab.id === activeTabId
                                 ? 'bg-[var(--bg-surface)] text-white shadow-[0_-4px_20px_rgba(0,0,0,0.4)]'
                                 : 'bg-black/20 text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300'}`}
                     >
                         {tab.id === activeTabId && (
-                            <div className="absolute top-0 left-2 right-2 h-0.5 bg-[var(--accent-primary)] rounded-full shadow-[0_0_10px_var(--accent-primary)]" />
+                            <div className="absolute top-0 left-0 right-0 h-0.5 bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-primary)] z-10" />
                         )}
                         <span className={`text-[11px] uppercase tracking-wider truncate flex-1 ${tab.id === activeTabId ? 'font-black' : 'font-bold'}`}>
                             {getTabName(tab.path)}
@@ -64,17 +79,24 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                 ))}
             </div>
 
-            <button
-                onClick={onNewTab}
-                className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors ml-1 no-drag"
-                title="New Tab (Ctrl+T)"
-            >
-                <Plus size={16} />
-            </button>
+            {/* New Tab Button */}
+            <div className="relative z-10 flex items-center px-1">
+                <button
+                    onClick={onNewTab}
+                    className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                    title="New Tab (Ctrl+T)"
+                >
+                    <Plus size={16} />
+                </button>
+            </div>
 
-            <div className="flex-1 h-full" data-tauri-drag-region />
+            {/* Spacer (clicks fall through to drag layer) */}
+            <div className="flex-1 h-full" />
 
-            <WindowControls />
+            {/* Window Controls */}
+            <div className="relative z-10 flex items-center h-full">
+                <WindowControls />
+            </div>
         </div>
     );
 }

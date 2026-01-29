@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, memo } from 'react';
 import { ChevronUp, ChevronDown, Check } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 
-import { FileEntry } from '../types';
+import { FileEntry, ClipboardInfo } from '../types';
 
 type SortColumn = 'name' | 'modified_at' | 'created_at' | 'file_type' | 'size';
 type SortDirection = 'asc' | 'desc';
@@ -31,18 +31,19 @@ interface FileTableProps {
     onToggleColumn: (column: SortColumn) => void;
     columnWidths: Partial<Record<SortColumn, number>>;
     onColumnsResize: (updates: Partial<Record<SortColumn, number>>) => void;
+    clipboardInfo: ClipboardInfo | null;
 }
 
 const ITEM_HEIGHT = 42;
 const HEADER_HEIGHT = 44;
 const BUFFER_ITEMS = 40;
 
-const COLUMN_CONFIG: Record<SortColumn, { label: string, width: string, align?: 'left' | 'right' }> = {
+const COLUMN_CONFIG: Record<SortColumn, { label: string, width: string, minWidth?: string, align?: 'left' | 'right' }> = {
     name: { label: 'Name', width: '1fr' },
-    modified_at: { label: 'Date modified', width: '160px' },
-    created_at: { label: 'Date created', width: '160px' },
-    file_type: { label: 'Type', width: '130px' },
-    size: { label: 'Size', width: '100px', align: 'right' }
+    modified_at: { label: 'Date modified', width: '110px' },
+    created_at: { label: 'Date created', width: '110px' },
+    file_type: { label: 'Type', width: '80px' },
+    size: { label: 'Size', width: '60px', align: 'right' }
 };
 
 interface ColumnMenuProps {
@@ -105,7 +106,8 @@ const FileTable = memo(({
     visibleColumns,
     onToggleColumn,
     columnWidths,
-    onColumnsResize
+    onColumnsResize,
+    clipboardInfo
 }: FileTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [renderWindow, setRenderWindow] = useState({ start: 0, end: BUFFER_ITEMS * 2, translateY: 0 });
@@ -119,16 +121,14 @@ const FileTable = memo(({
     const gridTemplate = useMemo(() => {
         // Find if we have at least one flexible column currently visible.
         // If not, we make the first visible column '1fr' to take up space.
-        const hasFlex = visibleColumns.some(col => !columnWidths[col] && COLUMN_CONFIG[col].width === '1fr');
-
-        return visibleColumns.map((col, idx) => {
+        return visibleColumns.map((col) => {
+            const config = COLUMN_CONFIG[col];
+            if (col === 'name') {
+                return 'minmax(0, 1fr)';
+            }
             const customWidth = columnWidths[col];
             if (customWidth) return `${customWidth}px`;
-
-            // If No column is 1fr and this is the first one, force it to 1fr
-            if (!hasFlex && idx === 0) return '1fr';
-
-            return COLUMN_CONFIG[col].width;
+            return config.width;
         }).join(' ');
     }, [visibleColumns, columnWidths]);
 
@@ -360,7 +360,7 @@ const FileTable = memo(({
                     onClearSelection();
                 }
             }}
-            className="flex-1 overflow-y-auto bg-transparent select-none relative outline-none focus:ring-0"
+            className="flex-1 overflow-y-auto overflow-x-hidden bg-transparent select-none relative outline-none focus:ring-0"
             tabIndex={0}
             onKeyDown={(e) => {
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -397,7 +397,7 @@ const FileTable = memo(({
         >
             {/* Table Header */}
             <div
-                className="sticky top-0 bg-[var(--bg-deep)]/80 backdrop-blur-2xl z-20 border-b border-white/10 px-4 h-11 shrink-0 grid items-center"
+                className="sticky top-0 bg-[var(--bg-deep)]/80 backdrop-blur-2xl z-20 border-b border-white/10 px-2 h-11 shrink-0 grid items-center gap-2"
                 style={{ gridTemplateColumns: gridTemplate }}
                 onContextMenu={handleHeaderContextMenu}
             >
@@ -407,7 +407,7 @@ const FileTable = memo(({
                         className="relative h-full flex items-center group/header"
                     >
                         <div
-                            className={`flex-1 text-[11px] font-bold text-zinc-400 hover:text-zinc-200 cursor-pointer flex items-center gap-1.5 truncate h-full ${COLUMN_CONFIG[col].align === 'right' ? 'justify-end pr-4 pl-2' : 'pl-2'}`}
+                            className={`flex-1 text-[11px] font-bold text-zinc-400 hover:text-zinc-200 cursor-pointer flex items-center gap-1.5 truncate h-full ${COLUMN_CONFIG[col].align === 'right' ? 'justify-end' : ''}`}
                             onClick={() => onSort(col)}
                         >
                             {COLUMN_CONFIG[col].label}
@@ -432,6 +432,7 @@ const FileTable = memo(({
                 <div style={{ transform: `translateY(${renderWindow.translateY}px)` }} className="flex flex-col">
                     {visibleFiles.map((file) => {
                         const isSelected = selectedFiles.some(f => f.path === file.path);
+                        const isClipboardItem = clipboardInfo?.paths.includes(file.path);
                         return (
                             <div
                                 key={file.path}
@@ -459,12 +460,13 @@ const FileTable = memo(({
                                 onDoubleClick={() => onOpen(file)}
                                 onAuxClick={(e) => { if (e.button === 1 && file.is_dir) { e.preventDefault(); onOpenInNewTab(file); } }}
                                 onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, file); }}
-                                className={`grid items-center h-[42px] px-4 file-row group cursor-default border-b border-white/[0.02] 
+                                className={`grid items-center h-[42px] px-2 file-row group cursor-default border-b border-white/[0.02] transition-opacity duration-300 gap-2
+                                    ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
                                     ${isSelected ? 'bg-[var(--accent-primary)]/15 border-l-2 border-l-[var(--accent-primary)]' : 'hover:bg-white/[0.04]'}`}
                                 style={{ gridTemplateColumns: gridTemplate }}
                             >
                                 {visibleColumns.map(col => (
-                                    <div key={col} className={`min-w-0 pr-4 truncate ${COLUMN_CONFIG[col].align === 'right' ? 'text-right font-mono font-bold' : ''}`}>
+                                    <div key={col} className={`min-w-0 truncate ${COLUMN_CONFIG[col].align === 'right' ? 'text-right font-mono font-bold' : ''}`}>
                                         {col === 'name' ? (
                                             <div className="flex items-center gap-3">
                                                 <div className="flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center">
@@ -495,16 +497,18 @@ const FileTable = memo(({
                 </div>
             </div>
 
-            {headerMenu && (
-                <ColumnMenu
-                    x={headerMenu.x}
-                    y={headerMenu.y}
-                    visibleColumns={visibleColumns}
-                    onToggle={onToggleColumn}
-                    onClose={() => setHeaderMenu(null)}
-                />
-            )}
-        </div>
+            {
+                headerMenu && (
+                    <ColumnMenu
+                        x={headerMenu.x}
+                        y={headerMenu.y}
+                        visibleColumns={visibleColumns}
+                        onToggle={onToggleColumn}
+                        onClose={() => setHeaderMenu(null)}
+                    />
+                )
+            }
+        </div >
     );
 });
 
