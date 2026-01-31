@@ -5,7 +5,10 @@ Este workflow debe usarse cuando el usuario pida un "release manual" o pida subi
 
 1. **Incrementar Versión**: Actualizar `version` en `package.json` y `src-tauri/tauri.conf.json`.
 2. **Generar Archivos**: Crear o actualizar `CHANGELOG.md` con los cambios del día.
-3. **Compilar Localmente**:
+3. **Compilar Localmente (Opcional)**:
+   > [!IMPORTANT]
+   > Si el usuario ya generó los instaladores para la versión actual, **saltar este paso**. Solo ejecutar si se requiere una compilación limpia con la nueva versión.
+   
    ```powershell
    npm run build; npx tauri build
    ```

@@ -24,7 +24,7 @@ interface FileGridProps {
     clipboardInfo: ClipboardInfo | null;
 }
 
-const ITEM_SIZE = 120;
+const ITEM_SIZE = 160;
 const GAP = 8;
 const MAX_CONCURRENT = 6;
 const THUMBNAIL_TIMEOUT = 10000;
@@ -42,10 +42,16 @@ const shouldLoadThumbnail = (file: FileEntry) => {
 let currentSessionId = 0;
 let activeRequests = 0;
 
+interface ThumbnailResult {
+    data: string;
+    source: string;
+}
+
 interface ThumbnailRequest {
     path: string;
+    is_video: boolean;
     sessionId: number;
-    callback: (data: string | null) => void;
+    callback: (result: ThumbnailResult | null) => void;
 }
 
 const pendingQueue: ThumbnailRequest[] = [];
@@ -63,15 +69,16 @@ const processNext = () => {
 
     activeRequests++;
 
-    const thumbnailPromise = invoke<string>('get_thumbnail', { path: request.path, size: 128 });
+    const command = request.is_video ? 'get_video_thumbnail' : 'get_thumbnail';
+    const thumbnailPromise = invoke<ThumbnailResult>(command, { path: request.path, size: 256 });
     const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Timeout')), THUMBNAIL_TIMEOUT)
     );
 
     Promise.race([thumbnailPromise, timeoutPromise])
-        .then(data => {
+        .then(res => {
             if (request.sessionId === currentSessionId) {
-                request.callback(data);
+                request.callback(res);
             }
         })
         .catch(() => {
@@ -85,8 +92,8 @@ const processNext = () => {
         });
 };
 
-const requestThumbnail = (path: string, callback: (data: string | null) => void) => {
-    pendingQueue.push({ path, sessionId: currentSessionId, callback });
+const requestThumbnail = (path: string, is_video: boolean, callback: (result: ThumbnailResult | null) => void) => {
+    pendingQueue.push({ path, is_video, sessionId: currentSessionId, callback });
     processNext();
 };
 
@@ -146,8 +153,13 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
         requestedRef.current = true;
         setLoading(true);
 
-        requestThumbnail(file.path, (data) => {
-            setThumbnail(data);
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const isVideo = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'].includes(ext);
+
+        requestThumbnail(file.path, isVideo, (result) => {
+            if (result) {
+                setThumbnail(result.data);
+            }
             setLoading(false);
         });
     }, [file.path, thumbnail]);
@@ -157,7 +169,7 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
     return (
         <div
             className={`
-                flex flex-col items-center justify-center p-2 rounded-xl cursor-pointer
+                flex flex-col items-center justify-center p-2 rounded-xl cursor-default
                 transition-all duration-150 group
                 ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
                 ${isSelected
@@ -179,18 +191,30 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
             onContextMenu={(e) => onContextMenu(e, file)}
             style={{ width: ITEM_SIZE, height: ITEM_SIZE }}
         >
-            <div className="w-16 h-16 flex items-center justify-center mb-2 relative">
+            <div className="w-28 h-28 flex items-center justify-center mb-2 relative">
                 {thumbnail ? (
-                    <img
-                        src={thumbnail}
-                        alt={file.name}
-                        className="w-full h-full object-cover rounded-lg shadow-md"
-                    />
+                    <>
+                        <img
+                            src={thumbnail}
+                            alt={file.name}
+                            className="w-full h-full object-cover rounded-lg shadow-md"
+                        />
+                        {/* Thumbnail source indicator commented out for now
+                        {thumbnailSource && (
+                            <div className={`absolute top-0.5 right-0.5 px-1 py-0.5 rounded-[4px] text-[6px] font-bold uppercase tracking-tighter backdrop-blur-md border z-10
+                                ${thumbnailSource === 'native'
+                                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                    : 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+                                }`}>
+                                {thumbnailSource === 'native' ? 'Windows' : 'FFmpeg'}
+                            </div>
+                        )} */}
+                    </>
                 ) : loading ? (
                     <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />
                 ) : (
                     <Icon
-                        size={48}
+                        size={80}
                         className={`
                             ${file.is_dir ? 'text-amber-400' : 'text-zinc-400'}
                             group-hover:scale-110 transition-transform
@@ -354,9 +378,81 @@ export default function FileGrid({
     return (
         <div
             ref={containerRef}
-            className="flex-1 overflow-auto p-4"
+            className="flex-1 overflow-auto p-4 outline-none focus:ring-0"
+            tabIndex={0}
             onClick={handleContainerClick}
             onContextMenu={handleContainerContextMenu}
+            onKeyDown={(e) => {
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    e.preventDefault();
+                    if (files.length === 0) return;
+
+                    const anchorIndex = lastSelectedFile ? files.findIndex(f => f.path === lastSelectedFile.path) : -1;
+                    if (anchorIndex === -1) {
+                        const firstFile = files[0];
+                        onSelectMultiple([firstFile], firstFile);
+                        return;
+                    }
+
+                    // Infer current focus from selection
+                    let currentFocusIndex = anchorIndex;
+                    if (selectedFiles.length > 1) {
+                        let minIdx = files.length;
+                        let maxIdx = -1;
+                        selectedFiles.forEach(f => {
+                            const idx = files.findIndex(file => file.path === f.path);
+                            if (idx !== -1) {
+                                minIdx = Math.min(minIdx, idx);
+                                maxIdx = Math.max(maxIdx, idx);
+                            }
+                        });
+                        // Focus is the end furthest from anchor
+                        currentFocusIndex = (anchorIndex === minIdx) ? maxIdx : minIdx;
+                    }
+
+                    let nextIndex = currentFocusIndex;
+                    if (e.key === 'ArrowDown') nextIndex = Math.min(currentFocusIndex + columns, files.length - 1);
+                    else if (e.key === 'ArrowUp') nextIndex = Math.max(currentFocusIndex - columns, 0);
+                    else if (e.key === 'ArrowRight') nextIndex = Math.min(currentFocusIndex + 1, files.length - 1);
+                    else if (e.key === 'ArrowLeft') nextIndex = Math.max(currentFocusIndex - 1, 0);
+
+                    const nextFile = files[nextIndex];
+
+                    if (e.shiftKey) {
+                        const start = Math.min(anchorIndex, nextIndex);
+                        const end = Math.max(anchorIndex, nextIndex);
+                        const newSelection = files.slice(start, end + 1);
+                        onSelectMultiple(newSelection, lastSelectedFile);
+                    } else {
+                        onSelectMultiple([nextFile], nextFile);
+                    }
+                }
+
+                // Shift+Home/End: Select range to start/end
+                if ((e.key === 'Home' || e.key === 'End') && e.shiftKey) {
+                    e.preventDefault();
+                    if (files.length === 0) return;
+
+                    const anchorIndex = lastSelectedFile
+                        ? files.findIndex(f => f.path === lastSelectedFile.path)
+                        : 0;
+                    const targetIndex = e.key === 'Home' ? 0 : files.length - 1;
+                    const start = Math.min(anchorIndex, targetIndex);
+                    const end = Math.max(anchorIndex, targetIndex);
+
+                    onSelectMultiple(files.slice(start, end + 1), lastSelectedFile);
+
+                    // Scroll to edge
+                    const container = containerRef.current;
+                    if (container) {
+                        if (e.key === 'Home') {
+                            container.scrollTop = 0;
+                        } else {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    }
+                }
+            }}
         >
             <div
                 style={{

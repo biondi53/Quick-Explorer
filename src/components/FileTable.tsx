@@ -366,29 +366,80 @@ const FileTable = memo(({
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                     e.preventDefault();
                     if (files.length === 0) return;
+
                     const now = performance.now();
-                    if (now - (containerRef.current as any)?._lastNavTime < 16) return;
-                    (containerRef.current as any)._lastNavTime = now;
+                    const container = containerRef.current;
+                    if (now - (container as any)?._lastNavTime < 16) return;
+                    (container as any)._lastNavTime = now;
+
+                    const anchorIndex = lastSelectedFile ? files.findIndex(f => f.path === lastSelectedFile.path) : -1;
+
+                    if (anchorIndex === -1) {
+                        const firstFile = files[0];
+                        onSelectMultiple([firstFile], firstFile);
+                        return;
+                    }
+
+                    let currentFocusIndex = anchorIndex;
+                    if (selectedFiles.length > 1) {
+                        let minIdx = files.length;
+                        let maxIdx = -1;
+                        selectedFiles.forEach(f => {
+                            const idx = files.findIndex(file => file.path === f.path);
+                            if (idx !== -1) {
+                                minIdx = Math.min(minIdx, idx);
+                                maxIdx = Math.max(maxIdx, idx);
+                            }
+                        });
+                        currentFocusIndex = (anchorIndex === minIdx) ? maxIdx : minIdx;
+                    }
 
                     let nextIndex = 0;
-                    if (selectedFiles.length > 0 && lastSelectedFile) {
-                        const currentIndex = files.findIndex(f => f.path === lastSelectedFile.path);
-                        if (currentIndex !== -1) {
-                            if (e.key === 'ArrowDown') nextIndex = Math.min(currentIndex + 1, files.length - 1);
-                            else nextIndex = Math.max(currentIndex - 1, 0);
-                        }
-                    }
-                    const nextFile = files[nextIndex];
-                    if (lastSelectedFile && nextFile.path === lastSelectedFile.path && selectedFiles.length === 1) return;
+                    if (e.key === 'ArrowDown') nextIndex = Math.min(currentFocusIndex + 1, files.length - 1);
+                    else nextIndex = Math.max(currentFocusIndex - 1, 0);
 
-                    if (containerRef.current) {
-                        const container = containerRef.current;
+                    const nextFile = files[nextIndex];
+
+                    if (container) {
                         const rowTop = HEADER_HEIGHT + (nextIndex * ITEM_HEIGHT);
                         const rowBottom = rowTop + ITEM_HEIGHT;
                         if (rowTop < container.scrollTop + HEADER_HEIGHT) container.scrollTop = rowTop - HEADER_HEIGHT;
                         else if (rowBottom > container.scrollTop + container.clientHeight) container.scrollTop = rowBottom - container.clientHeight;
                     }
-                    onSelectMultiple([nextFile], nextFile);
+
+                    if (e.shiftKey) {
+                        const start = Math.min(anchorIndex, nextIndex);
+                        const end = Math.max(anchorIndex, nextIndex);
+                        const newSelection = files.slice(start, end + 1);
+                        onSelectMultiple(newSelection, lastSelectedFile);
+                    } else {
+                        onSelectMultiple([nextFile], nextFile);
+                    }
+                }
+
+                // Shift+Home/End: Select range to start/end
+                if ((e.key === 'Home' || e.key === 'End') && e.shiftKey) {
+                    e.preventDefault();
+                    if (files.length === 0) return;
+
+                    const anchorIndex = lastSelectedFile
+                        ? files.findIndex(f => f.path === lastSelectedFile.path)
+                        : 0;
+                    const targetIndex = e.key === 'Home' ? 0 : files.length - 1;
+                    const start = Math.min(anchorIndex, targetIndex);
+                    const end = Math.max(anchorIndex, targetIndex);
+
+                    onSelectMultiple(files.slice(start, end + 1), lastSelectedFile);
+
+                    // Scroll to edge
+                    const container = containerRef.current;
+                    if (container) {
+                        if (e.key === 'Home') {
+                            container.scrollTop = 0;
+                        } else {
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    }
                 }
             }}
             onContextMenu={(e) => {

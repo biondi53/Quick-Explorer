@@ -163,10 +163,12 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         if (currentTab) loadFilesForTab(currentTab.id, currentTab.path);
     }, [currentTab, loadFilesForTab]);
 
-    const addTab = useCallback((path: string = 'C:\\') => {
+    const addTab = useCallback((path: string = 'C:\\', shouldFocus: boolean = true) => {
         const newTab = createTab(path, initialSortConfig);
         setTabs(prev => [...prev, newTab]);
-        setActiveTabId(newTab.id);
+        if (shouldFocus) {
+            setActiveTabId(newTab.id);
+        }
         loadFilesForTab(newTab.id, path);
     }, [loadFilesForTab, initialSortConfig]);
 
@@ -202,6 +204,10 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         updateTab(currentTab.id, { sortConfig: newSortConfig });
         return newSortConfig;
     }, [currentTab, updateTab]);
+
+    const reorderTabs = useCallback((newTabs: Tab[]) => {
+        setTabs(newTabs);
+    }, []);
 
     const handleSelectAll = useCallback((sortedFiles: FileEntry[]) => {
         if (!currentTab || sortedFiles.length === 0) return;
@@ -244,6 +250,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         refreshTabsViewing,
         handleSort,
         handleSelectAll,
-        handleClearSelection
+        handleClearSelection,
+        reorderTabs
     };
 };

@@ -19,9 +19,9 @@ use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM
 use windows::Win32::UI::Shell::{
     BHID_EnumItems, FOLDERID_RecycleBinFolder, IEnumShellItems, IShellItem, IShellItemImageFactory,
     SHCreateItemFromParsingName, SHEmptyRecycleBinW, SHFileOperationW, SHGetKnownFolderItem,
-    SHQueryRecycleBinW, FOF_ALLOWUNDO, FOF_MULTIDESTFILES, FO_COPY, FO_DELETE, FO_MOVE, FO_RENAME,
-    KF_FLAG_DEFAULT, SHERB_NOCONFIRMATION, SHERB_NOSOUND, SHFILEOPSTRUCTW, SHQUERYRBINFO,
-    SIGDN_FILESYSPATH, SIGDN_NORMALDISPLAY, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
+    SHQueryRecycleBinW, FOF_ALLOWUNDO, FOF_MULTIDESTFILES, FOF_NOCONFIRMATION, FO_COPY, FO_DELETE,
+    FO_MOVE, FO_RENAME, KF_FLAG_DEFAULT, SHERB_NOCONFIRMATION, SHERB_NOSOUND, SHFILEOPSTRUCTW,
+    SHQUERYRBINFO, SIGDN_FILESYSPATH, SIGDN_NORMALDISPLAY, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
 };
 
 #[cfg(windows)]
@@ -989,7 +989,7 @@ fn move_items(paths: Vec<String>, target_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn delete_items(paths: Vec<String>) -> Result<(), String> {
+fn delete_items(paths: Vec<String>, silent: bool) -> Result<(), String> {
     let mut from_wide: Vec<u16> = Vec::new();
     for f in &paths {
         from_wide.extend(OsStr::new(f).encode_wide());
@@ -998,12 +998,17 @@ fn delete_items(paths: Vec<String>) -> Result<(), String> {
     from_wide.push(0);
 
     unsafe {
+        let mut flags = FOF_ALLOWUNDO.0 as u16;
+        if silent {
+            flags |= FOF_NOCONFIRMATION.0 as u16;
+        }
+
         let mut file_op = SHFILEOPSTRUCTW {
             hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
             wFunc: FO_DELETE,
             pFrom: PCWSTR(from_wide.as_ptr()),
             pTo: PCWSTR(std::ptr::null()),
-            fFlags: (FOF_ALLOWUNDO.0 as u16),
+            fFlags: flags,
             fAnyOperationsAborted: windows::Win32::Foundation::BOOL(0),
             hNameMappings: std::ptr::null_mut(),
             lpszProgressTitle: PCWSTR(std::ptr::null()),
@@ -1017,20 +1022,48 @@ fn delete_items(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, String>>);
+#[derive(serde::Serialize, Clone)]
+struct ThumbnailResult {
+    data: String,
+    source: String, // "native" or "ffmpeg"
+}
+
+struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, ThumbnailResult>>);
 
 #[tauri::command]
 async fn get_video_thumbnail(
     path: String,
+    size: u32,
     state: tauri::State<'_, ThumbnailCache>,
-) -> Result<String, String> {
+) -> Result<ThumbnailResult, String> {
+    let cache_key = format!("video:{}:{}", path, size);
     {
         let mut cache = state.0.lock().unwrap();
-        if let Some(data) = cache.get(&path) {
-            return Ok(data.clone());
+        if let Some(res) = cache.get(&cache_key) {
+            return Ok(res.clone());
         }
     }
 
+    // 1. Try Native Shell first
+    let path_clone = path.clone();
+    let native_res =
+        tokio::task::spawn_blocking(move || generate_shell_thumbnail(&path_clone, size))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?;
+
+    if let Ok(data_uri) = native_res {
+        // IMPORTANT: Shell API for videos sometimes returns a generic icon if thumbnail is not ready
+        // But for SpeedExplorer, we'll trust it for now as it's the fastest way.
+        let result = ThumbnailResult {
+            data: data_uri,
+            source: "native".to_string(),
+        };
+        let mut cache = state.0.lock().unwrap();
+        cache.put(cache_key, result.clone());
+        return Ok(result);
+    }
+
+    // 2. Fallback to FFmpeg
     let mut cmd = tokio::process::Command::new("ffmpeg");
 
     #[cfg(windows)]
@@ -1061,12 +1094,17 @@ async fn get_video_thumbnail(
     let base64_img = base64::engine::general_purpose::STANDARD.encode(&output.stdout);
     let data_uri = format!("data:image/jpeg;base64,{}", base64_img);
 
+    let result = ThumbnailResult {
+        data: data_uri,
+        source: "ffmpeg".to_string(),
+    };
+
     {
         let mut cache = state.0.lock().unwrap();
-        cache.put(path, data_uri.clone());
+        cache.put(cache_key, result.clone());
     }
 
-    Ok(data_uri)
+    Ok(result)
 }
 
 fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
@@ -1177,13 +1215,13 @@ async fn get_thumbnail(
     path: String,
     size: u32,
     state: tauri::State<'_, ThumbnailCache>,
-) -> Result<String, String> {
-    let cache_key = format!("{}:{}", path, size);
+) -> Result<ThumbnailResult, String> {
+    let cache_key = format!("image:{}:{}", path, size);
 
     {
         let mut cache = state.0.lock().unwrap();
-        if let Some(data) = cache.get(&cache_key) {
-            return Ok(data.clone());
+        if let Some(res) = cache.get(&cache_key) {
+            return Ok(res.clone());
         }
     }
 
@@ -1192,12 +1230,17 @@ async fn get_thumbnail(
         .await
         .map_err(|e| format!("Task join error: {}", e))??;
 
+    let result = ThumbnailResult {
+        data: data_uri,
+        source: "native".to_string(),
+    };
+
     {
         let mut cache = state.0.lock().unwrap();
-        cache.put(cache_key, data_uri.clone());
+        cache.put(cache_key, result.clone());
     }
 
-    Ok(data_uri)
+    Ok(result)
 }
 
 #[tauri::command]

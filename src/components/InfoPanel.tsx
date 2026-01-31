@@ -30,16 +30,16 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
     // Memoize file type determination
     const fileType = useMemo((): 'video' | 'image' | 'none' => {
         if (firstSelected && !firstSelected.is_dir) {
-            if (/\.(mp4|mkv|webm|avi|mov)$/i.test(firstSelected.name)) {
+            if (/\.(mp4|mkv|webm|avi|mov|wmv|flv|mpg|mpeg)$/i.test(firstSelected.name)) {
                 return 'video';
-            } else if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|avif)$/i.test(firstSelected.name)) {
+            } else if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|ico)$/i.test(firstSelected.name)) {
                 return 'image';
             }
         }
         return 'none';
     }, [firstSelected]);
 
-    const { previewUrl, isLoading } = useFilePreview(
+    const { previewUrl, isLoading, source } = useFilePreview(
         firstSelected?.path || null,
         fileType
     );
@@ -153,12 +153,22 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                                 ) : previewUrl ? (
                                     <>
                                         <div className="absolute -inset-4 bg-[var(--accent-primary)]/20 rounded-full blur-3xl opacity-40"></div>
-                                        <div className="relative w-fit mx-auto rounded-xl overflow-hidden shadow-2xl border border-white/10 group">
+                                        <div className="relative w-full mx-auto rounded-xl overflow-hidden shadow-2xl border border-white/10 group">
                                             <img
                                                 src={previewUrl}
-                                                className="max-w-full max-h-[70vh] w-auto h-auto object-contain bg-black/20 transition-transform duration-700"
+                                                className="w-full max-h-[45vh] h-auto object-contain bg-black/20 transition-transform duration-700"
                                                 alt="Preview"
                                             />
+                                            {source && (
+                                                <div
+                                                    title={source === 'native' ? 'Loaded via Windows Shell' : 'Generated via FFmpeg'}
+                                                    className={`absolute top-3 right-3 w-2.5 h-2.5 rounded-full backdrop-blur-md border animate-in fade-in zoom-in duration-300 z-10
+                                                    ${source === 'native'
+                                                            ? 'bg-blue-500/40 border-blue-500/50 shadow-[0_0_8px_rgba(59,130,246,0.3)]'
+                                                            : 'bg-orange-500/40 border-orange-500/50 shadow-[0_0_8px_rgba(249,115,22,0.3)]'
+                                                        }`}
+                                                />
+                                            )}
                                             {fileType === 'video' && (
                                                 <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                                                     <PlayCircle size={48} className="text-white drop-shadow-lg opacity-80" />

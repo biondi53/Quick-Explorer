@@ -25,7 +25,8 @@ interface SettingsPanelProps {
     sortConfig: SortConfig;
     showHiddenFiles: boolean;
     autoSearchOnKey: boolean;
-    onSave: (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, showHiddenFiles?: boolean, autoSearchOnKey?: boolean) => void;
+    focusNewTabOnMiddleClick: boolean;
+    onSave: (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, showHiddenFiles?: boolean, autoSearchOnKey?: boolean, focusNewTabOnMiddleClick?: boolean) => void;
     onReset: () => void;
     onCancel: () => void;
 }
@@ -45,7 +46,7 @@ const SORT_DIRECTIONS: { value: SortDirection; label: string }[] = [
 
 const SYSTEM_FOLDER_IDS = ['desktop', 'downloads', 'documents', 'pictures', 'recycle-bin', 'home'];
 
-export default function SettingsPanel({ config, sortConfig, showHiddenFiles, autoSearchOnKey, onSave, onReset, onCancel }: SettingsPanelProps) {
+export default function SettingsPanel({ config, sortConfig, showHiddenFiles, autoSearchOnKey, focusNewTabOnMiddleClick, onSave, onReset, onCancel }: SettingsPanelProps) {
     const [localConfig, setLocalConfig] = useState<QuickAccessConfig>(() => ({
         pinnedFolders: config?.pinnedFolders || []
     }));
@@ -55,10 +56,11 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
     }));
     const [localShowHidden, setLocalShowHidden] = useState(!!showHiddenFiles);
     const [localAutoSearch, setLocalAutoSearch] = useState(!!autoSearchOnKey);
+    const [localFocusNewTab, setLocalFocusNewTab] = useState(!!focusNewTabOnMiddleClick);
     const [activeSection, setActiveSection] = useState('general');
 
     const handleSave = () => {
-        onSave(localConfig, localSortConfig, localShowHidden, localAutoSearch);
+        onSave(localConfig, localSortConfig, localShowHidden, localAutoSearch, localFocusNewTab);
     };
 
     const toggleFolder = (id: string) => {
@@ -193,6 +195,19 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                     />
                                     <label htmlFor="autoSearch" className="text-sm text-zinc-300 cursor-pointer">
                                         Type to search automatically
+                                    </label>
+                                </div>
+
+                                <div className="flex items-center gap-3 py-2">
+                                    <input
+                                        type="checkbox"
+                                        id="focusNewTab"
+                                        checked={localFocusNewTab}
+                                        onChange={(e) => setLocalFocusNewTab(e.target.checked)}
+                                        className="w-5 h-5 rounded-md bg-white/[0.03] border border-white/10 checked:bg-blue-500 checked:border-blue-500 cursor-pointer accent-blue-500"
+                                    />
+                                    <label htmlFor="focusNewTab" className="text-sm text-zinc-300 cursor-pointer">
+                                        Focus new tabs opened with middle click
                                     </label>
                                 </div>
 

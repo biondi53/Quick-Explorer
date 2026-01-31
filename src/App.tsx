@@ -39,7 +39,7 @@ import { useDebouncedValue } from './hooks/useDebouncedValue';
 import './App.css';
 
 import { useTabs } from './hooks/useTabs';
-import { SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus } from './types';
+import { Tab, SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus } from './types';
 import SplashScreen from './components/SplashScreen';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -127,6 +127,14 @@ export default function App() {
     return true; // Enabled by default as requested/standard
   });
 
+  const [focusNewTabOnMiddleClick, setFocusNewTabOnMiddleClick] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('speedexplorer-focus-new-tab');
+      if (saved) return JSON.parse(saved);
+    } catch (e) { }
+    return false; // Default to opening in background
+  });
+
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Use the new hook
@@ -147,7 +155,8 @@ export default function App() {
     refreshTabsViewing,
     handleSort: hookHandleSort,
     handleSelectAll: hookHandleSelectAll,
-    handleClearSelection: hookHandleClearSelection
+    handleClearSelection: hookHandleClearSelection,
+    reorderTabs
   } = useTabs(defaultSortConfig, showHiddenFiles, quickAccessConfig);
 
   const [columnWidths, setColumnWidths] = useState<Partial<Record<SortColumn, number>>>(() => {
@@ -220,6 +229,24 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('speedexplorer-theme', theme);
   }, [theme]);
+
+  // Global Ctrl+Tab handler - works even when inputs are focused
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        const currentIndex = tabs.findIndex(t => t.id === activeTabId);
+        if (currentIndex !== -1) {
+          const nextIndex = e.shiftKey
+            ? (currentIndex - 1 + tabs.length) % tabs.length
+            : (currentIndex + 1) % tabs.length;
+          switchTab(tabs[nextIndex].id);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [tabs, activeTabId, switchTab]);
 
   const cycleTheme = () => {
     const themes = ['neon', 'emerald', 'sunset', 'cyber'];
@@ -421,38 +448,61 @@ export default function App() {
   // Keyboard shortcuts for tabs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement?.tagName === 'INPUT') return;
+      const isInputFocused = document.activeElement?.tagName === 'INPUT';
+
+      // ===== GLOBAL SHORTCUTS (work even when input is focused) =====
 
       // Ctrl+T for new tab
       if (e.ctrlKey && e.key.toLowerCase() === 't') {
         e.preventDefault();
         addTab();
+        return;
       }
 
       // Ctrl+W to close tab
       if (e.ctrlKey && e.key.toLowerCase() === 'w') {
         e.preventDefault();
         closeTab(activeTabId);
+        return;
       }
 
-      // Ctrl+Tab and Ctrl+Shift+Tab to cycle tabs
-      if (e.ctrlKey && e.key === 'Tab') {
+      // F5 for internal refresh
+      if (e.key === 'F5') {
         e.preventDefault();
-        const currentIndex = tabs.findIndex(t => t.id === activeTabId);
-        if (currentIndex !== -1) {
-          let nextIndex;
-          if (e.shiftKey) {
-            nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-          } else {
-            nextIndex = (currentIndex + 1) % tabs.length;
-          }
-          switchTab(tabs[nextIndex].id);
-        }
+        refreshCurrentTab();
+        return;
       }
 
-      // Delete key for selected field
+      // Ctrl + L for address bar
+      if (e.ctrlKey && e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        startEditingPath();
+        return;
+      }
+
+      // Escape key handling (global)
+      if (e.key === 'Escape') {
+        let handled = false;
+        if (currentTab?.searchQuery) {
+          updateTab(currentTab.id, { searchQuery: '' });
+          handled = true;
+        }
+        if (currentTab?.selectedFiles && currentTab.selectedFiles.length > 0) {
+          handleClearSelection();
+          handled = true;
+        }
+        if (handled) {
+          e.preventDefault();
+        }
+        return;
+      }
+
+      // ===== INPUT-SENSITIVE SHORTCUTS (skip when typing in input) =====
+      if (isInputFocused) return;
+
+      // Delete key for selected files
       if (e.key === 'Delete' && currentTab?.selectedFiles.length > 0) {
-        handleDelete(currentTab.selectedFiles);
+        handleDelete(currentTab.selectedFiles, e.shiftKey);
       }
 
       // Clipboard shortcuts
@@ -492,30 +542,15 @@ export default function App() {
         }
       }
 
-      // F5 for internal refresh
-      if (e.key === 'F5') {
-        e.preventDefault();
-        refreshCurrentTab();
-      }
-
       // F2 for rename
       if (e.key === 'F2' && currentTab?.selectedFiles.length === 1) {
         e.preventDefault();
         handleRename(currentTab.selectedFiles[0]);
       }
 
-      // Ctrl + L for address bar
-      if (e.ctrlKey && e.key.toLowerCase() === 'l') {
-        e.preventDefault();
-        startEditingPath();
-      }
-
       // Auto-search on key
       if (autoSearchOnKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
-        // Only trigger if no modifiers and it's a single character
-        // We exclude specific non-printable characters that might have length 1 in some cases but usually keys like 'a', 'b', '1' work.
         if (currentTab) {
-          // If we are not in an input, focus the search input
           searchInputRef.current?.focus();
         }
       }
@@ -523,7 +558,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo]); // depend on currentTab for selectedFile access
+  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo]);
 
   const handleContextMenu = (e: React.MouseEvent, file: FileEntry | null) => {
     e.preventDefault();
@@ -600,7 +635,7 @@ export default function App() {
     }
   };
 
-  const saveConfig = (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, newShowHidden?: boolean, newAutoSearch?: boolean) => {
+  const saveConfig = (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, newShowHidden?: boolean, newAutoSearch?: boolean, newFocusNewTab?: boolean) => {
     setQuickAccessConfig(newConfig);
     localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
     if (newSortConfig) {
@@ -617,6 +652,10 @@ export default function App() {
       setAutoSearchOnKey(newAutoSearch);
       localStorage.setItem('speedexplorer-autosearch', JSON.stringify(newAutoSearch));
     }
+    if (newFocusNewTab !== undefined) {
+      setFocusNewTabOnMiddleClick(newFocusNewTab);
+      localStorage.setItem('speedexplorer-focus-new-tab', JSON.stringify(newFocusNewTab));
+    }
     setShowSettings(false);
   };
 
@@ -632,10 +671,12 @@ export default function App() {
       localStorage.removeItem('speedexplorer-hidden');
       localStorage.removeItem('speedexplorer-autosearch');
       localStorage.removeItem('speedexplorer-theme');
+      localStorage.removeItem('speedexplorer-focus-new-tab');
 
       setDefaultSortConfig({ column: 'name', direction: 'asc' });
       setShowHiddenFiles(false);
       setAutoSearchOnKey(true);
+      setFocusNewTabOnMiddleClick(false);
       setTheme('neon');
       await fetchSystemPaths(true);
       setShowSettings(false);
@@ -855,7 +896,7 @@ export default function App() {
     }
 
     if (action === 'delete') {
-      handleDelete(selectedFiles);
+      handleDelete(selectedFiles, false); // Context menu delete is always non-silent for safety
       return;
     } else if (action === 'copy') {
       handleCopy(selectedFiles);
@@ -924,22 +965,25 @@ export default function App() {
     }
   };
 
-  const handleDelete = async (files: FileEntry[]) => {
+  const handleDelete = async (files: FileEntry[], silent: boolean = false) => {
     if (files.length === 0) return;
 
-    const message = files.length === 1
-      ? `Are you sure you want to delete "${files[0].name}"?`
-      : `Are you sure you want to delete ${files.length} items?`;
+    let confirmed = silent;
+    if (!silent) {
+      const message = files.length === 1
+        ? `Are you sure you want to delete "${files[0].name}"?`
+        : `Are you sure you want to delete ${files.length} items?`;
 
-    const confirmed = await ask(message, {
-      title: 'SpeedExplorer',
-      kind: 'warning',
-    });
+      confirmed = await ask(message, {
+        title: 'SpeedExplorer',
+        kind: 'warning',
+      });
+    }
 
     if (confirmed && currentTab) {
       try {
         const deletedPaths = files.map(f => f.path);
-        await invoke('delete_items', { paths: deletedPaths });
+        await invoke('delete_items', { paths: deletedPaths, silent });
 
         // Auto-close tabs looking at deleted FOLDERS
         const deletedFolders = files.filter(f => f.is_dir).map(f => f.path.toLowerCase());
@@ -1057,6 +1101,7 @@ export default function App() {
           sortConfig={defaultSortConfig}
           showHiddenFiles={showHiddenFiles}
           autoSearchOnKey={autoSearchOnKey}
+          focusNewTabOnMiddleClick={focusNewTabOnMiddleClick}
           onSave={saveConfig}
           onReset={handleResetSettings}
           onCancel={() => setShowSettings(false)}
@@ -1065,7 +1110,7 @@ export default function App() {
         <>
           <Sidebar
             onNavigate={navigateTo}
-            onOpenInNewTab={(path) => addTab(path)}
+            onOpenInNewTab={(path) => addTab(path, focusNewTabOnMiddleClick)}
             onContextMenu={handleSidebarContextMenu}
             currentPath={currentTab?.path || ''}
             quickAccess={quickAccessConfig}
@@ -1080,11 +1125,14 @@ export default function App() {
           <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg-surface)]">
             {/* Tab Bar */}
             <TabBar
-              tabs={tabs.map(t => ({ id: t.id, path: t.path }))}
+              tabs={tabs}
               activeTabId={activeTabId}
               onTabClick={switchTab}
               onTabClose={closeTab}
               onNewTab={() => addTab()}
+              onReorder={(reorderedTabs: Tab[]) => {
+                reorderTabs(reorderedTabs);
+              }}
             />
 
             {/* Navigation Bar */}
@@ -1196,6 +1244,11 @@ export default function App() {
                       const file = sortedFiles[0];
                       if (file.is_dir) navigateTo(file.path);
                       else invoke('open_file', { path: file.path });
+                    } else if (e.key === 'Escape') {
+                      if (currentTab?.searchQuery) {
+                        updateTab(currentTab.id, { searchQuery: '' });
+                      }
+                      e.currentTarget.blur();
                     }
                   }}
                 />
@@ -1233,7 +1286,7 @@ export default function App() {
                     }}
                     onOpenInNewTab={(file: FileEntry) => {
                       if (file.is_dir) {
-                        addTab(file.path);
+                        addTab(file.path, focusNewTabOnMiddleClick);
                       }
                     }}
                     onContextMenu={handleContextMenu}
@@ -1336,7 +1389,7 @@ export default function App() {
                         </button>
                         <div className="h-3.5 w-px bg-white/5" />
                         <button
-                          onClick={() => currentTab && currentTab.selectedFiles.length > 0 && handleDelete(currentTab.selectedFiles)}
+                          onClick={() => currentTab && currentTab.selectedFiles.length > 0 && handleDelete(currentTab.selectedFiles, false)}
                           disabled={!currentTab || currentTab.selectedFiles.length === 0}
                           className={`flex items-center gap-2 text-sm transition-colors px-2 py-1.5 rounded-md toolbar-btn 
                                     ${currentTab && currentTab.selectedFiles.length > 0
@@ -1403,7 +1456,7 @@ export default function App() {
                         }}
                         onOpenInNewTab={(file: FileEntry) => {
                           if (file.is_dir) {
-                            addTab(file.path);
+                            addTab(file.path, focusNewTabOnMiddleClick);
                           }
                         }}
                         onContextMenu={handleContextMenu}
@@ -1431,7 +1484,7 @@ export default function App() {
                         }}
                         onOpenInNewTab={(file: FileEntry) => {
                           if (file.is_dir) {
-                            addTab(file.path);
+                            addTab(file.path, focusNewTabOnMiddleClick);
                           }
                         }}
                         onContextMenu={handleContextMenu}
