@@ -14,7 +14,7 @@ interface PreviewState {
 
 type FileType = 'video' | 'image' | 'none';
 
-export function useFilePreview(filePath: string | null, type: FileType) {
+export function useFilePreview(filePath: string | null, type: FileType, modified: number = 0) {
     const [state, setState] = useState<PreviewState>({ previewUrl: null, isLoading: false, source: null });
     const timeoutRef = useRef<number | null>(null);
     const mountedRef = useRef(true);
@@ -52,9 +52,9 @@ export function useFilePreview(filePath: string | null, type: FileType) {
             try {
                 let result: PreviewResult | null = null;
                 if (type === 'video') {
-                    result = await invoke<PreviewResult>('get_video_thumbnail', { path: filePath, size: 256 });
+                    result = await invoke<PreviewResult>('get_video_thumbnail', { path: filePath, size: 256, modified });
                 } else if (type === 'image') {
-                    result = await invoke<PreviewResult>('get_thumbnail', { path: filePath, size: 256 });
+                    result = await invoke<PreviewResult>('get_thumbnail', { path: filePath, size: 256, modified });
                 }
 
                 if (mountedRef.current && result) {
@@ -68,7 +68,7 @@ export function useFilePreview(filePath: string | null, type: FileType) {
             }
         }, 20);
 
-    }, [filePath, type]);
+    }, [filePath, type, modified]);
 
     return state;
 }

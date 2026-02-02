@@ -1,4 +1,4 @@
-# 🚀 SpeedExplorer v0.1.6
+# 🚀 Quick Explorer v0.1.7
 *Changelog - 30 de Enero, 2026*
 
 ## ✨ Nuevas Funcionalidades
@@ -37,4 +37,4 @@
 - **Colores Consistentes**: Las pestañas mantienen su color original durante el arrastre.
 
 ---
-*SpeedExplorer Project © 2026 - Versión 0.1.6*
+*Quick Explorer Project © 2026 - Versión 0.1.7*

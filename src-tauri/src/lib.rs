@@ -65,6 +65,8 @@ struct FileEntry {
     modified_at: String,
     is_shortcut: bool,
     disk_info: Option<DiskInfo>,
+    modified_timestamp: i64,
+    dimensions: Option<String>,
 }
 
 #[cfg(windows)]
@@ -135,6 +137,16 @@ fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     let modified_datetime: DateTime<Local> = modified_at.into();
     let modified_at_str = modified_datetime.format("%d/%m/%Y %H:%M").to_string();
 
+    let dimensions = if !is_dir
+        && ["jpg", "jpeg", "png", "webp", "bmp", "gif", "avif"].contains(&extension.as_str())
+    {
+        image::image_dimensions(path)
+            .ok()
+            .map(|(w, h)| format!("{}x{}", w, h))
+    } else {
+        None
+    };
+
     Ok(FileEntry {
         name,
         path: path_string,
@@ -146,6 +158,11 @@ fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
         modified_at: modified_at_str,
         is_shortcut,
         disk_info: None,
+        modified_timestamp: modified_at
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64,
+        dimensions,
     })
 }
 
@@ -209,6 +226,8 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
                     modified_at: now_str.clone(),
                     is_shortcut: false,
                     disk_info: None,
+                    modified_timestamp: 0,
+                    dimensions: None,
                 });
             }
         }
@@ -274,6 +293,8 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
                     modified_at: created_at_str.clone(),
                     is_shortcut: false,
                     disk_info,
+                    modified_timestamp: 0,
+                    dimensions: None,
                 });
             }
         }
@@ -352,6 +373,8 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
                         modified_at: "".to_string(),
                         is_shortcut: false,
                         disk_info: None,
+                        modified_timestamp: 0,
+                        dimensions: None,
                     });
                 }
             }
@@ -1034,9 +1057,10 @@ struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, ThumbnailResult>>);
 async fn get_video_thumbnail(
     path: String,
     size: u32,
+    modified: i64,
     state: tauri::State<'_, ThumbnailCache>,
 ) -> Result<ThumbnailResult, String> {
-    let cache_key = format!("video:{}:{}", path, size);
+    let cache_key = format!("video:{}:{}:{}", path, size, modified);
     {
         let mut cache = state.0.lock().unwrap();
         if let Some(res) = cache.get(&cache_key) {
@@ -1214,9 +1238,10 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
 async fn get_thumbnail(
     path: String,
     size: u32,
+    modified: i64,
     state: tauri::State<'_, ThumbnailCache>,
 ) -> Result<ThumbnailResult, String> {
-    let cache_key = format!("image:{}:{}", path, size);
+    let cache_key = format!("image:{}:{}:{}", path, size, modified);
 
     {
         let mut cache = state.0.lock().unwrap();

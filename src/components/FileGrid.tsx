@@ -50,6 +50,7 @@ interface ThumbnailResult {
 interface ThumbnailRequest {
     path: string;
     is_video: boolean;
+    modified: number;
     sessionId: number;
     callback: (result: ThumbnailResult | null) => void;
 }
@@ -70,7 +71,7 @@ const processNext = () => {
     activeRequests++;
 
     const command = request.is_video ? 'get_video_thumbnail' : 'get_thumbnail';
-    const thumbnailPromise = invoke<ThumbnailResult>(command, { path: request.path, size: 256 });
+    const thumbnailPromise = invoke<ThumbnailResult>(command, { path: request.path, size: 256, modified: request.modified });
     const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Timeout')), THUMBNAIL_TIMEOUT)
     );
@@ -92,8 +93,8 @@ const processNext = () => {
         });
 };
 
-const requestThumbnail = (path: string, is_video: boolean, callback: (result: ThumbnailResult | null) => void) => {
-    pendingQueue.push({ path, is_video, sessionId: currentSessionId, callback });
+const requestThumbnail = (path: string, is_video: boolean, modified: number, callback: (result: ThumbnailResult | null) => void) => {
+    pendingQueue.push({ path, is_video, modified, sessionId: currentSessionId, callback });
     processNext();
 };
 
@@ -130,7 +131,7 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
         requestedRef.current = false;
         setThumbnail(null);
         setLoading(false);
-    }, [file.path]);
+    }, [file.path, file.modified_timestamp]);
 
     useEffect(() => {
         if (isRenaming && editInputRef.current) {
@@ -156,13 +157,13 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
         const ext = file.name.split('.').pop()?.toLowerCase() || '';
         const isVideo = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'].includes(ext);
 
-        requestThumbnail(file.path, isVideo, (result) => {
+        requestThumbnail(file.path, isVideo, file.modified_timestamp, (result) => {
             if (result) {
                 setThumbnail(result.data);
             }
             setLoading(false);
         });
-    }, [file.path, thumbnail]);
+    }, [file.path, file.modified_timestamp, thumbnail]);
 
     const Icon = getIconComponent(file);
 

@@ -10,12 +10,7 @@ import {
     Home
 } from 'lucide-react';
 
-interface FileEntry {
-    name: string;
-    path: string;
-    is_dir: boolean;
-    size: number;
-}
+import { FileEntry } from '../types';
 
 interface ExplorerPanelProps {
     initialPath?: string;

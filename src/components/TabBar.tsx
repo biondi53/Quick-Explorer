@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react';
 import { X, Plus } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import WindowControls from './WindowControls';
-import { Reorder } from 'framer-motion';
+import { Reorder, motion } from 'framer-motion';
 import { Tab } from '../types';
 
 
@@ -46,8 +46,14 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
 
     return (
         <div
-            className="relative h-10 bg-[var(--bg-deep)] border-b border-white/10 flex items-stretch px-2 gap-1 backdrop-blur-3xl shadow-xl z-20"
-            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            className="relative h-10 bg-[var(--bg-deep)] border-b border-white/10 backdrop-blur-3xl shadow-xl z-20"
+            style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto auto auto',
+                gap: '4px',
+                paddingLeft: '8px',
+                paddingRight: '8px',
+            }}
             onMouseDown={(e) => {
                 if (e.defaultPrevented) return;
 
@@ -62,53 +68,69 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
             }}
             onContextMenu={(e) => e.preventDefault()}
         >
-            {/* Main Tabs Area - Shared scroll container */}
+            {/* 1. Tabs Area - scroll container */}
             <div
                 ref={scrollContainerRef}
-                className="flex-1 flex items-stretch overflow-x-auto overflow-y-hidden no-scrollbar min-w-0"
+                className="flex items-stretch no-scrollbar"
                 style={{
+                    overflow: 'hidden',
+                    overflowX: 'auto',
                     scrollbarWidth: 'none',
                     msOverflowStyle: 'none',
-                    WebkitOverflowScrolling: 'touch'
+                    minWidth: 0,
                 }}
             >
-                <Reorder.Group
-                    axis="x"
-                    values={tabs}
-                    onReorder={onReorder}
-                    className="flex items-stretch gap-1"
+                <div
+                    className="flex items-stretch"
+                    style={{ display: 'flex', flexWrap: 'nowrap', gap: '4px' }}
                 >
                     {tabs.map((tab) => (
-                        <Reorder.Item
+                        <div
                             key={tab.id}
-                            value={tab}
                             data-tab-id={tab.id}
-                            drag={tabs.length > 1 ? "x" : false}
-                            dragConstraints={scrollContainerRef}
-                            dragElastic={0}
-                            onPointerDown={(e) => {
+                            onClick={() => onTabClick(tab.id)}
+                            onMouseDown={(e) => {
                                 if (e.button === 1) {
                                     e.stopPropagation();
                                     e.preventDefault();
                                     onTabClose(tab.id);
                                 }
                             }}
-                            onClick={() => onTabClick(tab.id)}
-                            initial={false}
-                            whileDrag={{
-                                zIndex: 50,
-                                y: 0,
-                                boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4)",
+                            style={{
+                                width: '130px',
+                                flexShrink: 0,
+                                flexGrow: 0,
+                                boxSizing: 'border-box',
+                                position: 'relative'
                             }}
-                            className={`group relative flex items-center gap-2 h-full px-4 rounded-t-xl cursor-pointer transition-colors max-w-[200px] min-w-[120px] no-drag select-none overflow-hidden
+                            className={`group flex items-center gap-1 h-full px-2 rounded-t-xl cursor-pointer transition-colors no-drag select-none
                                 ${tab.id === activeTabId
                                     ? 'bg-[var(--bg-surface)] text-white shadow-[0_-4px_20px_rgba(0,0,0,0.4)]'
                                     : 'bg-black/20 text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300'}`}
                         >
                             {tab.id === activeTabId && (
-                                <div className="absolute top-0 left-0 right-0 h-0.5 bg-[var(--accent-primary)] shadow-[0_0_10px_var(--accent-primary)] z-10" />
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        height: '2px',
+                                        backgroundColor: 'var(--accent-primary)',
+                                        boxShadow: '0 0 10px var(--accent-primary)',
+                                    }}
+                                />
                             )}
-                            <span className={`text-[11px] uppercase tracking-wider truncate flex-1 ${tab.id === activeTabId ? 'font-black' : 'font-bold'}`}>
+                            <span
+                                className={`text-[11px] uppercase tracking-wider ${tab.id === activeTabId ? 'font-black' : 'font-bold'}`}
+                                style={{
+                                    flex: '1 1 0%',
+                                    minWidth: 0,
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                }}
+                            >
                                 {getTabName(tab.path)}
                             </span>
                             <button
@@ -116,32 +138,32 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                                     e.stopPropagation();
                                     onTabClose(tab.id);
                                 }}
-                                className={`p-0.5 rounded hover:bg-white/10 transition-opacity
+                                className={`p-0.5 rounded hover:bg-white/10 transition-opacity flex-shrink-0
                                     ${tab.id === activeTabId ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100'}`}
                             >
                                 <X size={12} />
                             </button>
-                        </Reorder.Item>
+                        </div>
                     ))}
-                </Reorder.Group>
-
-                {/* New Tab Button - Immediately follows the tabs */}
-                <div className="relative z-10 flex items-center px-1">
-                    <button
-                        onClick={onNewTab}
-                        className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors no-drag"
-                        title="New Tab (Ctrl+T)"
-                    >
-                        <Plus size={16} />
-                    </button>
                 </div>
-
-                {/* Flexible spacer inside scroll container to catch window-dragging clicks */}
-                <div className="flex-1 min-w-[20px]" />
             </div>
 
-            {/* Window Controls - Fixed at the right */}
-            <div className="relative z-10 flex items-center h-full pl-2">
+            {/* 2. New Tab Button - own reserved space */}
+            <div className="flex items-center">
+                <button
+                    onClick={onNewTab}
+                    className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors no-drag"
+                    title="New Tab (Ctrl+T)"
+                >
+                    <Plus size={16} />
+                </button>
+            </div>
+
+            {/* 3. Drag spacer - expands to fill remaining space */}
+            <div className="min-w-[20px]" style={{ flex: '1 1 auto' }} />
+
+            {/* 4. Window Controls - fixed size */}
+            <div className="flex items-center">
                 <WindowControls />
             </div>
 

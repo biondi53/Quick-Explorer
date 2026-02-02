@@ -8,7 +8,6 @@ import {
   ArrowUp,
   ArrowRight,
   ArrowLeft,
-  MoreHorizontal,
   List,
   Grid,
   Copy,
@@ -623,7 +622,9 @@ export default function App() {
       created_at: '',
       modified_at: '',
       is_shortcut: false,
-      disk_info: null
+      disk_info: null,
+      modified_timestamp: 0,
+      dimensions: undefined
     };
     setContextMenu({ x: e.clientX, y: e.clientY, file: mockFile, fromSidebar: true });
 
@@ -1434,9 +1435,6 @@ export default function App() {
                           title="Grid View"
                         >
                           <Grid size={16} />
-                        </button>
-                        <button className="p-1 rounded-md hover:bg-white/5 text-zinc-400">
-                          <MoreHorizontal size={16} />
                         </button>
                       </div>
                     </div>

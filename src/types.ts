@@ -14,6 +14,8 @@ export interface FileEntry {
     modified_at: string;
     is_shortcut: boolean;
     disk_info: DiskInfo | null;
+    modified_timestamp: number;
+    dimensions?: string;
 }
 
 export type SortColumn = 'name' | 'modified_at' | 'created_at' | 'file_type' | 'size';

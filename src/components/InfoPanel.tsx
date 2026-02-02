@@ -3,17 +3,7 @@ import { File, Folder, Info, Eye, PlayCircle, Loader2 } from 'lucide-react';
 import { handleWindowDrag } from '../utils/windowDrag';
 import { useFilePreview } from '../hooks/useFilePreview';
 
-interface FileEntry {
-    name: string;
-    path: string;
-    is_dir: boolean;
-    size: number;
-    formatted_size: string;
-    file_type: string;
-    created_at: string;
-    modified_at: string;
-    is_shortcut: boolean;
-}
+import { FileEntry } from '../types';
 
 interface InfoPanelProps {
     selectedFiles: FileEntry[];
@@ -41,7 +31,8 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
 
     const { previewUrl, isLoading, source } = useFilePreview(
         firstSelected?.path || null,
-        fileType
+        fileType,
+        firstSelected?.modified_timestamp || 0
     );
 
     if (selectedFiles.length === 0) {
@@ -128,6 +119,12 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                             <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Size</label>
                             <div className="text-xs text-white font-mono font-black">{selectedFile.formatted_size || '-'}</div>
                         </div>
+                        {selectedFile.dimensions && (
+                            <div className="space-y-1 col-span-2">
+                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Dimensions</label>
+                                <div className="text-xs text-zinc-100 font-medium">{selectedFile.dimensions}</div>
+                            </div>
+                        )}
                     </div>
                     <div className="grid grid-cols-1 gap-4 pt-4 border-t border-white/5">
                         <div className="space-y-1">

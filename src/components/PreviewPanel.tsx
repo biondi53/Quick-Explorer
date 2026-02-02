@@ -1,13 +1,10 @@
 import { File as FileIcon, Image as ImageIcon } from 'lucide-react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
+import { FileEntry } from '../types';
+
 interface PreviewPanelProps {
-    selectedFile: {
-        name: string;
-        path: string;
-        is_dir: boolean;
-        size: number;
-    } | null;
+    selectedFile: FileEntry | null;
 }
 
 export default function PreviewPanel({ selectedFile }: PreviewPanelProps) {
@@ -40,7 +37,7 @@ export default function PreviewPanel({ selectedFile }: PreviewPanelProps) {
                     </div>
                 ) : isImage ? (
                     <img
-                        src={convertFileSrc(selectedFile.path)}
+                        src={`${convertFileSrc(selectedFile.path)}?t=${selectedFile.modified_timestamp}`}
                         alt={selectedFile.name}
                         className="max-w-full max-h-full object-contain shadow-2xl rounded-lg border border-zinc-800"
                     />
