@@ -2,8 +2,9 @@ import { useRef, useEffect } from 'react';
 import { X, Plus } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import WindowControls from './WindowControls';
-import { Reorder, motion } from 'framer-motion';
+// import { Reorder, motion } from 'framer-motion';
 import { Tab } from '../types';
+import { useTabDragHover } from '../hooks/useTabDragHover';
 
 
 
@@ -13,11 +14,12 @@ interface TabBarProps {
     onTabClick: (tabId: string) => void;
     onTabClose: (tabId: string) => void;
     onNewTab: () => void;
-    onReorder: (newTabs: Tab[]) => void;
+    // onReorder: (newTabs: Tab[]) => void;
 }
 
-export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab, onReorder }: TabBarProps) {
+export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab /*, onReorder */ }: TabBarProps) {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const { handleDragOver, handleDragLeave } = useTabDragHover(onTabClick);
 
     // Auto-scroll active tab into view
     useEffect(() => {
@@ -49,7 +51,7 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
             className="relative h-10 bg-[var(--bg-deep)] border-b border-white/10 backdrop-blur-3xl shadow-xl z-20"
             style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr) auto auto auto',
+                gridTemplateColumns: 'minmax(0, 1fr) auto auto',
                 gap: '4px',
                 paddingLeft: '8px',
                 paddingRight: '8px',
@@ -95,6 +97,22 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                                     e.preventDefault();
                                     onTabClose(tab.id);
                                 }
+                            }}
+                            onDragOver={(e) => handleDragOver(e, tab.id)}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                handleDragLeave();
+                                // Drop handling is done by global listener usually, but we could specific tab drop here.
+                                // If we drop on a tab, we likely want to move/copy to that tab's path.
+                                // Current architecture: Global listener catches drops on the window.
+                                // If we want to support dropping onto a specific tab (which is not active),
+                                // we need to invoke copy/move to that tab's path.
+                                // However, `tauri://drag-drop` event payload location is screen coords, hard to map to tab.
+                                // If we handle drop HERE, we might get standard HTML5 dataTransfer.files (if supported by Tauri webview drop).
+                                // But Tauri 2 with "fileDropEnabled": false (or handled explicitly) and our own logic might vary.
+                                // For now, spring-loading (switch on hover) + global drop on active tab is the safest first step.
+                                // So we just switch (already done by hover) and let the global listener handle the "drop" event which happens on the window.
                             }}
                             style={{
                                 width: '130px',
@@ -145,18 +163,16 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                             </button>
                         </div>
                     ))}
+                    <div className="flex items-center ml-1">
+                        <button
+                            onClick={onNewTab}
+                            className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors no-drag h-8 w-8 flex items-center justify-center my-auto"
+                            title="New Tab (Ctrl+T)"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
                 </div>
-            </div>
-
-            {/* 2. New Tab Button - own reserved space */}
-            <div className="flex items-center">
-                <button
-                    onClick={onNewTab}
-                    className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-colors no-drag"
-                    title="New Tab (Ctrl+T)"
-                >
-                    <Plus size={16} />
-                </button>
             </div>
 
             {/* 3. Drag spacer - expands to fill remaining space */}
@@ -173,6 +189,6 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                     display: none;
                 }
             `}} />
-        </div>
+        </div >
     );
 }

@@ -1,0 +1,426 @@
+﻿cargo :     Checking d-speedexplorer v0.1.7 (D:\SpeedExplorer\src-tauri)
+En línea: 1 Carácter: 1
++ cargo check 2>&1 | Out-File -FilePath build_errors.txt -Encoding utf8
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Checking d-...orer\src-tauri):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: unused import: `std::ffi::c_void`
+ --> src\drag_drop.rs:1:5
+  |
+1 | use std::ffi::c_void;
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `AtomicU32` and `Ordering`
+ --> src\drag_drop.rs:2:25
+  |
+2 | use std::sync::atomic::{AtomicU32, Ordering};
+  |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused imports: `HWND` and `POINT`
+ --> src\drag_drop.rs:4:52
+  |
+4 |     DRAGDROP_S_CANCEL, DRAGDROP_S_DROP, E_NOTIMPL, HWND, POINT, S_FALSE, S_OK,
+  |                                                    ^^^^  ^^^^^
+
+warning: unused import: `ReleaseStgMedium`
+  --> src\drag_drop.rs:15:48
+   |
+15 |     DoDragDrop, IDropSource, IDropSource_Impl, ReleaseStgMedium, CF_HDROP, DROPEFFECT,
+   |                                                ^^^^^^^^^^^^^^^^
+
+warning: unused import: `DragQueryFileW`
+  --> src\drag_drop.rs:18:33
+   |
+18 | use windows::Win32::UI::Shell::{DragQueryFileW, DROPFILES};
+   |                                 ^^^^^^^^^^^^^^
+
+warning: unused imports: `GUID`, `PCWSTR`, and `PWSTR`
+  --> src\drag_drop.rs:19:45
+   |
+19 | use windows_core::{implement, Result, BOOL, GUID, HRESULT, PCWSTR, PWSTR};
+   |                                             ^^^^           ^^^^^^  ^^^^^
+
+warning: unused import: `Win32::Foundation::HWND`
+   --> src\lib.rs:413:13
+    |
+413 |             Win32::Foundation::HWND,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Win32::Foundation::HWND`
+   --> src\lib.rs:500:13
+    |
+500 |             Win32::Foundation::HWND,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `FileDataObject: IUnknownImpl` is not satisfied
+    --> src\drag_drop.rs:26:27
+     |
+  26 | impl IDataObject_Impl for FileDataObject {
+     |                           ^^^^^^^^^^^^^^ unsatisfied trait bound
+     |
+help: the trait `IUnknownImpl` is not implemented for `FileDataObject`
+    --> src\drag_drop.rs:22:1
+     |
+  22 | struct FileDataObject {
+     | ^^^^^^^^^^^^^^^^^^^^^
+     = help: the following other types implement trait `IUnknownImpl`:
+               FileDataObject_Impl
+               FileDropSource_Impl
+               tao::platform_impl::platform::drop_handler::FileDropHandler_Impl
+               webview2_com::callback::AcceleratorKeyPressedEventHandler_Impl
+               webview2_com::callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler_Impl
+               webview2_com::callback::BasicAuthenticationRequestedEventHandler_Impl
+               webview2_com::callback::BrowserExtensionEnableCompletedHandler_Impl
+               webview2_com::callback::BrowserExtensionRemoveCompletedHandler_Impl
+             and 85 others
+note: required by a bound in `IDataObject_Impl`
+    --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\System\Com\mod.rs:4746:29
+     |
+4746 | pub trait IDataObject_Impl: windows_core::IUnknownImpl {
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `IDataObject_Impl`
+
+error[E0053]: method `QueryContinueDrag` has an incompatible type for trait
+   --> src\drag_drop.rs:147:68
+    |
+147 |     fn QueryContinueDrag(&self, fescapepressed: BOOL, grfkeystate: u32) -> HRESULT {
+    |                                                                    ^^^ expected `MODIFIERKEYS_FLAGS`, found `u32`
+    |
+    = note: expected signature `fn(&FileDropSource, BOOL, MODIFIERKEYS_FLAGS) -> HRESULT`
+               found signature `fn(&FileDropSource, BOOL, u32) -> HRESULT`
+help: change the parameter type to match the trait
+    |
+147 -     fn QueryContinueDrag(&self, fescapepressed: BOOL, grfkeystate: u32) -> HRESULT {
+147 +     fn QueryContinueDrag(&self, fescapepressed: BOOL, grfkeystate: MODIFIERKEYS_FLAGS) -> HRESULT {
+    |
+
+error[E0277]: the trait bound `FileDropSource: IUnknownImpl` is not satisfied
+    --> src\drag_drop.rs:146:27
+     |
+ 146 | impl IDropSource_Impl for FileDropSource {
+     |                           ^^^^^^^^^^^^^^ unsatisfied trait bound
+     |
+help: the trait `IUnknownImpl` is not implemented for `FileDropSource`
+    --> src\drag_drop.rs:144:1
+     |
+ 144 | struct FileDropSource;
+     | ^^^^^^^^^^^^^^^^^^^^^
+     = help: the following other types implement trait `IUnknownImpl`:
+               FileDataObject_Impl
+               FileDropSource_Impl
+               tao::platform_impl::platform::drop_handler::FileDropHandler_Impl
+               webview2_com::callback::AcceleratorKeyPressedEventHandler_Impl
+               webview2_com::callback::AddScriptToExecuteOnDocumentCreatedCompletedHandler_Impl
+               webview2_com::callback::BasicAuthenticationRequestedEventHandler_Impl
+               webview2_com::callback::BrowserExtensionEnableCompletedHandler_Impl
+               webview2_com::callback::BrowserExtensionRemoveCompletedHandler_Impl
+             and 85 others
+note: required by a bound in `IDropSource_Impl`
+    --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\System\Ole\mod.rs:5984:29
+     |
+5984 | pub trait IDropSource_Impl: windows_core::IUnknownImpl {
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `IDropSource_Impl`
+
+error[E0277]: the trait bound `FileDataObject_Impl: IDataObject_Impl` is not satisfied
+    --> src\drag_drop.rs:21:1
+     |
+  21 | #[implement(IDataObject)]
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+     |
+help: the trait `IDataObject_Impl` is not implemented for `FileDataObject_Impl`
+    --> src\drag_drop.rs:21:1
+     |
+  21 | #[implement(IDataObject)]
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: the trait `IDataObject_Impl` is implemented for `FileDataObject`
+note: required by a bound in `IDataObject_Vtbl::new`
+    --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\System\Com\mod.rs:4759:32
+     |
+4759 |     pub const fn new<Identity: IDataObject_Impl, const OFFSET: isize>() -> Self {
+     |                                ^^^^^^^^^^^^^^^^ required by this bound in `IDataObject_Vtbl::new`
+     = note: this error originates in the attribute macro `implement` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> src\drag_drop.rs:34:21
+   |
+33 |                 return Err(windows_core::Error::new(
+   |                            ------------------------ arguments to this function are incorrect
+34 |                     HRESULT(0x80040064u32 as i32).0,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `HRESULT`, found `i32`
+   |
+note: associated function defined here
+  --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+   |
+91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+   |            ^^^
+help: consider removing the tuple struct field `0`
+   |
+34 -                     HRESULT(0x80040064u32 as i32).0,
+34 +                     HRESULT(0x80040064u32 as i32),
+   |
+
+error[E0308]: mismatched types
+  --> src\drag_drop.rs:55:21
+   |
+54 |                 return Err(windows_core::Error::new(
+   |                            ------------------------ arguments to this function are incorrect
+55 |                     HRESULT(0x8007000Eu32 as i32).0,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `HRESULT`, found `i32`
+   |
+note: associated function defined here
+  --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+   |
+91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+   |            ^^^
+help: consider removing the tuple struct field `0`
+   |
+55 -                     HRESULT(0x8007000Eu32 as i32).0,
+55 +                     HRESULT(0x8007000Eu32 as i32),
+   |
+
+error[E0308]: mismatched types
+  --> src\drag_drop.rs:88:38
+   |
+88 |         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+   |             ------------------------ ^^^^^^^^^^^ expected `HRESULT`, found `i32`
+   |             |
+   |             arguments to this function are incorrect
+   |
+note: associated function defined here
+  --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+   |
+91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+   |            ^^^
+help: consider removing the tuple struct field `0`
+   |
+88 -         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+88 +         Err(windows_core::Error::new(E_NOTIMPL, "Not implemented"))
+   |
+
+error[E0308]: mismatched types
+   --> src\drag_drop.rs:118:38
+    |
+118 |         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+    |             ------------------------ ^^^^^^^^^^^ expected `HRESULT`, found `i32`
+    |             |
+    |             arguments to this function are incorrect
+    |
+note: associated function defined here
+   --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+    |
+ 91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+    |            ^^^
+help: consider removing the tuple struct field `0`
+    |
+118 -         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+118 +         Err(windows_core::Error::new(E_NOTIMPL, "Not implemented"))
+    |
+
+error[E0308]: mismatched types
+   --> src\drag_drop.rs:122:38
+    |
+122 |         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+    |             ------------------------ ^^^^^^^^^^^ expected `HRESULT`, found `i32`
+    |             |
+    |             arguments to this function are incorrect
+    |
+note: associated function defined here
+   --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+    |
+ 91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+    |            ^^^
+help: consider removing the tuple struct field `0`
+    |
+122 -         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+122 +         Err(windows_core::Error::new(E_NOTIMPL, "Not implemented"))
+    |
+
+error[E0308]: mismatched types
+   --> src\drag_drop.rs:131:38
+    |
+131 |         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+    |             ------------------------ ^^^^^^^^^^^ expected `HRESULT`, found `i32`
+    |             |
+    |             arguments to this function are incorrect
+    |
+note: associated function defined here
+   --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+    |
+ 91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+    |            ^^^
+help: consider removing the tuple struct field `0`
+    |
+131 -         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+131 +         Err(windows_core::Error::new(E_NOTIMPL, "Not implemented"))
+    |
+
+error[E0308]: mismatched types
+   --> src\drag_drop.rs:135:38
+    |
+135 |         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+    |             ------------------------ ^^^^^^^^^^^ expected `HRESULT`, found `i32`
+    |             |
+    |             arguments to this function are incorrect
+    |
+note: associated function defined here
+   --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+    |
+ 91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+    |            ^^^
+help: consider removing the tuple struct field `0`
+    |
+135 -         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+135 +         Err(windows_core::Error::new(E_NOTIMPL, "Not implemented"))
+    |
+
+error[E0308]: mismatched types
+   --> src\drag_drop.rs:139:38
+    |
+139 |         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+    |             ------------------------ ^^^^^^^^^^^ expected `HRESULT`, found `i32`
+    |             |
+    |             arguments to this function are incorrect
+    |
+note: associated function defined here
+   --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-result-0.3.4\src\error.rs:91:12
+    |
+ 91 |     pub fn new<T: AsRef<str>>(code: HRESULT, message: T) -> Self {
+    |            ^^^
+help: consider removing the tuple struct field `0`
+    |
+139 -         Err(windows_core::Error::new(E_NOTIMPL.0, "Not implemented"))
+139 +         Err(windows_core::Error::new(E_NOTIMPL, "Not implemented"))
+    |
+
+error[E0277]: the trait bound `FileDropSource_Impl: IDropSource_Impl` is not satisfied
+    --> src\drag_drop.rs:143:1
+     |
+ 143 | #[implement(IDropSource)]
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+     |
+help: the trait `IDropSource_Impl` is not implemented for `FileDropSource_Impl`
+    --> src\drag_drop.rs:143:1
+     |
+ 143 | #[implement(IDropSource)]
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: the trait `IDropSource_Impl` is implemented for `FileDropSource`
+note: required by a bound in `IDropSource_Vtbl::new`
+    --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\System\Ole\mod.rs:5990:32
+     |
+5990 |     pub const fn new<Identity: IDropSource_Impl, const OFFSET: isize>() -> Self {
+     |                                ^^^^^^^^^^^^^^^^ required by this bound in `IDropSource_Vtbl::new`
+     = note: this error originates in the attribute macro `implement` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+   --> src\lib.rs:429:19
+    |
+429 |             hwnd: None,
+    |                   ^^^^ expected `HWND`, found `Option<_>`
+    |
+    = note: expected struct `HWND`
+                 found enum `std::option::Option<_>`
+
+error[E0308]: mismatched types
+    --> src\lib.rs:475:21
+     |
+ 474 |                 let result = SHCreateDirectoryExW(
+     |                              -------------------- arguments to this function are incorrect
+ 475 |                     windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Option<HWND>`, found `HWND`
+     |
+     = note: expected enum `std::option::Option<HWND>`
+              found struct `HWND`
+note: function defined here
+    --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\UI\Shell\mod.rs:2649:15
+     |
+2649 | pub unsafe fn SHCreateDirectoryExW<P1>(hwnd: Option<super::super::Foundation::HWND>, pszpath: P1, psa: Option<*const super::super::Securi...
+     |               ^^^^^^^^^^^^^^^^^^^^
+help: try wrapping the expression in `Some`
+     |
+ 475 |                     Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
+     |                     +++++                                                      +
+
+error[E0308]: mismatched types
+   --> src\lib.rs:516:19
+    |
+516 |             hwnd: None,
+    |                   ^^^^ expected `HWND`, found `Option<_>`
+    |
+    = note: expected struct `HWND`
+                 found enum `std::option::Option<_>`
+
+error[E0308]: mismatched types
+   --> src\lib.rs:539:19
+    |
+539 |             hwnd: None,
+    |                   ^^^^ expected `HWND`, found `Option<_>`
+    |
+    = note: expected struct `HWND`
+                 found enum `std::option::Option<_>`
+
+error[E0308]: mismatched types
+   --> src\lib.rs:590:19
+    |
+590 |             hwnd: None,
+    |                   ^^^^ expected `HWND`, found `Option<_>`
+    |
+    = note: expected struct `HWND`
+                 found enum `std::option::Option<_>`
+
+error[E0308]: mismatched types
+   --> src\lib.rs:660:43
+    |
+660 |         SetClipboardData(format_id.get(), HANDLE(h_global.0 as *mut _))
+    |         ----------------                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Option<HANDLE>`, found `HANDLE`
+    |         |
+    |         arguments to this function are incorrect
+    |
+    = note: expected enum `std::option::Option<HANDLE>`
+             found struct `HANDLE`
+note: function defined here
+   --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\System\DataExchange\mod.rs:417:15
+    |
+417 | pub unsafe fn SetClipboardData(uformat: u32, hmem: Option<super::super::Foundation::HANDLE>) -> windows_core::Result<super::super::Founda...
+    |               ^^^^^^^^^^^^^^^^
+help: try wrapping the expression in `Some`
+    |
+660 |         SetClipboardData(format_id.get(), Some(HANDLE(h_global.0 as *mut _)))
+    |                                           +++++                            +
+
+error[E0308]: mismatched types
+    --> src\lib.rs:846:37
+     |
+ 845 | ...                   let result = ShellExecuteW(
+     |                                    ------------- arguments to this function are incorrect
+ 846 | ...                       windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Option<HWND>`, found `HWND`
+     |
+     = note: expected enum `std::option::Option<HWND>`
+              found struct `HWND`
+note: function defined here
+    --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\UI\Shell\mod.rs:4368:15
+     |
+4368 | pub unsafe fn ShellExecuteW<P1, P2, P3, P4>(hwnd: Option<super::super::Foundation::HWND>, lpoperation: P1, lpfile: P2, lpparameters: P3, ...
+     |               ^^^^^^^^^^^^^
+help: try wrapping the expression in `Some`
+     |
+ 846 |                                     Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
+     |                                     +++++                                                      +
+
+warning: unnecessary `unsafe` block
+   --> src\lib.rs:946:13
+    |
+923 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+946 |             unsafe {
+    |             ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0053, E0277, E0308.
+For more information about an error, try `rustc --explain E0053`.
+warning: `d-speedexplorer` (lib) generated 9 warnings
+error: could not compile `d-speedexplorer` (lib) due to 20 previous errors; 9 warnings emitted

@@ -4,18 +4,20 @@ import { invoke } from '@tauri-apps/api/core';
 interface PreviewResult {
     data: string;
     source: string;
+    dimensions?: string;
 }
 
 interface PreviewState {
     previewUrl: string | null;
     isLoading: boolean;
     source?: string | null;
+    dimensions?: string | null;
 }
 
 type FileType = 'video' | 'image' | 'none';
 
 export function useFilePreview(filePath: string | null, type: FileType, modified: number = 0) {
-    const [state, setState] = useState<PreviewState>({ previewUrl: null, isLoading: false, source: null });
+    const [state, setState] = useState<PreviewState>({ previewUrl: null, isLoading: false, source: null, dimensions: null });
     const timeoutRef = useRef<number | null>(null);
     const mountedRef = useRef(true);
 
@@ -33,7 +35,7 @@ export function useFilePreview(filePath: string | null, type: FileType, modified
         if (!filePath || type === 'none') {
             // Optimization: Prevent redundant updates if already cleared
             if (state.previewUrl !== null || state.isLoading !== false) {
-                setState({ previewUrl: null, isLoading: false });
+                setState({ previewUrl: null, isLoading: false, dimensions: null });
             }
             return;
         }
@@ -58,12 +60,12 @@ export function useFilePreview(filePath: string | null, type: FileType, modified
                 }
 
                 if (mountedRef.current && result) {
-                    setState({ previewUrl: result.data, isLoading: false, source: result.source });
+                    setState({ previewUrl: result.data, isLoading: false, source: result.source, dimensions: result.dimensions || null });
                 }
             } catch (error) {
                 console.error(`Failed to generate ${type} preview:`, error);
                 if (mountedRef.current) {
-                    setState({ previewUrl: null, isLoading: false, source: null });
+                    setState({ previewUrl: null, isLoading: false, source: null, dimensions: null });
                 }
             }
         }, 20);

@@ -8,13 +8,6 @@ export const isDragSafe = (e: React.MouseEvent): boolean => {
     // Check if we clicked on or inside a no-drag element or interactive element
     const noDragElement = target.closest('.no-drag, button, a, [role="button"], input, textarea, select');
 
-    // Debug log
-    if (noDragElement) {
-        console.log('isDragSafe: Unsafe target (blocked)', target, 'Matched closest:', noDragElement);
-    } else {
-        console.log('isDragSafe: Safe target', target);
-    }
-
     // Return true if NO interactive element was found
     return !noDragElement;
 };

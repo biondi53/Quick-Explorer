@@ -26,6 +26,7 @@ export default function PreviewPanel({ selectedFile }: PreviewPanelProps) {
                 <p className="text-sm text-zinc-400 mt-1 space-x-2">
                     <span>{selectedFile.is_dir ? 'Directory' : 'File'}</span>
                     {!selectedFile.is_dir && <span>• {(selectedFile.size / 1024).toFixed(1)} KB</span>}
+                    {selectedFile.dimensions && <span>• {selectedFile.dimensions}</span>}
                 </p>
             </div>
 

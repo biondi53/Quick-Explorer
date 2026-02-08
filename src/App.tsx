@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, Fragment, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import ThisPCView from './components/ThisPCView';
 import { ask } from '@tauri-apps/plugin-dialog';
 import {
@@ -38,9 +40,9 @@ import { useDebouncedValue } from './hooks/useDebouncedValue';
 import './App.css';
 
 import { useTabs } from './hooks/useTabs';
-import { Tab, SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus } from './types';
+import { /* Tab, */ SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus } from './types';
 import SplashScreen from './components/SplashScreen';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+// getCurrentWindow moved to top imports
 
 export default function App() {
   const [isLoadingApp, setIsLoadingApp] = useState(true);
@@ -134,9 +136,9 @@ export default function App() {
     return false; // Default to opening in background
   });
 
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Use the new hook
   const {
     tabs,
     activeTabId,
@@ -155,8 +157,51 @@ export default function App() {
     handleSort: hookHandleSort,
     handleSelectAll: hookHandleSelectAll,
     handleClearSelection: hookHandleClearSelection,
-    reorderTabs
+    // reorderTabs
   } = useTabs(defaultSortConfig, showHiddenFiles, quickAccessConfig);
+
+  // Global drop handler - must be after useTabs to access currentTab and refreshCurrentTab
+  useEffect(() => {
+    // Keep dragover to show correct cursor
+    const handleGlobalDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    };
+
+    // Prevent default drop (we handle it via Rust subclass)
+    const handleGlobalDrop = (e: DragEvent) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('dragover', handleGlobalDragOver);
+    window.addEventListener('drop', handleGlobalDrop);
+
+    // Listen for the native Tauri drop event (bridged from Rust)
+    const unlisten = listen<{ paths: string[] }>('app:drop', async (event) => {
+      const targetPath = currentTab?.path;
+
+      if (event.payload.paths.length > 0 && targetPath) {
+        try {
+          await invoke<string[]>('drop_items', {
+            files: event.payload.paths,
+            targetPath
+          });
+          refreshCurrentTab();
+        } catch (err) {
+          console.error('Drop failed:', err);
+        }
+      }
+    });
+
+    return () => {
+      window.removeEventListener('dragover', handleGlobalDragOver);
+      window.removeEventListener('drop', handleGlobalDrop);
+      unlisten.then(fn => fn());
+    };
+  }, [currentTab?.path, refreshCurrentTab]);
+
 
   const [columnWidths, setColumnWidths] = useState<Partial<Record<SortColumn, number>>>(() => {
     try {
@@ -222,6 +267,17 @@ export default function App() {
       await win.setFocus();
     };
     showWindow();
+
+    // Diagnostic check
+    invoke('check_diagnostics').then((res: any) => {
+      console.log('--- SYSTEM DIAGNOSTICS ---');
+      console.log('Is Admin:', res.is_admin);
+      console.log('Integrity Level:', res.integrity_level);
+      console.log('---------------------------');
+      if (res.is_admin || res.integrity_level === 'High') {
+        console.warn('WARNING: High Integrity Level or Admin privileges may block drag-and-drop due to UIPI.');
+      }
+    }).catch(e => console.error('Diagnostics failed:', e));
   }, [fetchSystemPaths]);
 
   useEffect(() => {
@@ -296,8 +352,8 @@ export default function App() {
     return () => {
       window.removeEventListener('focus', handleFocus);
       if (focusTimeout) window.clearTimeout(focusTimeout);
-      unlistenMoved.then((fn: () => void) => fn());
-      unlistenResized.then((fn: () => void) => fn());
+      unlistenMoved.then((fn: any) => { if (typeof fn === 'function') fn(); }).catch(e => console.error(e));
+      unlistenResized.then((fn: any) => { if (typeof fn === 'function') fn(); }).catch(e => console.error(e));
     };
   }, [fetchRecycleBinStatus, refreshCurrentTab]);
 
@@ -548,7 +604,7 @@ export default function App() {
       }
 
       // Auto-search on key
-      if (autoSearchOnKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1) {
+      if (autoSearchOnKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1 && !currentTab?.renamingPath && !isEditingPath) {
         if (currentTab) {
           searchInputRef.current?.focus();
         }
@@ -582,6 +638,7 @@ export default function App() {
     }
   }, [currentTab, updateTab]);
 
+
   const handleRenameCancel = useCallback(() => {
     if (currentTab) {
       updateTab(currentTab.id, { renamingPath: null });
@@ -589,7 +646,7 @@ export default function App() {
   }, [currentTab, updateTab]);
 
   const handleRenameSubmit = useCallback(async (file: FileEntry, newName: string) => {
-    if (!currentTab || !newName || newName === file.name) {
+    if (!currentTab || !newName || newName === file.name || currentTab.renamingPath !== file.path) {
       handleRenameCancel();
       return;
     }
@@ -808,15 +865,11 @@ export default function App() {
     }
   };
 
-  const handlePaste = async (customTargetPath?: string) => {
+  const handlePaste = useCallback(async (customTargetPath?: string) => {
     if (!currentTab) return;
     const targetPath = customTargetPath || currentTab.path;
 
     // Optimistic Update for Screenshots
-    // Note: If pasting into a SUBFOLDER (customTargetPath), we might NOT want to optimistically update the current view
-    // unless we are already IN that subfolder (which we are not, usually).
-    // So, if customTargetPath is set, we might skip the optimistic update OR we just rely on standard refresh behaviors.
-    // For now, let's keep it simple: only optimistic if pasting to CURRENT view.
     const isCurrentView = targetPath === currentTab.path;
 
     if (clipboardInfo && !clipboardInfo.has_files && clipboardInfo.has_image) {
@@ -824,7 +877,6 @@ export default function App() {
         const newFile = await invoke<FileEntry>('save_clipboard_image', { targetPath });
 
         if (isCurrentView) {
-          // Optimistically add to list without reloading
           updateTab(currentTab.id, {
             files: [...currentTab.files, newFile],
             selectedFiles: [newFile],
@@ -863,7 +915,63 @@ export default function App() {
       // Optional: Show error to user
       updateTab(currentTab.id, { error: String(err) });
     }
-  };
+  }, [currentTab, clipboardInfo, lastCutPaths, updateTab, loadFilesForTab, refreshTabsViewing, checkClipboard]);
+
+  // Handle global file drops (Inbound Drag & Drop)
+  useEffect(() => {
+    let active = true;
+    const unlistenFns: (Promise<() => void> | (() => void))[] = [];
+
+    const handleTauriDrop = (paths: string[]) => {
+      console.log('%c[TAURI DROP HANDLER]', 'color: #ff00ff; font-weight: bold; font-size: 14px', paths);
+      setIsDraggingOver(false);
+
+      if (Array.isArray(paths) && paths.length > 0 && currentTab?.path) {
+        if (currentTab.path === 'shell:RecycleBin' || currentTab.path === '') {
+          return;
+        }
+
+        invoke('copy_items', { paths }).then(() => {
+          setTimeout(() => handlePaste(), 100);
+        }).catch(err => {
+          console.error('Drag-Drop Copy Failed:', err);
+        });
+      }
+    };
+
+    const setupListeners = async () => {
+      const window = getCurrentWindow();
+
+      // Tauri v2 explicit Window Drag-Drop Event
+      const unlistenDragDrop = await window.onDragDropEvent((event) => {
+        console.log('%c[TAURI CORE EVENT]', 'color: #00ff00; font-weight: bold', event.payload.type, event.payload);
+
+        if (event.payload.type === 'drop') {
+          handleTauriDrop(event.payload.paths);
+        } else if (event.payload.type === 'enter') {
+          setIsDraggingOver(true);
+        } else if (event.payload.type === 'leave') {
+          setIsDraggingOver(false);
+        }
+      });
+
+      if (!active) {
+        unlistenDragDrop();
+        return;
+      }
+      unlistenFns.push(unlistenDragDrop);
+    };
+
+    setupListeners();
+
+    return () => {
+      active = false;
+      unlistenFns.forEach(async (fn) => {
+        const resolved = await fn;
+        if (typeof resolved === 'function') resolved();
+      });
+    };
+  }, [currentTab?.path, currentTab?.id, handlePaste]);
 
   const handleContextMenuAction = async (action: string, data?: any) => {
     if (!currentTab) return;
@@ -1123,7 +1231,7 @@ export default function App() {
 
 
 
-          <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg-surface)]">
+          <main className={`flex-1 flex flex-col min-w-0 bg-[var(--bg-surface)] transition-all duration-300 ${isDraggingOver ? 'ring-4 ring-inset ring-[var(--accent-primary)] ring-offset-4 ring-offset-[var(--bg-deep)] shadow-[inset_0_0_50px_rgba(var(--accent-rgb),0.3)]' : ''}`}>
             {/* Tab Bar */}
             <TabBar
               tabs={tabs}
@@ -1131,9 +1239,9 @@ export default function App() {
               onTabClick={switchTab}
               onTabClose={closeTab}
               onNewTab={() => addTab()}
-              onReorder={(reorderedTabs: Tab[]) => {
-                reorderTabs(reorderedTabs);
-              }}
+            /* onReorder={(reorderedTabs: Tab[]) => {
+              reorderTabs(reorderedTabs);
+            }} */
             />
 
             {/* Navigation Bar */}

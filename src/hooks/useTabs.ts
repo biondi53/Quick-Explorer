@@ -7,7 +7,7 @@ const normalizePath = (p: string) => {
     return p.toLowerCase().replace(/[\\/]+$/, '').replace(/\\/g, '/');
 };
 
-const createTab = (path: string = 'C:\\', defaultSort?: SortConfig): Tab => ({
+const createTab = (path: string = '', defaultSort?: SortConfig): Tab => ({
     id: crypto.randomUUID(),
     path,
     history: [path],
@@ -34,7 +34,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                 }));
             }
         } catch (e) { }
-        return [createTab('C:\\', initialSortConfig)];
+        return [createTab('', initialSortConfig)];
     });
 
     const [activeTabId, setActiveTabId] = useState<string>(() => {
@@ -119,6 +119,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             history: newHistory,
             historyIndex: newHistory.length - 1,
             searchQuery: '',
+            renamingPath: null,
         });
         loadFilesForTab(currentTab.id, path);
     }, [currentTab, updateTab, loadFilesForTab]);
@@ -163,7 +164,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         if (currentTab) loadFilesForTab(currentTab.id, currentTab.path);
     }, [currentTab, loadFilesForTab]);
 
-    const addTab = useCallback((path: string = 'C:\\', shouldFocus: boolean = true) => {
+    const addTab = useCallback((path: string = '', shouldFocus: boolean = true) => {
         const newTab = createTab(path, initialSortConfig);
         setTabs(prev => [...prev, newTab]);
         if (shouldFocus) {
@@ -221,7 +222,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         if (!currentTab) return;
         updateTab(currentTab.id, {
             selectedFiles: [],
-            lastSelectedFile: null
+            lastSelectedFile: null,
+            renamingPath: null
         });
     }, [currentTab, updateTab]);
 

@@ -1,6 +1,6 @@
-import { useMemo, memo } from 'react';
-import { File, Folder, Info, Eye, PlayCircle, Loader2 } from 'lucide-react';
-import { handleWindowDrag } from '../utils/windowDrag';
+import { useMemo, memo, useState, useCallback } from 'react';
+import { File, Folder, Info, Eye, PlayCircle, Loader2, Copy, Check } from 'lucide-react';
+
 import { useFilePreview } from '../hooks/useFilePreview';
 
 import { FileEntry } from '../types';
@@ -11,11 +11,23 @@ interface InfoPanelProps {
 }
 
 const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
+    const [copied, setCopied] = useState(false);
+
     // Memoize to prevent recalculation on every render
     const firstSelected = useMemo(() =>
         selectedFiles.length === 1 ? selectedFiles[0] : null,
         [selectedFiles]
     );
+
+    const copyToClipboard = useCallback(() => {
+        if (firstSelected?.path) {
+            navigator.clipboard.writeText(firstSelected.path);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    }, [firstSelected?.path]);
+
+    // ... (rest of useMemos and hooks)
 
     // Memoize file type determination
     const fileType = useMemo((): 'video' | 'image' | 'none' => {
@@ -29,7 +41,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
         return 'none';
     }, [firstSelected]);
 
-    const { previewUrl, isLoading, source } = useFilePreview(
+    const { previewUrl, isLoading, source, dimensions } = useFilePreview(
         firstSelected?.path || null,
         fileType,
         firstSelected?.modified_timestamp || 0
@@ -40,7 +52,6 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
             <aside
                 className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl items-center justify-center text-zinc-500 p-8 text-center"
                 style={{ width }}
-                onMouseDown={handleWindowDrag}
                 onContextMenu={(e) => e.preventDefault()}
             >
                 <Info size={48} className="opacity-10 mb-4" />
@@ -61,7 +72,6 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
             <aside
                 className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl h-full select-none"
                 style={{ width }}
-                onMouseDown={handleWindowDrag}
                 onContextMenu={(e) => e.preventDefault()}
             >
                 <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-transparent to-[var(--accent-primary)]/5">
@@ -84,12 +94,12 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
     }
 
     const selectedFile = selectedFiles[0];
+    const displayDimensions = selectedFile.dimensions || dimensions;
 
     return (
         <aside
             className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl h-full overflow-hidden select-none"
             style={{ width }}
-            onMouseDown={handleWindowDrag}
             onContextMenu={(e) => e.preventDefault()}
         >
             <div
@@ -101,39 +111,58 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                         <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Name</label>
                         <div className="text-sm font-bold text-zinc-100 break-all">{selectedFile.name}</div>
                     </div>
-                    <div className="space-y-1">
-                        <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Path</label>
-                        <div className="text-[10px] font-mono text-zinc-400 break-all p-3 bg-black/40 rounded-xl border border-white/10 shadow-inner leading-relaxed">
+                    <div className="space-y-1 group/path">
+                        <div className="flex items-center gap-2">
+                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Path</label>
+                            <button
+                                onClick={copyToClipboard}
+                                className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-[var(--accent-primary)] transition-all duration-200"
+                                title="Copy path"
+                            >
+                                {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                            </button>
+                        </div>
+                        <div
+                            onClick={copyToClipboard}
+                            className="text-[10px] font-mono text-zinc-400 break-all p-3 bg-black/40 rounded-xl border border-white/10 shadow-inner leading-relaxed cursor-pointer hover:border-[var(--accent-primary)]/30 transition-colors group-hover/path:text-zinc-300"
+                        >
                             {selectedFile.path}
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Type</label>
-                            <div className="text-xs text-zinc-100 font-bold flex items-center gap-2">
-                                <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" />
-                                {selectedFile.file_type}
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+                        {/* Left Column */}
+                        <div className="space-y-6">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Type</label>
+                                <div className="text-xs text-zinc-100 font-bold flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" />
+                                    {selectedFile.file_type}
+                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Created</label>
+                                <div className="text-xs text-zinc-100 font-bold">{selectedFile.created_at}</div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Modified</label>
+                                <div className="text-xs text-zinc-100 font-bold">{selectedFile.modified_at}</div>
                             </div>
                         </div>
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Size</label>
-                            <div className="text-xs text-white font-mono font-black">{selectedFile.formatted_size || '-'}</div>
-                        </div>
-                        {selectedFile.dimensions && (
-                            <div className="space-y-1 col-span-2">
-                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Dimensions</label>
-                                <div className="text-xs text-zinc-100 font-medium">{selectedFile.dimensions}</div>
+
+                        {/* Right Column */}
+                        <div className="space-y-6">
+                            <div className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Size</label>
+                                    <div className="text-xs text-white font-mono font-black">{selectedFile.formatted_size || '-'}</div>
+                                </div>
+                                {displayDimensions && (
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Dimensions</label>
+                                        <div className="text-xs text-zinc-100 font-medium">{displayDimensions}</div>
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 pt-4 border-t border-white/5">
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Created</label>
-                            <div className="text-xs text-zinc-300 font-medium">{selectedFile.created_at}</div>
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Modified</label>
-                            <div className="text-xs text-zinc-300 font-medium">{selectedFile.modified_at}</div>
                         </div>
                     </div>
                 </div>

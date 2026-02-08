@@ -7,6 +7,8 @@ import {
 import { getIconComponent } from '../utils/fileIcons';
 
 import { FileEntry, ClipboardInfo } from '../types';
+import { startDrag } from '@crabnebula/tauri-plugin-drag';
+import { resolveResource } from '@tauri-apps/api/path';
 
 interface FileGridProps {
     files: FileEntry[];
@@ -109,7 +111,8 @@ const cancelAllPending = () => {
 interface GridItemProps {
     file: FileEntry;
     isSelected: boolean;
-    onSelect: (file: FileEntry, event: React.MouseEvent) => void;
+    onMouseDown: (file: FileEntry, event: React.MouseEvent) => void;
+    onClick: (file: FileEntry, event: React.MouseEvent) => void;
     onOpen: (file: FileEntry) => void;
     onOpenInNewTab: (file: FileEntry) => void;
     onContextMenu: (e: React.MouseEvent, file: FileEntry | null) => void;
@@ -119,22 +122,25 @@ interface GridItemProps {
     isClipboardItem: boolean;
 }
 
-const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem }: GridItemProps) => {
+const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem }: GridItemProps) => {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [editValue, setEditValue] = useState("");
     const editInputRef = useRef<HTMLInputElement>(null);
     const requestedRef = useRef(false);
+    const submittingRef = useRef(false);
 
     useEffect(() => {
         // Reset on file change
         requestedRef.current = false;
+        submittingRef.current = false;
         setThumbnail(null);
         setLoading(false);
     }, [file.path, file.modified_timestamp]);
 
     useEffect(() => {
         if (isRenaming && editInputRef.current) {
+            submittingRef.current = false;
             setEditValue(file.name);
             const lastDot = file.name.lastIndexOf('.');
             const selectionEnd = (!file.is_dir && lastDot > 0) ? lastDot : file.name.length;
@@ -144,9 +150,9 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
                     editInputRef.current.focus();
                     editInputRef.current.setSelectionRange(0, selectionEnd);
                 }
-            }, 0);
+            }, 50);
         }
-    }, [isRenaming, file.name, file.is_dir]);
+    }, [isRenaming]); // Only trigger when isRenaming state changes
 
     useEffect(() => {
         if (requestedRef.current || thumbnail || !shouldLoadThumbnail(file)) return;
@@ -178,9 +184,14 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
                     : 'hover:bg-white/5'
                 }
             `}
-            onClick={(e) => onSelect(file, e)}
             onMouseDown={(e) => {
-                if (e.button === 1) e.preventDefault(); // Prevent autoscroll
+                if (e.button === 1) { e.preventDefault(); return; } // Prevent autoscroll
+                if (e.button !== 0) return;
+                onMouseDown(file, e);
+            }}
+            onClick={(e) => {
+                if (e.button !== 0) return;
+                onClick(file, e);
             }}
             onDoubleClick={() => onOpen(file)}
             onAuxClick={(e) => {
@@ -237,9 +248,15 @@ const GridItem = memo(({ file, isSelected, onSelect, onOpen, onOpenInNewTab, onC
                     className="mt-1 bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]/50 rounded px-1.5 py-0.5 text-[11px] text-white outline-none w-full text-center"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    onBlur={() => onRenameSubmit(file, editValue)}
+                    onBlur={() => {
+                        if (submittingRef.current) return;
+                        submittingRef.current = true;
+                        onRenameSubmit(file, editValue);
+                    }}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
+                            if (submittingRef.current) return;
+                            submittingRef.current = true;
                             onRenameSubmit(file, editValue);
                         } else if (e.key === 'Escape') {
                             onRenameCancel();
@@ -279,6 +296,20 @@ export default function FileGrid({
 }: FileGridProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
+    const [dragIconPath, setDragIconPath] = useState<string | null>(null);
+
+    useEffect(() => {
+        resolveResource('icons/32x32.png')
+            .then(path => {
+                console.log('[FileGrid] Resolved drag icon path:', path);
+                setDragIconPath(path);
+            })
+            .catch(err => {
+                console.error('[FileGrid] Failed to resolve drag icon:', err);
+                // Fallback attempt for development
+                setDragIconPath('icons/32x32.png');
+            });
+    }, []);
 
     const lastPathRef = useRef<string | null>(null);
     if (lastPathRef.current !== currentPath) {
@@ -334,31 +365,6 @@ export default function FileGrid({
         }
     }, [lastSelectedFile, files, columns, rowVirtualizer]);
 
-    const handleSelect = useCallback((file: FileEntry, event: React.MouseEvent) => {
-        event.stopPropagation();
-
-        if (event.ctrlKey || event.metaKey) {
-            const isSelected = selectedPaths.has(file.path);
-            if (isSelected) {
-                onSelectMultiple(selectedFiles.filter(f => f.path !== file.path), file);
-            } else {
-                onSelectMultiple([...selectedFiles, file], file);
-            }
-        } else if (event.shiftKey && lastSelectedFile) {
-            const lastIndex = files.findIndex(f => f.path === lastSelectedFile.path);
-            const currentIndex = files.findIndex(f => f.path === file.path);
-
-            if (lastIndex !== -1 && currentIndex !== -1) {
-                const start = Math.min(lastIndex, currentIndex);
-                const end = Math.max(lastIndex, currentIndex);
-                const range = files.slice(start, end + 1);
-                onSelectMultiple(range, file);
-            }
-        } else {
-            onSelectMultiple([file], file);
-        }
-    }, [selectedFiles, files, lastSelectedFile, onSelectMultiple, selectedPaths]);
-
     const handleContainerClick = useCallback((e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
             onClearSelection();
@@ -375,6 +381,99 @@ export default function FileGrid({
         const startIndex = rowIndex * columns;
         return files.slice(startIndex, startIndex + columns);
     }, [files, columns]);
+
+    const dragThresholdRef = useRef<{ x: number, y: number, paths: string[] } | null>(null);
+
+    // Native drag handler using manual threshold
+    const handleDragStart = useCallback((paths: string[]) => {
+        if (paths.length === 0) return;
+
+        console.log('[FileGrid] Starting drag for paths:', paths);
+        console.log('[FileGrid] Using icon path:', dragIconPath);
+
+        if (!dragIconPath) {
+            console.warn('[FileGrid] dragIconPath is null, skipping drag to avoid crash');
+            return;
+        }
+
+        // @ts-ignore - 'icon' is required in types.
+        startDrag({
+            item: paths,
+            icon: dragIconPath,
+            // @ts-ignore
+            mode: 'copy'
+        }).catch((err) => {
+            console.error('[FileGrid] Native drag failed:', err);
+        });
+    }, [dragIconPath]);
+
+    // Handler for mousedown on items - handles immediate selection and prepares drag
+    const handleItemMouseDown = useCallback((file: FileEntry, e: React.MouseEvent) => {
+        const isSelected = selectedPaths.has(file.path);
+
+        // If item is NOT selected, select it immediately (for visual feedback)
+        if (!isSelected && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+            onSelectMultiple([file], file);
+        } else if (!isSelected && (e.ctrlKey || e.metaKey)) {
+            onSelectMultiple([...selectedFiles, file], file);
+        } else if (!isSelected && e.shiftKey && lastSelectedFile) {
+            const lastIndex = files.findIndex(f => f.path === lastSelectedFile.path);
+            const currentIndex = files.findIndex(f => f.path === file.path);
+            if (lastIndex !== -1 && currentIndex !== -1) {
+                const start = Math.min(lastIndex, currentIndex);
+                const end = Math.max(lastIndex, currentIndex);
+                onSelectMultiple(files.slice(start, end + 1), lastSelectedFile);
+            }
+        }
+
+        // Prepare for potential drag
+        const pathsToDrag = (isSelected || e.ctrlKey || e.metaKey || e.shiftKey)
+            ? (isSelected ? Array.from(selectedPaths) : [...Array.from(selectedPaths), file.path])
+            : [file.path];
+
+        dragThresholdRef.current = { x: e.clientX, y: e.clientY, paths: pathsToDrag };
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+            if (!dragThresholdRef.current) return;
+            const dx = moveEvent.clientX - dragThresholdRef.current.x;
+            const dy = moveEvent.clientY - dragThresholdRef.current.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 5) { // 5px threshold
+                const finalPaths = dragThresholdRef.current.paths;
+                dragThresholdRef.current = null;
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+                handleDragStart(finalPaths);
+            }
+        };
+
+        const onMouseUp = () => {
+            dragThresholdRef.current = null;
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    }, [selectedPaths, selectedFiles, files, lastSelectedFile, onSelectMultiple, handleDragStart]);
+
+    // Handler for click on items - handles deselection logic for already-selected items
+    const handleItemClick = useCallback((file: FileEntry, e: React.MouseEvent) => {
+        const isSelected = selectedPaths.has(file.path);
+
+        // Handle click on an already-selected item (user released without dragging)
+        if (isSelected) {
+            if (e.ctrlKey || e.metaKey) {
+                // Ctrl+click on selected: remove from selection
+                onSelectMultiple(selectedFiles.filter(f => f.path !== file.path), lastSelectedFile);
+            } else if (!e.shiftKey) {
+                // Plain click on selected item in multi-selection: select only this item
+                onSelectMultiple([file], file);
+            }
+        }
+        // For unselected items, selection was already handled in onMouseDown
+    }, [selectedPaths, selectedFiles, lastSelectedFile, onSelectMultiple]);
 
     return (
         <div
@@ -483,7 +582,8 @@ export default function FileGrid({
                                     key={file.path}
                                     file={file}
                                     isSelected={selectedPaths.has(file.path)}
-                                    onSelect={handleSelect}
+                                    onMouseDown={handleItemMouseDown}
+                                    onClick={handleItemClick}
                                     onOpen={onOpen}
                                     onOpenInNewTab={onOpenInNewTab}
                                     onContextMenu={onContextMenu}

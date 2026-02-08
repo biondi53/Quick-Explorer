@@ -6,26 +6,33 @@ use serde::Serialize;
 use std::ffi::OsStr;
 use std::fs;
 use std::os::windows::ffi::OsStrExt;
+use std::sync::OnceLock;
 use std::time::SystemTime;
+use tauri::Emitter;
 use tauri::Manager;
-use window_vibrancy::apply_mica;
+// use window_vibrancy::apply_mica;
 use windows::core::{Interface, PCWSTR, PWSTR};
-use windows::Win32::Foundation::HANDLE;
+
+use windows::Win32::Foundation::PROPERTYKEY;
+use windows::Win32::Security::TOKEN_QUERY;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED, STGM};
 use windows::Win32::System::DataExchange::{
     EmptyClipboard, GetClipboardSequenceNumber, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::SystemServices::SFGAO_FLAGS;
 use windows::Win32::UI::Shell::{
-    BHID_EnumItems, FOLDERID_RecycleBinFolder, IEnumShellItems, IShellItem, IShellItemImageFactory,
-    SHCreateItemFromParsingName, SHEmptyRecycleBinW, SHFileOperationW, SHGetKnownFolderItem,
-    SHQueryRecycleBinW, FOF_ALLOWUNDO, FOF_MULTIDESTFILES, FOF_NOCONFIRMATION, FO_COPY, FO_DELETE,
-    FO_MOVE, FO_RENAME, KF_FLAG_DEFAULT, SHERB_NOCONFIRMATION, SHERB_NOSOUND, SHFILEOPSTRUCTW,
-    SHQUERYRBINFO, SIGDN_FILESYSPATH, SIGDN_NORMALDISPLAY, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
+    BHID_EnumItems, FOLDERID_RecycleBinFolder, IEnumShellItems, IShellItem, IShellItem2,
+    IShellItemImageFactory, SHCreateItemFromParsingName, SHEmptyRecycleBinW, SHFileOperationW,
+    SHGetKnownFolderItem, SHQueryRecycleBinW, FOF_ALLOWUNDO, FOF_MULTIDESTFILES,
+    FOF_NOCONFIRMATION, FO_COPY, FO_DELETE, FO_MOVE, FO_RENAME, KF_FLAG_DEFAULT,
+    SHERB_NOCONFIRMATION, SHERB_NOSOUND, SHFILEOPSTRUCTW, SHQUERYRBINFO, SIGDN_FILESYSPATH,
+    SIGDN_NORMALDISPLAY, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
 };
 
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+mod commands;
+
+static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 #[derive(Clone, Serialize)]
 struct ClipboardInfo {
@@ -67,24 +74,6 @@ struct FileEntry {
     disk_info: Option<DiskInfo>,
     modified_timestamp: i64,
     dimensions: Option<String>,
-}
-
-#[cfg(windows)]
-fn is_hidden(path: &std::path::Path) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    if let Ok(metadata) = std::fs::metadata(path) {
-        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
-        return (metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN) != 0;
-    }
-    false
-}
-
-#[cfg(not(windows))]
-fn is_hidden(path: &std::path::Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n.starts_with('.'))
-        .unwrap_or(false)
 }
 
 fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
@@ -137,15 +126,7 @@ fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     let modified_datetime: DateTime<Local> = modified_at.into();
     let modified_at_str = modified_datetime.format("%d/%m/%Y %H:%M").to_string();
 
-    let dimensions = if !is_dir
-        && ["jpg", "jpeg", "png", "webp", "bmp", "gif", "avif"].contains(&extension.as_str())
-    {
-        image::image_dimensions(path)
-            .ok()
-            .map(|(w, h)| format!("{}x{}", w, h))
-    } else {
-        None
-    };
+    let dimensions = None;
 
     Ok(FileEntry {
         name,
@@ -173,13 +154,10 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
     let now_str = datetime.format("%d/%m/%Y %H:%M").to_string();
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-
         let bin_item: IShellItem =
             match SHGetKnownFolderItem(&FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, None) {
                 Ok(i) => i,
                 Err(_) => {
-                    CoUninitialize();
                     return Err("Failed to get bin item".to_string());
                 }
             };
@@ -187,7 +165,6 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
         let enum_items: IEnumShellItems = match bin_item.BindToHandler(None, &BHID_EnumItems) {
             Ok(e) => e,
             Err(_) => {
-                CoUninitialize();
                 return Ok(files);
             }
         };
@@ -231,8 +208,6 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
                 });
             }
         }
-
-        CoUninitialize();
     }
 
     Ok(files)
@@ -314,7 +289,6 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
         let item: IShellItem = match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
             Ok(i) => i,
             Err(e) => {
-                CoUninitialize();
                 return Err(format!("Failed to access path: {}", e));
             }
         };
@@ -323,7 +297,6 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
         let enum_items: IEnumShellItems = match item.BindToHandler(None, &BHID_EnumItems) {
             Ok(e) => e,
             Err(e) => {
-                CoUninitialize();
                 // If we can't enumerate, it might truly be access denied or an empty folder.
                 return Err(format!("Access Denied or folder empty: {}", e));
             }
@@ -354,8 +327,13 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
 
                 let path_obj = std::path::Path::new(&full_path);
 
-                if !show_hidden && is_hidden(path_obj) {
-                    continue;
+                if !show_hidden {
+                    let hidden_flag = SFGAO_FLAGS(0x80000);
+                    if let Ok(attr) = child_item.GetAttributes(hidden_flag) {
+                        if (attr & hidden_flag) != SFGAO_FLAGS(0) {
+                            continue;
+                        }
+                    }
                 }
 
                 if let Ok(entry) = get_file_entry(path_obj) {
@@ -389,7 +367,19 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
         } else if !a.is_dir && b.is_dir {
             std::cmp::Ordering::Greater
         } else {
-            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+            // Case-insensitive comparison without full to_lowercase() allocation
+            // We use a simple char-by-char comparison which is much faster than full string conversion
+            let a_chars = a.name.chars();
+            let b_chars = b.name.chars();
+
+            for (ac, bc) in a_chars.zip(b_chars) {
+                let alc = ac.to_lowercase().next().unwrap();
+                let blc = bc.to_lowercase().next().unwrap();
+                if alc != blc {
+                    return alc.cmp(&blc);
+                }
+            }
+            a.name.len().cmp(&b.name.len())
         }
     });
 
@@ -408,7 +398,6 @@ fn show_item_properties(path: String) {
         use std::os::windows::ffi::OsStrExt;
         use windows::{
             core::PCWSTR,
-            Win32::Foundation::HWND,
             Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW},
         };
 
@@ -424,7 +413,7 @@ fn show_item_properties(path: String) {
         let mut info = SHELLEXECUTEINFOW {
             cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
             fMask: SEE_MASK_INVOKEIDLIST,
-            hwnd: HWND(std::ptr::null_mut()),
+            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
             lpVerb: PCWSTR(verb_wide.as_ptr()),
             lpFile: PCWSTR(path_wide.as_ptr()),
             nShow: 1,
@@ -470,7 +459,7 @@ fn create_folder(parent_path: String) -> Result<String, String> {
 
             unsafe {
                 let result = SHCreateDirectoryExW(
-                    windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+                    Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
                     PCWSTR(path_wide.as_ptr()),
                     None,
                 );
@@ -495,7 +484,6 @@ fn open_with(path: String) {
         use std::os::windows::ffi::OsStrExt;
         use windows::{
             core::PCWSTR,
-            Win32::Foundation::HWND,
             Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW},
         };
 
@@ -511,7 +499,7 @@ fn open_with(path: String) {
         let mut info = SHELLEXECUTEINFOW {
             cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
             fMask: SEE_MASK_INVOKEIDLIST,
-            hwnd: HWND(std::ptr::null_mut()),
+            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
             lpVerb: PCWSTR(verb_wide.as_ptr()),
             lpFile: PCWSTR(path_wide.as_ptr()),
             nShow: 1,
@@ -539,7 +527,7 @@ fn delete_item(path: String) -> Result<(), String> {
             pFrom: PCWSTR(from_wide.as_ptr()),
             pTo: PCWSTR(std::ptr::null()),
             fFlags: (FOF_ALLOWUNDO.0 as u16),
-            fAnyOperationsAborted: windows::Win32::Foundation::BOOL(0),
+            fAnyOperationsAborted: windows_core::BOOL(0),
             hNameMappings: std::ptr::null_mut(),
             lpszProgressTitle: PCWSTR(std::ptr::null()),
         };
@@ -590,7 +578,7 @@ fn rename_item(old_path: String, new_name: String) -> Result<(), String> {
             pFrom: PCWSTR(from_wide.as_ptr()),
             pTo: PCWSTR(to_wide.as_ptr()),
             fFlags: (FOF_ALLOWUNDO.0 as u16),
-            fAnyOperationsAborted: windows::Win32::Foundation::BOOL(0),
+            fAnyOperationsAborted: windows_core::BOOL(0),
             hNameMappings: std::ptr::null_mut(),
             lpszProgressTitle: PCWSTR(std::ptr::null()),
         };
@@ -640,7 +628,11 @@ fn set_file_drop(paths: Vec<String>, effect: u32) -> Result<(), String> {
         std::ptr::copy_nonoverlapping(buffer.as_ptr(), ptr as *mut u8, size);
         let _ = GlobalUnlock(h_global);
 
-        SetClipboardData(15, HANDLE(h_global.0 as *mut _)).map_err(|e| e.to_string())?;
+        SetClipboardData(
+            15,
+            Some(windows::Win32::Foundation::HANDLE(h_global.0 as *mut _)),
+        )
+        .map_err(|e: windows::core::Error| e.to_string())?;
     }
 
     let format_id = clipboard_win::register_format("Preferred DropEffect")
@@ -650,13 +642,17 @@ fn set_file_drop(paths: Vec<String>, effect: u32) -> Result<(), String> {
     let size_effect = effect_bytes.len();
 
     unsafe {
-        let h_global = GlobalAlloc(GMEM_MOVEABLE, size_effect).map_err(|e| e.to_string())?;
+        let h_global = GlobalAlloc(GMEM_MOVEABLE, size_effect)
+            .map_err(|e: windows::core::Error| e.to_string())?;
         let ptr = GlobalLock(h_global);
         std::ptr::copy_nonoverlapping(effect_bytes.as_ptr(), ptr as *mut u8, size_effect);
         let _ = GlobalUnlock(h_global);
 
-        SetClipboardData(format_id.get(), HANDLE(h_global.0 as *mut _))
-            .map_err(|e| e.to_string())?;
+        SetClipboardData(
+            format_id.get(),
+            Some(windows::Win32::Foundation::HANDLE(h_global.0 as *mut _)),
+        )
+        .map_err(|e: windows::core::Error| e.to_string())?;
     }
 
     Ok(())
@@ -697,14 +693,10 @@ fn open_terminal(path: String) -> Result<(), String> {
 fn resolve_shortcut(path: String) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitialize, IPersistFile, CLSCTX_INPROC_SERVER,
-        };
+        use windows::Win32::System::Com::{CoCreateInstance, IPersistFile, CLSCTX_INPROC_SERVER};
         use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
 
         unsafe {
-            let _ = CoInitialize(None);
-
             let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)
                 .map_err(|e| format!("CoCreateInstance failed: {}", e))?;
 
@@ -841,7 +833,7 @@ fn save_clipboard_image(target_path: String) -> Result<FileEntry, String> {
 
                             unsafe {
                                 let result = ShellExecuteW(
-                                    windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+                                    Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
                                     PCWSTR(verb_wide.as_ptr()),
                                     PCWSTR(file_wide.as_ptr()),
                                     PCWSTR(params_wide.as_ptr()),
@@ -925,7 +917,7 @@ fn paste_items(target_path: String) -> Result<Vec<String>, String> {
             pFrom: PCWSTR(from_wide.as_ptr()),
             pTo: PCWSTR(to_wide.as_ptr()),
             fFlags: (FOF_ALLOWUNDO.0 as u16) | (FOF_MULTIDESTFILES.0 as u16),
-            fAnyOperationsAborted: windows::Win32::Foundation::BOOL(0),
+            fAnyOperationsAborted: windows_core::BOOL(0),
             hNameMappings: std::ptr::null_mut(),
             lpszProgressTitle: PCWSTR(std::ptr::null()),
         };
@@ -941,17 +933,15 @@ fn paste_items(target_path: String) -> Result<Vec<String>, String> {
         for i in 0..10 {
             use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
 
-            unsafe {
-                if OpenClipboard(None).is_ok() {
-                    if EmptyClipboard().is_ok() {
-                        cleared = true;
-                    } else {
-                        println!("Failed to EmptyClipboard on attempt {}", i);
-                    }
-                    let _ = CloseClipboard();
+            if OpenClipboard(None).is_ok() {
+                if EmptyClipboard().is_ok() {
+                    cleared = true;
                 } else {
-                    println!("Failed to OpenClipboard on attempt {}", i);
+                    println!("Failed to EmptyClipboard on attempt {}", i);
                 }
+                let _ = CloseClipboard();
+            } else {
+                println!("Failed to OpenClipboard on attempt {}", i);
             }
 
             if cleared {
@@ -965,6 +955,63 @@ fn paste_items(target_path: String) -> Result<Vec<String>, String> {
         }
     }
     Ok(pasted_paths)
+}
+
+/// Handle files dropped from external applications (Windows Explorer, etc.)
+/// This bypasses clipboard and directly copies files to the target directory.
+#[tauri::command]
+fn drop_items(files: Vec<String>, target_path: String) -> Result<Vec<String>, String> {
+    println!(
+        "DEBUG: drop_items called with files: {:?} target: {}",
+        files, target_path
+    );
+    if files.is_empty() {
+        return Err("No files to drop".into());
+    }
+
+    let mut from_wide: Vec<u16> = Vec::new();
+    let mut to_wide: Vec<u16> = Vec::new();
+    let mut copied_paths: Vec<String> = Vec::new();
+
+    for f in &files {
+        from_wide.extend(OsStr::new(f).encode_wide());
+        from_wide.push(0);
+
+        let path_obj = std::path::Path::new(f);
+        let filename = path_obj
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_else(|| "unknown".into());
+
+        // Calculate unique destination path to avoid overwrite
+        let dest_path_buf = get_next_available_path(&target_path, &filename);
+        let dest_path_str = dest_path_buf.to_string_lossy().to_string();
+        copied_paths.push(dest_path_str.clone());
+
+        to_wide.extend(dest_path_buf.as_os_str().encode_wide());
+        to_wide.push(0);
+    }
+    from_wide.push(0); // Double null termination
+    to_wide.push(0); // Double null termination
+
+    unsafe {
+        let mut file_op = SHFILEOPSTRUCTW {
+            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+            wFunc: FO_COPY,
+            pFrom: PCWSTR(from_wide.as_ptr()),
+            pTo: PCWSTR(to_wide.as_ptr()),
+            fFlags: (FOF_ALLOWUNDO.0 as u16) | (FOF_MULTIDESTFILES.0 as u16),
+            fAnyOperationsAborted: windows_core::BOOL(0),
+            hNameMappings: std::ptr::null_mut(),
+            lpszProgressTitle: PCWSTR(std::ptr::null()),
+        };
+
+        let result = SHFileOperationW(&mut file_op);
+        if result != 0 {
+            return Err(format!("Windows Copy failed with code: {}", result));
+        }
+    }
+    Ok(copied_paths)
 }
 
 #[tauri::command]
@@ -991,7 +1038,7 @@ fn move_items(paths: Vec<String>, target_path: String) -> Result<(), String> {
             pFrom: PCWSTR(from_wide.as_ptr()),
             pTo: PCWSTR(to_wide.as_ptr()),
             fFlags: (FOF_ALLOWUNDO.0 as u16),
-            fAnyOperationsAborted: windows::Win32::Foundation::BOOL(0),
+            fAnyOperationsAborted: windows_core::BOOL(0),
             hNameMappings: std::ptr::null_mut(),
             lpszProgressTitle: PCWSTR(std::ptr::null()),
         };
@@ -1032,7 +1079,7 @@ fn delete_items(paths: Vec<String>, silent: bool) -> Result<(), String> {
             pFrom: PCWSTR(from_wide.as_ptr()),
             pTo: PCWSTR(std::ptr::null()),
             fFlags: flags,
-            fAnyOperationsAborted: windows::Win32::Foundation::BOOL(0),
+            fAnyOperationsAborted: windows_core::BOOL(0),
             hNameMappings: std::ptr::null_mut(),
             lpszProgressTitle: PCWSTR(std::ptr::null()),
         };
@@ -1049,6 +1096,7 @@ fn delete_items(paths: Vec<String>, silent: bool) -> Result<(), String> {
 struct ThumbnailResult {
     data: String,
     source: String, // "native" or "ffmpeg"
+    dimensions: Option<String>,
 }
 
 struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, ThumbnailResult>>);
@@ -1075,12 +1123,58 @@ async fn get_video_thumbnail(
             .await
             .map_err(|e| format!("Task join error: {}", e))?;
 
-    if let Ok(data_uri) = native_res {
+    if let Ok((data_uri, native_dims)) = native_res {
         // IMPORTANT: Shell API for videos sometimes returns a generic icon if thumbnail is not ready
         // But for SpeedExplorer, we'll trust it for now as it's the fastest way.
+
+        // If native dimensions are missing, try FFmpeg probe
+        let final_dims = if native_dims.is_some() {
+            native_dims
+        } else {
+            // Quick probe
+            // Allow this to be blocking or async? spawn_blocking above finished.
+            // We are in async fn.
+            let p = path.clone();
+            tokio::task::spawn_blocking(move || {
+                let output = std::process::Command::new("ffmpeg")
+                    .args(&["-i", &p])
+                    .output()
+                    .ok()?;
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if let Some(v_idx) = stderr.find("Video:") {
+                    let sub = &stderr[v_idx..]; // Read from Video: ...
+                                                // Look for pattern like " 1920x1080 " or ", 1920x1080"
+                                                // Heuristic: find number x number
+                    let parts: Vec<&str> = sub.split(',').collect();
+                    for part in parts {
+                        let part = part.trim();
+                        // Check for digits x digits
+                        if let Some(x_idx) = part.find('x') {
+                            if x_idx > 0 && x_idx < part.len() - 1 {
+                                let w_str = &part[0..x_idx];
+                                let h_str = &part[x_idx + 1..];
+                                // strip potential extra chars (like " [SAR..")
+                                let h_str_clean = h_str.split_whitespace().next().unwrap_or(h_str);
+
+                                if w_str.chars().all(char::is_numeric)
+                                    && h_str_clean.chars().all(char::is_numeric)
+                                {
+                                    return Some(format!("{}x{}", w_str, h_str_clean));
+                                }
+                            }
+                        }
+                    }
+                }
+                None
+            })
+            .await
+            .unwrap_or(None)
+        };
+
         let result = ThumbnailResult {
             data: data_uri,
             source: "native".to_string(),
+            dimensions: final_dims,
         };
         let mut cache = state.0.lock().unwrap();
         cache.put(cache_key, result.clone());
@@ -1121,6 +1215,10 @@ async fn get_video_thumbnail(
     let result = ThumbnailResult {
         data: data_uri,
         source: "ffmpeg".to_string(),
+        dimensions: None, // Logic for ffmpeg thumbnail dimensions extraction could go here separately if needed,
+                          // but usually if Shell failed, we might rely on listing or just show none.
+                          // Or we could run the probe above here too?
+                          // For now, let's leave None to save CPU, unless user complains about FFmpeg-fallback files lacking info.
     };
 
     {
@@ -1131,11 +1229,11 @@ async fn get_video_thumbnail(
     Ok(result)
 }
 
-fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
+fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<String>), String> {
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, SelectObject, BITMAP,
-        BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP,
     };
 
     unsafe {
@@ -1146,7 +1244,7 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
             .chain(std::iter::once(0))
             .collect();
 
-        let shell_item: IShellItemImageFactory =
+        let shell_item: IShellItem2 =
             match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
                 Ok(si) => si,
                 Err(_) => {
@@ -1155,29 +1253,78 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
                 }
             };
 
+        // Extract dimensions
+        let mut dimensions_out = None;
+        // PKEY_Video_FrameWidth: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 3
+        let k_width = PROPERTYKEY {
+            fmtid: windows::core::GUID::from_values(
+                0x64440489,
+                0x4C8E,
+                0x11D1,
+                [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+            ),
+            pid: 3,
+        };
+        // PKEY_Video_FrameHeight: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 4
+        let k_height = PROPERTYKEY {
+            fmtid: windows::core::GUID::from_values(
+                0x64440489,
+                0x4C8E,
+                0x11D1,
+                [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+            ),
+            pid: 4,
+        };
+
+        if let (Ok(w), Ok(h)) = (
+            shell_item.GetUInt32(&k_width),
+            shell_item.GetUInt32(&k_height),
+        ) {
+            if w > 0 && h > 0 {
+                dimensions_out = Some(format!("{}x{}", w, h));
+            }
+        }
+
+        // Fallback: If Shell didn't give us dimensions, try the image crate (slower but works for more formats)
+        // Since we are running in a blocking task, this is acceptable.
+        if dimensions_out.is_none() {
+            if let Ok((w, h)) = image::image_dimensions(path) {
+                dimensions_out = Some(format!("{}x{}", w, h));
+            }
+        }
+
+        let image_factory: IShellItemImageFactory = match shell_item.cast() {
+            Ok(f) => f,
+            Err(_) => {
+                CoUninitialize();
+                return Err("Failed to cast to ImageFactory".to_string());
+            }
+        };
+
         let thumb_size = SIZE {
             cx: size as i32,
             cy: size as i32,
         };
 
-        let hbitmap = if let Ok(h) = shell_item.GetImage(thumb_size, SIIGBF_THUMBNAILONLY) {
-            h
-        } else if let Ok(h) = shell_item.GetImage(thumb_size, SIIGBF_ICONONLY) {
-            h
-        } else {
-            CoUninitialize();
-            return Err("Failed to get image".to_string());
-        };
+        let hbitmap: HBITMAP =
+            if let Ok(h) = image_factory.GetImage(thumb_size, SIIGBF_THUMBNAILONLY) {
+                h
+            } else if let Ok(h) = image_factory.GetImage(thumb_size, SIIGBF_ICONONLY) {
+                h
+            } else {
+                CoUninitialize();
+                return Err("Failed to get image".to_string());
+            };
 
         let mut bmp = BITMAP::default();
         let result = GetObjectW(
-            hbitmap,
+            hbitmap.into(),
             std::mem::size_of::<BITMAP>() as i32,
             Some(&mut bmp as *mut _ as *mut _),
         );
 
         if result == 0 {
-            let _ = DeleteObject(hbitmap);
+            let _ = DeleteObject(hbitmap.into());
             CoUninitialize();
             return Err("Failed to get bitmap info".to_string());
         }
@@ -1186,7 +1333,7 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
         let height = bmp.bmHeight as u32;
 
         let hdc = CreateCompatibleDC(None);
-        let old_bitmap = SelectObject(hdc, hbitmap);
+        let old_bitmap = SelectObject(hdc, hbitmap.into());
 
         let mut bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -1204,7 +1351,7 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
         let mut pixels = vec![0u8; (width * height * 4) as usize];
         GetDIBits(
             hdc,
-            hbitmap,
+            hbitmap.into(),
             0,
             height,
             Some(pixels.as_mut_ptr() as *mut _),
@@ -1214,7 +1361,7 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
 
         SelectObject(hdc, old_bitmap);
         let _ = DeleteDC(hdc);
-        let _ = DeleteObject(hbitmap);
+        let _ = DeleteObject(hbitmap.into());
         CoUninitialize();
 
         for chunk in pixels.chunks_exact_mut(4) {
@@ -1230,7 +1377,10 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<String, String> {
             .map_err(|e| format!("Failed to encode image: {}", e))?;
 
         let base64_data = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-        Ok(format!("data:image/jpeg;base64,{}", base64_data))
+        Ok((
+            format!("data:image/jpeg;base64,{}", base64_data),
+            dimensions_out,
+        ))
     }
 }
 
@@ -1256,8 +1406,9 @@ async fn get_thumbnail(
         .map_err(|e| format!("Task join error: {}", e))??;
 
     let result = ThumbnailResult {
-        data: data_uri,
+        data: data_uri.0,
         source: "native".to_string(),
+        dimensions: data_uri.1,
     };
 
     {
@@ -1383,7 +1534,7 @@ fn get_clipboard_info(state: tauri::State<'_, ClipboardCache>) -> Result<Clipboa
 
             if ["png", "jpg", "jpeg", "bmp", "webp", "gif"].contains(&ext.as_str()) {
                 // Use shell thumbnail (fast, uses Windows cache) instead of image::open
-                if let Ok(data_uri) = generate_shell_thumbnail(&paths[0], 1200) {
+                if let Ok((data_uri, _)) = generate_shell_thumbnail(&paths[0], 1200) {
                     info.has_image = true;
                     info.image_data = Some(data_uri);
                 }
@@ -1466,6 +1617,126 @@ fn get_clipboard_info(state: tauri::State<'_, ClipboardCache>) -> Result<Clipboa
 }
 
 #[tauri::command]
+async fn check_diagnostics() -> serde_json::Value {
+    let mut is_admin = false;
+    let mut integrity_level = "Unknown".to_string();
+
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::Security::{
+            GetTokenInformation, TokenElevation, TokenIntegrityLevel, TOKEN_ELEVATION,
+            TOKEN_MANDATORY_LABEL,
+        };
+        use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+        let mut token = windows::Win32::Foundation::HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_ok() {
+            let mut elevation = TOKEN_ELEVATION::default();
+            let mut size = 0;
+            if GetTokenInformation(
+                token,
+                TokenElevation,
+                Some(&mut elevation as *mut _ as *mut _),
+                std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+                &mut size,
+            )
+            .is_ok()
+            {
+                is_admin = elevation.TokenIsElevated != 0;
+            }
+
+            let mut info_size = 0;
+            let _ = GetTokenInformation(token, TokenIntegrityLevel, None, 0, &mut info_size);
+            if info_size > 0 {
+                let mut buffer = vec![0u8; info_size as usize];
+                if GetTokenInformation(
+                    token,
+                    TokenIntegrityLevel,
+                    Some(buffer.as_mut_ptr() as *mut _),
+                    info_size,
+                    &mut info_size,
+                )
+                .is_ok()
+                {
+                    let p_label = &*(buffer.as_ptr() as *const TOKEN_MANDATORY_LABEL);
+                    let sid = p_label.Label.Sid;
+                    let sub_auth_count = *windows::Win32::Security::GetSidSubAuthorityCount(sid);
+                    let rid = *windows::Win32::Security::GetSidSubAuthority(
+                        sid,
+                        (sub_auth_count - 1) as u32,
+                    );
+                    integrity_level = format!("RID: 0x{:x}", rid);
+                }
+            }
+            let _ = CloseHandle(token);
+        }
+    }
+
+    let result = serde_json::json!({
+        "is_admin": is_admin,
+        "integrity_level": integrity_level,
+        "os": "windows"
+    });
+    result
+}
+
+#[tauri::command]
+async fn debug_window_hierarchy(window: tauri::Window) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::{HWND, LPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            EnumChildWindows, GetClassNameW, GetWindowLongW, GWL_EXSTYLE, GWL_STYLE,
+        };
+        use windows_core::BOOL;
+
+        let main_hwnd = window.hwnd().unwrap();
+        let whwnd = windows::Win32::Foundation::HWND(main_hwnd.0 as *mut _);
+
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let results = &mut *(lparam.0 as *mut Vec<serde_json::Value>);
+
+            let mut class_name = [0u16; 256];
+            let len = GetClassNameW(hwnd, &mut class_name);
+            let class_str = String::from_utf16_lossy(&class_name[..len as usize]);
+
+            let style = GetWindowLongW(hwnd, GWL_STYLE);
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+
+            let visible = (style as u32 & 0x10000000) != 0;
+            let enabled = (style as u32 & 0x08000000) == 0;
+
+            let entry = serde_json::json!({
+                "hwnd": format!("{:?}", hwnd),
+                "class": class_str,
+                "style": format!("{:08x}", style),
+                "ex_style": format!("{:08x}", ex_style),
+                "visible": visible,
+                "enabled": enabled,
+                "accept_files": (ex_style as u32 & 0x10) != 0
+            });
+
+            // Removed legacy forced drag-accept to allow OLE (Tauri) to work.
+
+            results.push(entry);
+
+            BOOL::from(true)
+        }
+
+        unsafe {
+            let _ = EnumChildWindows(
+                Some(whwnd),
+                Some(enum_proc),
+                LPARAM(&mut results as *mut _ as isize),
+            );
+        }
+    }
+    results
+}
+
+#[tauri::command]
 fn get_recycle_bin_status() -> Result<RecycleBinStatus, String> {
     unsafe {
         let mut info = SHQUERYRBINFO {
@@ -1489,8 +1760,8 @@ fn empty_recycle_bin() -> Result<(), String> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let result = SHEmptyRecycleBinW(
-            windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            PCWSTR(std::ptr::null()),
+            Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
+            None,
             SHERB_NOCONFIRMATION | SHERB_NOSOUND,
         );
         CoUninitialize();
@@ -1502,6 +1773,8 @@ fn empty_recycle_bin() -> Result<(), String> {
     Ok(())
 }
 
+/// Window subclass procedure to intercept WM_DROPFILES for legacy drop handling
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1509,17 +1782,67 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(ThumbnailCache(std::sync::Mutex::new(lru::LruCache::new(
             std::num::NonZeroUsize::new(500).unwrap(),
         ))))
         .manage(ClipboardCache(std::sync::Mutex::new(None)))
         .setup(|app| {
+            let _ = APP_HANDLE.set(app.handle().clone());
             let window = app.get_webview_window("main").unwrap();
+            let window_clone = window.clone();
+
+            // RUST-SIDE EVENT TRACKER (Tauri v2 Core)
+            window.on_window_event(move |event| {
+                // Match Tauri's native DragDrop event (works cross-process via OLE)
+                if let tauri::WindowEvent::DragDrop(ev) = event {
+                    match ev {
+                        tauri::DragDropEvent::Drop { paths, .. } => {
+                            // Convert paths to Vec<String>
+                            let file_paths: Vec<String> = paths
+                                .iter()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .collect();
+
+                            println!(
+                                "!!! [RUST BRIDGE] Forwarding {} paths to frontend",
+                                file_paths.len()
+                            );
+
+                            // Emit to frontend (bridging the gap)
+                            let _ = window_clone
+                                .emit("app:drop", serde_json::json!({ "paths": file_paths }));
+                        }
+                        _ => {}
+                    }
+                }
+            });
+
             #[cfg(target_os = "windows")]
             {
-                let _ = apply_mica(&window, None);
+                let hwnd = window.hwnd().unwrap();
+                let whwnd = windows::Win32::Foundation::HWND(hwnd.0 as *mut _);
 
-                // Disable system menu via Style (First layer)
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, GWL_STYLE, WS_DISABLED,
+                    WS_EX_LAYERED, WS_EX_TRANSPARENT,
+                };
+
+                unsafe {
+                    let ex_style = GetWindowLongW(whwnd, GWL_EXSTYLE);
+                    let style = GetWindowLongW(whwnd, GWL_STYLE);
+
+                    // Remove styles that could interfere with OLE
+                    let mut new_ex_style = ex_style as u32;
+                    new_ex_style &= !(WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0);
+                    if new_ex_style != ex_style as u32 {
+                        let _ = SetWindowLongW(whwnd, GWL_EXSTYLE, new_ex_style as i32);
+                    }
+
+                    if (style as u32 & WS_DISABLED.0) != 0 {
+                        let _ = SetWindowLongW(whwnd, GWL_STYLE, style & !(WS_DISABLED.0 as i32));
+                    }
+                }
             }
             Ok(())
         })
@@ -1535,6 +1858,7 @@ pub fn run() {
             copy_items,
             cut_items,
             paste_items,
+            drop_items,
             move_items,
             get_clipboard_info,
             delete_items,
@@ -1545,7 +1869,9 @@ pub fn run() {
             open_terminal,
             resolve_shortcut,
             empty_recycle_bin,
-            get_recycle_bin_status
+            get_recycle_bin_status,
+            check_diagnostics,
+            debug_window_hierarchy
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

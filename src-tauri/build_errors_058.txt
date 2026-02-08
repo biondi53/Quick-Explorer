@@ -1,0 +1,124 @@
+﻿cargo :     Checking d-speedexplorer v0.1.7 (D:\SpeedExplorer\src-tauri)
+En línea: 1 Carácter: 1
++ cargo check 2>&1 | Out-File -FilePath build_errors_058.txt -Encoding  ...
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Checking d-...orer\src-tauri):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+error[E0432]: unresolved import `windows::Win32::System::Com::IDataObject_Impl`
+ --> src\drag_drop.rs:7:63
+  |
+7 |     CoInitializeEx, CoUninitialize, IAdviseSink, IDataObject, IDataObject_Impl, IEnumFORMATETC,
+  |                                                               ^^^^^^^^^^^^^^^^
+  |                                                               |
+  |                                                               no `IDataObject_Impl` in `Win32::System::Com`
+  |                                                               help: a similar name exists in the module: `IDataObject_Vtbl`
+
+error[E0432]: unresolved import `windows::Win32::System::Ole::IDropSource_Impl`
+  --> src\drag_drop.rs:15:30
+   |
+15 |     DoDragDrop, IDropSource, IDropSource_Impl, ReleaseStgMedium, CF_HDROP, DROPEFFECT,
+   |                              ^^^^^^^^^^^^^^^^
+   |                              |
+   |                              no `IDropSource_Impl` in `Win32::System::Ole`
+   |                              help: a similar name exists in the module: `IDropSource_Vtbl`
+
+error[E0432]: unresolved import `windows_core::BOOL`
+  --> src\drag_drop.rs:19:39
+   |
+19 | use windows_core::{implement, Result, BOOL, GUID, HRESULT, PCWSTR, PWSTR};
+   |                                       ^^^^ no `BOOL` in the root
+   |
+   = help: consider importing this type alias instead:
+           clipboard_win::types::BOOL
+
+error[E0412]: cannot find type `MODIFIERKEYS_FLAGS` in module `windows::Win32::System::Ole`
+   --> src\drag_drop.rs:153:51
+    |
+153 |         grfkeystate: windows::Win32::System::Ole::MODIFIERKEYS_FLAGS,
+    |                                                   ^^^^^^^^^^^^^^^^^^ not found in `windows::Win32::System::Ole`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `BOOL` in crate `windows_core`
+   --> src\lib.rs:544:50
+    |
+544 |             fAnyOperationsAborted: windows_core::BOOL(0),
+    |                                                  ^^^^ not found in `windows_core`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `BOOL` in crate `windows_core`
+   --> src\lib.rs:595:50
+    |
+595 |             fAnyOperationsAborted: windows_core::BOOL(0),
+    |                                                  ^^^^ not found in `windows_core`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `BOOL` in crate `windows_core`
+   --> src\lib.rs:930:50
+    |
+930 |             fAnyOperationsAborted: windows_core::BOOL(0),
+    |                                                  ^^^^ not found in `windows_core`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `BOOL` in crate `windows_core`
+   --> src\lib.rs:996:50
+    |
+996 |             fAnyOperationsAborted: windows_core::BOOL(0),
+    |                                                  ^^^^ not found in `windows_core`
+
+error[E0425]: cannot find function, tuple struct or tuple variant `BOOL` in crate `windows_core`
+    --> src\lib.rs:1037:50
+     |
+1037 |             fAnyOperationsAborted: windows_core::BOOL(0),
+     |                                                  ^^^^ not found in `windows_core`
+
+warning: unused import: `std::ffi::c_void`
+ --> src\drag_drop.rs:1:5
+  |
+1 | use std::ffi::c_void;
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `AtomicU32` and `Ordering`
+ --> src\drag_drop.rs:2:25
+  |
+2 | use std::sync::atomic::{AtomicU32, Ordering};
+  |                         ^^^^^^^^^  ^^^^^^^^
+
+warning: unused imports: `HWND` and `POINT`
+ --> src\drag_drop.rs:4:52
+  |
+4 |     DRAGDROP_S_CANCEL, DRAGDROP_S_DROP, E_NOTIMPL, HWND, POINT, S_FALSE, S_OK,
+  |                                                    ^^^^  ^^^^^
+
+warning: unused import: `ReleaseStgMedium`
+  --> src\drag_drop.rs:15:48
+   |
+15 |     DoDragDrop, IDropSource, IDropSource_Impl, ReleaseStgMedium, CF_HDROP, DROPEFFECT,
+   |                                                ^^^^^^^^^^^^^^^^
+
+warning: unused import: `DragQueryFileW`
+  --> src\drag_drop.rs:18:33
+   |
+18 | use windows::Win32::UI::Shell::{DragQueryFileW, DROPFILES};
+   |                                 ^^^^^^^^^^^^^^
+
+warning: unused imports: `GUID`, `PCWSTR`, and `PWSTR`
+  --> src\drag_drop.rs:19:45
+   |
+19 | use windows_core::{implement, Result, BOOL, GUID, HRESULT, PCWSTR, PWSTR};
+   |                                             ^^^^           ^^^^^^  ^^^^^
+
+warning: unused import: `Win32::Foundation::HWND`
+   --> src\lib.rs:413:13
+    |
+413 |             Win32::Foundation::HWND,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Win32::Foundation::HWND`
+   --> src\lib.rs:500:13
+    |
+500 |             Win32::Foundation::HWND,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+
+Some errors have detailed explanations: E0412, E0425, E0432.
+For more information about an error, try `rustc --explain E0412`.
+warning: `d-speedexplorer` (lib) generated 8 warnings
+error: could not compile `d-speedexplorer` (lib) due to 9 previous errors; 8 warnings emitted

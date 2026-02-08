@@ -1,3 +1,28 @@
+# 🚀 Quick Explorer v0.1.8
+*Changelog - 7 de Febrero, 2026*
+
+## ✨ Nuevas Funcionalidades
+
+### 📝 Mejoras en Renombrado
+- **Selección Inteligente**: Al renombrar, se selecciona automáticamente el nombre del archivo sin la extensión, facilitando la edición rápida.
+- **Enfoque Automático**: El campo de texto recibe el foco y la selección al instante tanto en vista de lista como de cuadrícula.
+
+### 🖼️ Preview Panel Mejorado
+- **Refresco en Caliente**: Ahora el panel de vista previa actualiza correctamente las imágenes y videos después de ser modificados o sobreescritos.
+
+## 🐛 Correcciones de Errores
+
+- **Estabilidad de Arrastre (DnD)**: Solucionado un error crítico (`STATUS_ACCESS_VIOLATION`) que cerraba la aplicación al arrastrar archivos en Windows.
+- **Sincronización de Arrastre**: Mejorado el timing de inicio del arrastre para evitar conflictos con la selección del navegador.
+- **Corrección de Solapamiento**: Solucionado el problema donde las pestañas se encimaban al redimensionar la ventana o tener muchas abiertas.
+- **Trunked Text**: Los nombres de las pestañas ahora se cortan correctamente con puntos suspensivos (...) preservando la legibilidad.
+- **Nombres "Pegajosos"**: El campo de renombrado ahora se cierra correctamente al navegar o limpiar la selección.
+- **Auto-búsqueda Inteligente**: La búsqueda automática al teclear ya no interfiere cuando estás editando nombres o rutas.
+- **Doble Llamada en Rename**: Corregido el error que intentaba renombrar un archivo dos veces al presionar Enter.
+- **Arrastre Externo**: Restaurada la funcionalidad para arrastrar archivos hacia afuera de la aplicación.
+
+---
+
 # 🚀 Quick Explorer v0.1.7
 *Changelog - 30 de Enero, 2026*
 
@@ -37,4 +62,4 @@
 - **Colores Consistentes**: Las pestañas mantienen su color original durante el arrastre.
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.7*
+*Quick Explorer Project © 2026 - Versión 0.1.8*

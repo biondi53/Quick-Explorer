@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useMemo, memo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronUp, ChevronDown, Check } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 
 import { FileEntry, ClipboardInfo } from '../types';
+import { startDrag } from '@crabnebula/tauri-plugin-drag';
+import { resolveResource } from '@tauri-apps/api/path';
 
 type SortColumn = 'name' | 'modified_at' | 'created_at' | 'file_type' | 'size';
 type SortDirection = 'asc' | 'desc';
@@ -35,8 +38,6 @@ interface FileTableProps {
 }
 
 const ITEM_HEIGHT = 42;
-const HEADER_HEIGHT = 44;
-const BUFFER_ITEMS = 40;
 
 const COLUMN_CONFIG: Record<SortColumn, { label: string, width: string, minWidth?: string, align?: 'left' | 'right' }> = {
     name: { label: 'Name', width: '1fr' },
@@ -110,12 +111,66 @@ const FileTable = memo(({
     clipboardInfo
 }: FileTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const [renderWindow, setRenderWindow] = useState({ start: 0, end: BUFFER_ITEMS * 2, translateY: 0 });
     const [editValue, setEditValue] = useState("");
     const editInputRef = useRef<HTMLInputElement>(null);
-    const [containerHeight, setContainerHeight] = useState(800);
     const autoFocusRef = useRef(false);
+    const submittingRef = useRef(false);
     const [headerMenu, setHeaderMenu] = useState<{ x: number, y: number } | null>(null);
+    const [dragIconPath, setDragIconPath] = useState<string | null>(null);
+
+    useEffect(() => {
+        resolveResource('icons/32x32.png')
+            .then(path => {
+                console.log('[FileTable] Resolved drag icon path:', path);
+                setDragIconPath(path);
+            })
+            .catch(err => {
+                console.error('[FileTable] Failed to resolve drag icon:', err);
+                // Fallback attempt for development
+                setDragIconPath('icons/32x32.png');
+            });
+    }, []);
+
+    // Native drag support
+    const dragThresholdRef = useRef<{ x: number, y: number, paths: string[] } | null>(null);
+
+    const selectedPaths = useMemo(() => {
+        return new Set(selectedFiles.map(f => f.path));
+    }, [selectedFiles]);
+
+    const handleDragStart = (paths: string[]) => {
+        if (paths.length === 0) return;
+
+        console.log('[FileTable] Starting drag for paths:', paths);
+        console.log('[FileTable] Using icon path:', dragIconPath);
+
+        // If we don't have a valid image icon yet, and paths[0] is not a dir, we can try paths[0]
+        // But to be 100% safe from the crash, if dragIconPath is null, we should probably 
+        // use a string path that we KNOW exists and is an image, or just skip drag initiation
+        // until we have the icon.
+        if (!dragIconPath) {
+            console.warn('[FileTable] dragIconPath is null, delaying or skipping drag to avoid crash');
+            return;
+        }
+
+        // @ts-ignore - 'icon' is required in types.
+        startDrag({
+            item: paths,
+            icon: dragIconPath,
+            // @ts-ignore
+            mode: 'copy'
+        }).catch((err) => {
+            console.error('[FileTable] Native drag failed:', err);
+        });
+    };
+
+    // useVirtualizer for row virtualization
+    const rowVirtualizer = useVirtualizer({
+        count: files.length,
+        getScrollElement: () => containerRef.current,
+        estimateSize: () => ITEM_HEIGHT,
+        overscan: 20,
+    });
 
     // Calculate grid template
     const gridTemplate = useMemo(() => {
@@ -229,110 +284,36 @@ const FileTable = memo(({
         }
     }, [files]);
 
-    // RESET SCROLL AND WINDOW ON PATH CHANGE
+    // RESET SCROLL ON PATH CHANGE
     useEffect(() => {
         if (containerRef.current) {
             containerRef.current.scrollTop = 0;
-            updateWindowImmediate(0, containerHeight);
         }
-    }, [currentPath]);
+        rowVirtualizer.scrollToOffset(0);
+        submittingRef.current = false;
+    }, [currentPath, rowVirtualizer]);
 
-    // SYNC WINDOW ON FILES OR HEIGHT CHANGE
+    // Reset submitting ref when renaming path changes
     useEffect(() => {
-        if (containerRef.current) {
-            const scrollTop = containerRef.current.scrollTop;
-            updateWindowImmediate(scrollTop, containerHeight);
-        }
-    }, [containerHeight, files]);
+        submittingRef.current = false;
+        if (renamingPath) {
+            const fileToRename = files.find(f => f.path === renamingPath);
+            if (fileToRename) {
+                setEditValue(fileToRename.name);
+                const lastDot = fileToRename.name.lastIndexOf('.');
+                const selectionEnd = (!fileToRename.is_dir && lastDot > 0) ? lastDot : fileToRename.name.length;
 
-    const rafRef = useRef<number | null>(null);
-    const pendingScrollRef = useRef<{ scrollTop: number, height: number } | null>(null);
-
-    const updateWindowImmediate = (scrollTop: number, height: number) => {
-        const effectiveScrollTop = Math.max(0, scrollTop - HEADER_HEIGHT);
-        const start = Math.max(0, Math.floor(effectiveScrollTop / ITEM_HEIGHT) - BUFFER_ITEMS);
-        const end = Math.min(
-            files.length,
-            Math.ceil((scrollTop + height) / ITEM_HEIGHT) + BUFFER_ITEMS
-        );
-        const translateY = start * ITEM_HEIGHT;
-
-        setRenderWindow(prev => {
-            if (prev.start === start && prev.end === end) return prev;
-            return { start, end, translateY };
-        });
-    };
-
-    const updateWindow = (scrollTop: number, height: number) => {
-        pendingScrollRef.current = { scrollTop, height };
-        if (rafRef.current === null) {
-            rafRef.current = requestAnimationFrame(() => {
-                rafRef.current = null;
-                if (pendingScrollRef.current) {
-                    updateWindowImmediate(pendingScrollRef.current.scrollTop, pendingScrollRef.current.height);
-                    pendingScrollRef.current = null;
-                }
-            });
-        }
-    };
-
-    useEffect(() => {
-        if (!containerRef.current) return;
-        const measureHeight = () => {
-            if (containerRef.current) {
-                const height = containerRef.current.clientHeight;
-                if (height > 0) {
-                    setContainerHeight(height);
-                    updateWindow(containerRef.current.scrollTop, height);
-                }
-            }
-        };
-
-        const observer = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                const height = entry.contentRect.height || (entry.target as HTMLElement).clientHeight;
-                if (height > 0) {
-                    setContainerHeight(height);
-                    if (containerRef.current) {
-                        updateWindow(containerRef.current.scrollTop, height);
-                    }
-                }
-            }
-        });
-
-        observer.observe(containerRef.current);
-        measureHeight();
-        window.addEventListener('resize', measureHeight);
-        return () => {
-            observer.disconnect();
-            window.removeEventListener('resize', measureHeight);
-        };
-    }, []);
-
-    useEffect(() => {
-        if (renamingPath && editInputRef.current) {
-            const file = files.find(f => f.path === renamingPath);
-            if (file) {
-                setEditValue(file.name);
-                const lastDot = file.name.lastIndexOf('.');
-                const selectionEnd = (!file.is_dir && lastDot > 0) ? lastDot : file.name.length;
                 setTimeout(() => {
                     if (editInputRef.current) {
                         editInputRef.current.focus();
                         editInputRef.current.setSelectionRange(0, selectionEnd);
                     }
-                }, 0);
+                }, 50);
             }
         }
-    }, [renamingPath, files]);
+    }, [renamingPath]); // Removed 'files' to avoid overwriting user typing on refresh
 
-    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-        updateWindow(e.currentTarget.scrollTop, containerHeight);
-    };
 
-    const visibleFiles = useMemo(() => {
-        return files.slice(renderWindow.start, renderWindow.end);
-    }, [files, renderWindow]);
 
     const handleHeaderContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -354,7 +335,6 @@ const FileTable = memo(({
     return (
         <div
             ref={containerRef}
-            onScroll={handleScroll}
             onClick={(e) => {
                 if (e.target === e.currentTarget) {
                     onClearSelection();
@@ -401,10 +381,7 @@ const FileTable = memo(({
                     const nextFile = files[nextIndex];
 
                     if (container) {
-                        const rowTop = HEADER_HEIGHT + (nextIndex * ITEM_HEIGHT);
-                        const rowBottom = rowTop + ITEM_HEIGHT;
-                        if (rowTop < container.scrollTop + HEADER_HEIGHT) container.scrollTop = rowTop - HEADER_HEIGHT;
-                        else if (rowBottom > container.scrollTop + container.clientHeight) container.scrollTop = rowBottom - container.clientHeight;
+                        rowVirtualizer.scrollToIndex(nextIndex, { align: 'auto' });
                     }
 
                     if (e.shiftKey) {
@@ -478,74 +455,153 @@ const FileTable = memo(({
                 ))}
             </div>
 
-            {/* Total Height Spacing */}
-            <div style={{ height: files.length * ITEM_HEIGHT }} onClick={(e) => { if (e.target === e.currentTarget) onClearSelection(); }}>
-                <div style={{ transform: `translateY(${renderWindow.translateY}px)` }} className="flex flex-col">
-                    {visibleFiles.map((file) => {
-                        const isSelected = selectedFiles.some(f => f.path === file.path);
-                        const isClipboardItem = clipboardInfo?.paths.includes(file.path);
-                        return (
-                            <div
-                                key={file.path}
-                                onClick={(e) => {
-                                    let newSelection: FileEntry[] = [];
-                                    let newLastSelected = file;
-                                    if (e.ctrlKey) {
-                                        if (isSelected) newSelection = selectedFiles.filter(f => f.path !== file.path);
-                                        else newSelection = [...selectedFiles, file];
-                                    } else if (e.shiftKey && lastSelectedFile) {
-                                        const lastIndex = files.findIndex(f => f.path === lastSelectedFile.path);
-                                        const currentIndex = files.findIndex(f => f.path === file.path);
-                                        if (lastIndex !== -1 && currentIndex !== -1) {
-                                            const start = Math.min(lastIndex, currentIndex);
-                                            const end = Math.max(lastIndex, currentIndex);
-                                            newSelection = files.slice(start, end + 1);
-                                            newLastSelected = lastSelectedFile;
-                                        } else newSelection = [file];
-                                    } else newSelection = [file];
-                                    onSelectMultiple(newSelection, newLastSelected);
-                                }}
-                                onMouseDown={(e) => {
-                                    if (e.button === 1) e.preventDefault(); // Prevent autoscroll
-                                }}
-                                onDoubleClick={() => onOpen(file)}
-                                onAuxClick={(e) => { if (e.button === 1 && file.is_dir) { e.preventDefault(); onOpenInNewTab(file); } }}
-                                onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, file); }}
-                                className={`grid items-center h-[42px] px-2 file-row group cursor-default border-b border-white/[0.02] transition-opacity duration-300 gap-2
-                                    ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
-                                    ${isSelected ? 'bg-[var(--accent-primary)]/15 border-l-2 border-l-[var(--accent-primary)]' : 'hover:bg-white/[0.04]'}`}
-                                style={{ gridTemplateColumns: gridTemplate }}
-                            >
-                                {visibleColumns.map(col => (
-                                    <div key={col} className={`min-w-0 truncate ${COLUMN_CONFIG[col].align === 'right' ? 'text-right font-mono font-bold' : ''}`}>
-                                        {col === 'name' ? (
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center">
-                                                    {(() => {
-                                                        const IconComponent = getIconComponent(file);
-                                                        return <IconComponent size={16} className={`${file.is_dir ? 'text-amber-400' : 'text-zinc-400'} ${isSelected ? 'text-white' : 'group-hover:text-zinc-200'}`} fill={file.is_dir ? 'rgba(251, 191, 36, 0.2)' : 'none'} />;
-                                                    })()}
-                                                </div>
-                                                {renamingPath === file.path ? (
-                                                    <input ref={editInputRef} className="bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]/50 rounded px-1.5 py-0.5 text-sm text-white outline-none w-full" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={() => onRenameSubmit(file, editValue)} onKeyDown={(e) => { if (e.key === 'Enter') onRenameSubmit(file, editValue); else if (e.key === 'Escape') onRenameCancel(); }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} />
-                                                ) : (
-                                                    <span className={`text-sm truncate transition-colors ${isSelected ? 'text-white font-bold' : 'text-zinc-300 group-hover:text-white'}`}>{file.name}</span>
-                                                )}
+            {/* Virtualized Rows Container */}
+            <div
+                style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                }}
+                onClick={(e) => { if (e.target === e.currentTarget) onClearSelection(); }}
+            >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const file = files[virtualRow.index];
+                    if (!file) return null;
+                    const isSelected = selectedFiles.some(f => f.path === file.path);
+                    const isClipboardItem = clipboardInfo?.paths.includes(file.path);
+                    return (
+                        <div
+                            key={file.path}
+                            className={`grid items-center h-[42px] px-2 file-row group cursor-default border-b border-white/[0.02] transition-opacity duration-300 gap-2
+                                ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
+                                ${isSelected ? 'bg-[var(--accent-primary)]/15 border-l-2 border-l-[var(--accent-primary)]' : 'hover:bg-white/[0.04]'}`}
+                            style={{
+                                gridTemplateColumns: gridTemplate,
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: `${virtualRow.size}px`,
+                                transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                            onMouseDown={(e) => {
+                                if (e.button === 1) { e.preventDefault(); return; } // Prevent autoscroll
+                                if (e.button !== 0) return;
+
+                                // If item is NOT selected, select it immediately (for visual feedback)
+                                if (!isSelected && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                                    onSelectMultiple([file], file);
+                                } else if (!isSelected && (e.ctrlKey || e.metaKey)) {
+                                    onSelectMultiple([...selectedFiles, file], file);
+                                } else if (!isSelected && e.shiftKey && lastSelectedFile) {
+                                    const lastIndex = files.findIndex(f => f.path === lastSelectedFile.path);
+                                    const currentIndex = virtualRow.index;
+                                    if (lastIndex !== -1 && currentIndex !== -1) {
+                                        const start = Math.min(lastIndex, currentIndex);
+                                        const end = Math.max(lastIndex, currentIndex);
+                                        onSelectMultiple(files.slice(start, end + 1), lastSelectedFile);
+                                    }
+                                }
+
+                                // Prepare for potential drag
+                                const pathsToDrag = (isSelected || e.ctrlKey || e.metaKey || e.shiftKey)
+                                    ? (isSelected ? Array.from(selectedPaths) : [...Array.from(selectedPaths), file.path])
+                                    : [file.path];
+
+                                dragThresholdRef.current = { x: e.clientX, y: e.clientY, paths: pathsToDrag };
+
+                                const onMouseMove = (moveEvent: MouseEvent) => {
+                                    if (!dragThresholdRef.current) return;
+                                    const dx = moveEvent.clientX - dragThresholdRef.current.x;
+                                    const dy = moveEvent.clientY - dragThresholdRef.current.y;
+                                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                                    if (dist > 5) { // 5px threshold
+                                        const finalPaths = dragThresholdRef.current.paths;
+                                        dragThresholdRef.current = null;
+                                        window.removeEventListener('mousemove', onMouseMove);
+                                        window.removeEventListener('mouseup', onMouseUp);
+                                        handleDragStart(finalPaths);
+                                    }
+                                };
+
+                                const onMouseUp = () => {
+                                    dragThresholdRef.current = null;
+                                    window.removeEventListener('mousemove', onMouseMove);
+                                    window.removeEventListener('mouseup', onMouseUp);
+                                };
+
+                                window.addEventListener('mousemove', onMouseMove);
+                                window.addEventListener('mouseup', onMouseUp);
+                            }}
+                            onClick={(e) => {
+                                if (e.button !== 0) return;
+                                // Handle click on an already-selected item (user released without dragging)
+                                if (isSelected) {
+                                    if (e.ctrlKey || e.metaKey) {
+                                        // Ctrl+click on selected: remove from selection
+                                        onSelectMultiple(selectedFiles.filter(f => f.path !== file.path), lastSelectedFile);
+                                    } else if (!e.shiftKey) {
+                                        // Plain click on selected item in multi-selection: select only this item
+                                        onSelectMultiple([file], file);
+                                    }
+                                }
+                                // For unselected items, selection was already handled in onMouseDown
+                            }}
+                            onDoubleClick={() => onOpen(file)}
+                            onAuxClick={(e) => { if (e.button === 1 && file.is_dir) { e.preventDefault(); onOpenInNewTab(file); } }}
+                            onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, file); }}
+                        >
+                            {visibleColumns.map(col => (
+                                <div key={col} className={`min-w-0 truncate ${COLUMN_CONFIG[col].align === 'right' ? 'text-right font-mono font-bold' : ''}`}>
+                                    {col === 'name' ? (
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center">
+                                                {(() => {
+                                                    const IconComponent = getIconComponent(file);
+                                                    return <IconComponent size={16} className={`${file.is_dir ? 'text-amber-400' : 'text-zinc-400'} ${isSelected ? 'text-white' : 'group-hover:text-zinc-200'}`} fill={file.is_dir ? 'rgba(251, 191, 36, 0.2)' : 'none'} />;
+                                                })()}
                                             </div>
-                                        ) : (
-                                            <span className={`text-xs ${col === 'size' ? 'text-zinc-400 font-mono' : 'text-zinc-400 font-medium'}`}>
-                                                {col === 'modified_at' && file.modified_at}
-                                                {col === 'created_at' && file.created_at}
-                                                {col === 'file_type' && file.file_type}
-                                                {col === 'size' && file.formatted_size}
-                                            </span>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        );
-                    })}
-                </div>
+                                            {renamingPath === file.path ? (
+                                                <input
+                                                    ref={editInputRef}
+                                                    className="bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]/50 rounded px-1.5 py-0.5 text-sm text-white outline-none w-full"
+                                                    value={editValue}
+                                                    onChange={(e) => setEditValue(e.target.value)}
+                                                    onBlur={() => {
+                                                        if (submittingRef.current) return;
+                                                        submittingRef.current = true;
+                                                        onRenameSubmit(file, editValue);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            if (submittingRef.current) return;
+                                                            submittingRef.current = true;
+                                                            onRenameSubmit(file, editValue);
+                                                        } else if (e.key === 'Escape') {
+                                                            onRenameCancel();
+                                                        }
+                                                    }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onDoubleClick={(e) => e.stopPropagation()}
+                                                />
+                                            ) : (
+                                                <span className={`text-sm truncate transition-colors ${isSelected ? 'text-white font-bold' : 'text-zinc-300 group-hover:text-white'}`}>{file.name}</span>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <span className={`text-xs ${col === 'size' ? 'text-zinc-400 font-mono' : 'text-zinc-400 font-medium'}`}>
+                                            {col === 'modified_at' && file.modified_at}
+                                            {col === 'created_at' && file.created_at}
+                                            {col === 'file_type' && file.file_type}
+                                            {col === 'size' && file.formatted_size}
+                                        </span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })}
             </div>
 
             {
