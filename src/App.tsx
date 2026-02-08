@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, Fragment, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import ThisPCView from './components/ThisPCView';
 import { ask } from '@tauri-apps/plugin-dialog';
@@ -136,8 +135,10 @@ export default function App() {
     return false; // Default to opening in background
   });
 
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const centralPanelRef = useRef<HTMLDivElement>(null);
+
 
   const {
     tabs,
@@ -160,47 +161,126 @@ export default function App() {
     // reorderTabs
   } = useTabs(defaultSortConfig, showHiddenFiles, quickAccessConfig);
 
-  // Global drop handler - must be after useTabs to access currentTab and refreshCurrentTab
+  // === Drag & Drop Refs (to decouple from React re-renders) ===
+  const currentPathRef = useRef(currentTab?.path);
+  const refreshCurrentTabRef = useRef(refreshCurrentTab);
+  const dragCounterRef = useRef(0);
+  const lastProcessedDropRef = useRef(0);
+  const lastShowOverlayRef = useRef(0);
+
+  // Sync refs on every render (cheap operation, no side effects)
   useEffect(() => {
-    // Keep dragover to show correct cursor
-    const handleGlobalDragOver = (e: DragEvent) => {
+    currentPathRef.current = currentTab?.path;
+  }, [currentTab?.path]);
+
+  useEffect(() => {
+    refreshCurrentTabRef.current = refreshCurrentTab;
+  }, [refreshCurrentTab]);
+
+  // === Main Drag & Drop Listener (runs ONCE on mount) ===
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    let isMounted = true;
+
+    // 1. HTML5 handlers to unblock the cursor
+    const getCentralPanelRect = () => {
+      if (!centralPanelRef.current) return null;
+      const rect = centralPanelRef.current.getBoundingClientRect();
+      return {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      };
+    };
+
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current++;
+
+      // Only show overlay on the FIRST dragenter (0 -> 1)
+      if (dragCounterRef.current === 1) {
+        invoke('show_overlay', { rect: getCentralPanelRect() }).catch(() => { });
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
       if (e.dataTransfer) {
         e.dataTransfer.dropEffect = 'copy';
       }
-    };
 
-    // Prevent default drop (we handle it via Rust subclass)
-    const handleGlobalDrop = (e: DragEvent) => {
-      e.preventDefault();
-    };
-
-    window.addEventListener('dragover', handleGlobalDragOver);
-    window.addEventListener('drop', handleGlobalDrop);
-
-    // Listen for the native Tauri drop event (bridged from Rust)
-    const unlisten = listen<{ paths: string[] }>('app:drop', async (event) => {
-      const targetPath = currentTab?.path;
-
-      if (event.payload.paths.length > 0 && targetPath) {
-        try {
-          await invoke<string[]>('drop_items', {
-            files: event.payload.paths,
-            targetPath
-          });
-          refreshCurrentTab();
-        } catch (err) {
-          console.error('Drop failed:', err);
-        }
+      // Heartbeat: Keep app+overlay at front together (unified unit)
+      const now = Date.now();
+      if (now - lastShowOverlayRef.current > 150) {
+        lastShowOverlayRef.current = now;
+        invoke('show_overlay', { rect: getCentralPanelRect() }).catch(() => { });
       }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current = 0;
+    };
+
+    const handleDragLeave = (_e: DragEvent) => {
+      if (dragCounterRef.current > 0) {
+        dragCounterRef.current--;
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('dragleave', handleDragLeave);
+
+    // 2. Tauri event listener (registered ONCE)
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      if (!isMounted) return;
+
+      listen<string[]>('app:file-drop', async (event) => {
+        // Temporal Deduplication (Ignore repeat events within 500ms)
+        const now = Date.now();
+        if (now - lastProcessedDropRef.current < 500) {
+          console.warn('[APP] Ignoring duplicate/bouncing drop event');
+          return;
+        }
+        lastProcessedDropRef.current = now;
+
+        const paths = event.payload;
+        const targetPath = currentPathRef.current; // Read from ref, not closure
+
+        console.log('[APP] Received paths from overlay:', paths);
+
+        if (paths.length > 0 && targetPath && targetPath !== '' && targetPath !== 'shell:RecycleBin') {
+          try {
+            await invoke('drop_items', {
+              files: paths,
+              targetPath: targetPath
+            });
+            refreshCurrentTabRef.current(); // Call current ref value
+          } catch (error) {
+            console.error('[App] Failed to drop items:', error);
+          }
+        }
+      }).then(fn => {
+        if (!isMounted) {
+          fn(); // Unmount occurred during async registration
+        } else {
+          unlistenFn = fn;
+        }
+      });
     });
 
     return () => {
-      window.removeEventListener('dragover', handleGlobalDragOver);
-      window.removeEventListener('drop', handleGlobalDrop);
-      unlisten.then(fn => fn());
+      isMounted = false;
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('dragleave', handleDragLeave);
+      if (unlistenFn) unlistenFn();
     };
-  }, [currentTab?.path, refreshCurrentTab]);
+  }, []); // Empty deps = runs ONCE on mount, never re-registers
 
 
   const [columnWidths, setColumnWidths] = useState<Partial<Record<SortColumn, number>>>(() => {
@@ -267,17 +347,6 @@ export default function App() {
       await win.setFocus();
     };
     showWindow();
-
-    // Diagnostic check
-    invoke('check_diagnostics').then((res: any) => {
-      console.log('--- SYSTEM DIAGNOSTICS ---');
-      console.log('Is Admin:', res.is_admin);
-      console.log('Integrity Level:', res.integrity_level);
-      console.log('---------------------------');
-      if (res.is_admin || res.integrity_level === 'High') {
-        console.warn('WARNING: High Integrity Level or Admin privileges may block drag-and-drop due to UIPI.');
-      }
-    }).catch(e => console.error('Diagnostics failed:', e));
   }, [fetchSystemPaths]);
 
   useEffect(() => {
@@ -917,61 +986,7 @@ export default function App() {
     }
   }, [currentTab, clipboardInfo, lastCutPaths, updateTab, loadFilesForTab, refreshTabsViewing, checkClipboard]);
 
-  // Handle global file drops (Inbound Drag & Drop)
-  useEffect(() => {
-    let active = true;
-    const unlistenFns: (Promise<() => void> | (() => void))[] = [];
 
-    const handleTauriDrop = (paths: string[]) => {
-      console.log('%c[TAURI DROP HANDLER]', 'color: #ff00ff; font-weight: bold; font-size: 14px', paths);
-      setIsDraggingOver(false);
-
-      if (Array.isArray(paths) && paths.length > 0 && currentTab?.path) {
-        if (currentTab.path === 'shell:RecycleBin' || currentTab.path === '') {
-          return;
-        }
-
-        invoke('copy_items', { paths }).then(() => {
-          setTimeout(() => handlePaste(), 100);
-        }).catch(err => {
-          console.error('Drag-Drop Copy Failed:', err);
-        });
-      }
-    };
-
-    const setupListeners = async () => {
-      const window = getCurrentWindow();
-
-      // Tauri v2 explicit Window Drag-Drop Event
-      const unlistenDragDrop = await window.onDragDropEvent((event) => {
-        console.log('%c[TAURI CORE EVENT]', 'color: #00ff00; font-weight: bold', event.payload.type, event.payload);
-
-        if (event.payload.type === 'drop') {
-          handleTauriDrop(event.payload.paths);
-        } else if (event.payload.type === 'enter') {
-          setIsDraggingOver(true);
-        } else if (event.payload.type === 'leave') {
-          setIsDraggingOver(false);
-        }
-      });
-
-      if (!active) {
-        unlistenDragDrop();
-        return;
-      }
-      unlistenFns.push(unlistenDragDrop);
-    };
-
-    setupListeners();
-
-    return () => {
-      active = false;
-      unlistenFns.forEach(async (fn) => {
-        const resolved = await fn;
-        if (typeof resolved === 'function') resolved();
-      });
-    };
-  }, [currentTab?.path, currentTab?.id, handlePaste]);
 
   const handleContextMenuAction = async (action: string, data?: any) => {
     if (!currentTab) return;
@@ -1231,7 +1246,7 @@ export default function App() {
 
 
 
-          <main className={`flex-1 flex flex-col min-w-0 bg-[var(--bg-surface)] transition-all duration-300 ${isDraggingOver ? 'ring-4 ring-inset ring-[var(--accent-primary)] ring-offset-4 ring-offset-[var(--bg-deep)] shadow-[inset_0_0_50px_rgba(var(--accent-rgb),0.3)]' : ''}`}>
+          <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg-surface)] transition-all duration-300">
             {/* Tab Bar */}
             <TabBar
               tabs={tabs}
@@ -1382,7 +1397,7 @@ export default function App() {
             )}
 
             <div className="flex-1 flex min-h-0">
-              <div className="flex-1 flex flex-col min-w-0">
+              <div className="flex-1 flex flex-col min-w-0" ref={centralPanelRef}>
                 {currentTab?.path === '' ? (
                   <ThisPCView
                     files={sortedFiles}

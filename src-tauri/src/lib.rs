@@ -8,7 +8,7 @@ use std::fs;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::OnceLock;
 use std::time::SystemTime;
-use tauri::Emitter;
+// use tauri::Emitter; // Moved to drop_overlay.rs
 use tauri::Manager;
 // use window_vibrancy::apply_mica;
 use windows::core::{Interface, PCWSTR, PWSTR};
@@ -31,6 +31,7 @@ use windows::Win32::UI::Shell::{
 };
 
 mod commands;
+mod drop_overlay;
 
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
@@ -1096,7 +1097,6 @@ fn delete_items(paths: Vec<String>, silent: bool) -> Result<(), String> {
 struct ThumbnailResult {
     data: String,
     source: String, // "native" or "ffmpeg"
-    dimensions: Option<String>,
 }
 
 struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, ThumbnailResult>>);
@@ -1123,58 +1123,10 @@ async fn get_video_thumbnail(
             .await
             .map_err(|e| format!("Task join error: {}", e))?;
 
-    if let Ok((data_uri, native_dims)) = native_res {
-        // IMPORTANT: Shell API for videos sometimes returns a generic icon if thumbnail is not ready
-        // But for SpeedExplorer, we'll trust it for now as it's the fastest way.
-
-        // If native dimensions are missing, try FFmpeg probe
-        let final_dims = if native_dims.is_some() {
-            native_dims
-        } else {
-            // Quick probe
-            // Allow this to be blocking or async? spawn_blocking above finished.
-            // We are in async fn.
-            let p = path.clone();
-            tokio::task::spawn_blocking(move || {
-                let output = std::process::Command::new("ffmpeg")
-                    .args(&["-i", &p])
-                    .output()
-                    .ok()?;
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if let Some(v_idx) = stderr.find("Video:") {
-                    let sub = &stderr[v_idx..]; // Read from Video: ...
-                                                // Look for pattern like " 1920x1080 " or ", 1920x1080"
-                                                // Heuristic: find number x number
-                    let parts: Vec<&str> = sub.split(',').collect();
-                    for part in parts {
-                        let part = part.trim();
-                        // Check for digits x digits
-                        if let Some(x_idx) = part.find('x') {
-                            if x_idx > 0 && x_idx < part.len() - 1 {
-                                let w_str = &part[0..x_idx];
-                                let h_str = &part[x_idx + 1..];
-                                // strip potential extra chars (like " [SAR..")
-                                let h_str_clean = h_str.split_whitespace().next().unwrap_or(h_str);
-
-                                if w_str.chars().all(char::is_numeric)
-                                    && h_str_clean.chars().all(char::is_numeric)
-                                {
-                                    return Some(format!("{}x{}", w_str, h_str_clean));
-                                }
-                            }
-                        }
-                    }
-                }
-                None
-            })
-            .await
-            .unwrap_or(None)
-        };
-
+    if let Ok((data_uri, _)) = native_res {
         let result = ThumbnailResult {
             data: data_uri,
             source: "native".to_string(),
-            dimensions: final_dims,
         };
         let mut cache = state.0.lock().unwrap();
         cache.put(cache_key, result.clone());
@@ -1215,10 +1167,6 @@ async fn get_video_thumbnail(
     let result = ThumbnailResult {
         data: data_uri,
         source: "ffmpeg".to_string(),
-        dimensions: None, // Logic for ffmpeg thumbnail dimensions extraction could go here separately if needed,
-                          // but usually if Shell failed, we might rely on listing or just show none.
-                          // Or we could run the probe above here too?
-                          // For now, let's leave None to save CPU, unless user complains about FFmpeg-fallback files lacking info.
     };
 
     {
@@ -1252,46 +1200,6 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
                     return Err("Failed to create shell item".to_string());
                 }
             };
-
-        // Extract dimensions
-        let mut dimensions_out = None;
-        // PKEY_Video_FrameWidth: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 3
-        let k_width = PROPERTYKEY {
-            fmtid: windows::core::GUID::from_values(
-                0x64440489,
-                0x4C8E,
-                0x11D1,
-                [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
-            ),
-            pid: 3,
-        };
-        // PKEY_Video_FrameHeight: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 4
-        let k_height = PROPERTYKEY {
-            fmtid: windows::core::GUID::from_values(
-                0x64440489,
-                0x4C8E,
-                0x11D1,
-                [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
-            ),
-            pid: 4,
-        };
-
-        if let (Ok(w), Ok(h)) = (
-            shell_item.GetUInt32(&k_width),
-            shell_item.GetUInt32(&k_height),
-        ) {
-            if w > 0 && h > 0 {
-                dimensions_out = Some(format!("{}x{}", w, h));
-            }
-        }
-
-        // Fallback: If Shell didn't give us dimensions, try the image crate (slower but works for more formats)
-        // Since we are running in a blocking task, this is acceptable.
-        if dimensions_out.is_none() {
-            if let Ok((w, h)) = image::image_dimensions(path) {
-                dimensions_out = Some(format!("{}x{}", w, h));
-            }
-        }
 
         let image_factory: IShellItemImageFactory = match shell_item.cast() {
             Ok(f) => f,
@@ -1377,10 +1285,7 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
             .map_err(|e| format!("Failed to encode image: {}", e))?;
 
         let base64_data = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-        Ok((
-            format!("data:image/jpeg;base64,{}", base64_data),
-            dimensions_out,
-        ))
+        Ok((format!("data:image/jpeg;base64,{}", base64_data), None))
     }
 }
 
@@ -1408,7 +1313,6 @@ async fn get_thumbnail(
     let result = ThumbnailResult {
         data: data_uri.0,
         source: "native".to_string(),
-        dimensions: data_uri.1,
     };
 
     {
@@ -1417,6 +1321,100 @@ async fn get_thumbnail(
     }
 
     Ok(result)
+}
+
+#[tauri::command]
+async fn get_file_dimensions(path: String) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+
+            let path_wide: Vec<u16> = std::ffi::OsStr::new(&path)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let shell_item: IShellItem2 =
+                match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
+                    Ok(si) => si,
+                    Err(_) => {
+                        CoUninitialize();
+                        return Ok(None);
+                    }
+                };
+
+            // PKEY_Video_FrameWidth: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 3
+            let k_width = PROPERTYKEY {
+                fmtid: windows::core::GUID::from_values(
+                    0x64440489,
+                    0x4C8E,
+                    0x11D1,
+                    [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+                ),
+                pid: 3,
+            };
+            // PKEY_Video_FrameHeight: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 4
+            let k_height = PROPERTYKEY {
+                fmtid: windows::core::GUID::from_values(
+                    0x64440489,
+                    0x4C8E,
+                    0x11D1,
+                    [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+                ),
+                pid: 4,
+            };
+
+            if let (Ok(w), Ok(h)) = (
+                shell_item.GetUInt32(&k_width),
+                shell_item.GetUInt32(&k_height),
+            ) {
+                if w > 0 && h > 0 {
+                    CoUninitialize();
+                    return Ok(Some(format!("{}x{}", w, h)));
+                }
+            }
+
+            // Fallback for images
+            if let Ok((w, h)) = image::image_dimensions(&path) {
+                CoUninitialize();
+                return Ok(Some(format!("{}x{}", w, h)));
+            }
+
+            // Fallback for videos (FFmpeg probe)
+            let output = std::process::Command::new("ffmpeg")
+                .args(&["-i", &path])
+                .output();
+
+            if let Ok(output) = output {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if let Some(v_idx) = stderr.find("Video:") {
+                    let sub = &stderr[v_idx..];
+                    let parts: Vec<&str> = sub.split(',').collect();
+                    for part in parts {
+                        let part = part.trim();
+                        if let Some(x_idx) = part.find('x') {
+                            if x_idx > 0 && x_idx < part.len() - 1 {
+                                let w_str = &part[0..x_idx];
+                                let h_str = &part[x_idx + 1..];
+                                let h_str_clean = h_str.split_whitespace().next().unwrap_or(h_str);
+                                if w_str.chars().all(char::is_numeric)
+                                    && h_str_clean.chars().all(char::is_numeric)
+                                {
+                                    CoUninitialize();
+                                    return Ok(Some(format!("{}x{}", w_str, h_str_clean)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            CoUninitialize();
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1775,6 +1773,17 @@ fn empty_recycle_bin() -> Result<(), String> {
 
 /// Window subclass procedure to intercept WM_DROPFILES for legacy drop handling
 
+#[tauri::command]
+fn get_dropped_file_paths() -> Result<Vec<String>, String> {
+    if let Ok(_clip) = Clipboard::new() {
+        if let Ok(paths) = clipboard_win::get_clipboard::<Vec<String>, _>(formats::FileList) {
+            println!("!!! [RUST] Captured {} paths from clipboard", paths.len());
+            return Ok(paths);
+        }
+    }
+    Ok(Vec::new())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1787,61 +1796,27 @@ pub fn run() {
             std::num::NonZeroUsize::new(500).unwrap(),
         ))))
         .manage(ClipboardCache(std::sync::Mutex::new(None)))
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                println!("!!! [RUST] Window focused: {}", focused);
+            }
+        })
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
             let window = app.get_webview_window("main").unwrap();
-            let window_clone = window.clone();
-
-            // RUST-SIDE EVENT TRACKER (Tauri v2 Core)
-            window.on_window_event(move |event| {
-                // Match Tauri's native DragDrop event (works cross-process via OLE)
-                if let tauri::WindowEvent::DragDrop(ev) = event {
-                    match ev {
-                        tauri::DragDropEvent::Drop { paths, .. } => {
-                            // Convert paths to Vec<String>
-                            let file_paths: Vec<String> = paths
-                                .iter()
-                                .map(|p| p.to_string_lossy().to_string())
-                                .collect();
-
-                            println!(
-                                "!!! [RUST BRIDGE] Forwarding {} paths to frontend",
-                                file_paths.len()
-                            );
-
-                            // Emit to frontend (bridging the gap)
-                            let _ = window_clone
-                                .emit("app:drop", serde_json::json!({ "paths": file_paths }));
-                        }
-                        _ => {}
-                    }
-                }
-            });
 
             #[cfg(target_os = "windows")]
             {
+                use windows::Win32::Foundation::HWND;
+
                 let hwnd = window.hwnd().unwrap();
-                let whwnd = windows::Win32::Foundation::HWND(hwnd.0 as *mut _);
+                let whwnd = HWND(hwnd.0 as *mut _);
 
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, GWL_STYLE, WS_DISABLED,
-                    WS_EX_LAYERED, WS_EX_TRANSPARENT,
-                };
-
-                unsafe {
-                    let ex_style = GetWindowLongW(whwnd, GWL_EXSTYLE);
-                    let style = GetWindowLongW(whwnd, GWL_STYLE);
-
-                    // Remove styles that could interfere with OLE
-                    let mut new_ex_style = ex_style as u32;
-                    new_ex_style &= !(WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0);
-                    if new_ex_style != ex_style as u32 {
-                        let _ = SetWindowLongW(whwnd, GWL_EXSTYLE, new_ex_style as i32);
-                    }
-
-                    if (style as u32 & WS_DISABLED.0) != 0 {
-                        let _ = SetWindowLongW(whwnd, GWL_STYLE, style & !(WS_DISABLED.0 as i32));
-                    }
+                // Create the drop overlay window (invisible until show_overlay is called)
+                if let Some(overlay) = drop_overlay::create_drop_overlay(whwnd) {
+                    println!("[SETUP] Drop overlay created: {:?}", overlay);
+                } else {
+                    eprintln!("[SETUP] Failed to create drop overlay!");
                 }
             }
             Ok(())
@@ -1860,18 +1835,22 @@ pub fn run() {
             paste_items,
             drop_items,
             move_items,
-            get_clipboard_info,
             delete_items,
             get_video_thumbnail,
             get_thumbnail,
+            get_file_dimensions,
             get_system_default_paths,
+            get_clipboard_info,
+            get_dropped_file_paths,
+            check_diagnostics,
+            debug_window_hierarchy,
+            get_recycle_bin_status,
+            empty_recycle_bin,
             save_clipboard_image,
             open_terminal,
             resolve_shortcut,
-            empty_recycle_bin,
-            get_recycle_bin_status,
-            check_diagnostics,
-            debug_window_hierarchy
+            drop_overlay::show_overlay,
+            drop_overlay::hide_overlay
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

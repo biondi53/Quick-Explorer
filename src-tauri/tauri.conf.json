@@ -19,11 +19,11 @@
         "minWidth": 1370,
         "minHeight": 600,
         "maximized": false,
-        "decorations": false,
         "transparent": false,
         "shadow": true,
         "visible": false,
-        "dragDropEnabled": true
+        "dragDropEnabled": false,
+        "decorations": false
       }
     ],
     "security": {

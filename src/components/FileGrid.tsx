@@ -211,16 +211,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                             alt={file.name}
                             className="w-full h-full object-cover rounded-lg shadow-md"
                         />
-                        {/* Thumbnail source indicator commented out for now
-                        {thumbnailSource && (
-                            <div className={`absolute top-0.5 right-0.5 px-1 py-0.5 rounded-[4px] text-[6px] font-bold uppercase tracking-tighter backdrop-blur-md border z-10
-                                ${thumbnailSource === 'native'
-                                    ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                                    : 'bg-orange-500/20 text-orange-300 border-orange-500/30'
-                                }`}>
-                                {thumbnailSource === 'native' ? 'Windows' : 'FFmpeg'}
-                            </div>
-                        )} */}
+                        {/* Thumbnail source indicator commented out for now */}
                     </>
                 ) : loading ? (
                     <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />

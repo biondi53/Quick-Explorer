@@ -4,7 +4,6 @@ import { invoke } from '@tauri-apps/api/core';
 interface PreviewResult {
     data: string;
     source: string;
-    dimensions?: string;
 }
 
 interface PreviewState {
@@ -52,15 +51,21 @@ export function useFilePreview(filePath: string | null, type: FileType, modified
             setState(prev => ({ ...prev, isLoading: true }));
 
             try {
-                let result: PreviewResult | null = null;
-                if (type === 'video') {
-                    result = await invoke<PreviewResult>('get_video_thumbnail', { path: filePath, size: 256, modified });
-                } else if (type === 'image') {
-                    result = await invoke<PreviewResult>('get_thumbnail', { path: filePath, size: 256, modified });
-                }
+                // Fetch thumbnail and dimensions in parallel
+                const [thumbResult, dimsResult] = await Promise.all([
+                    type === 'video'
+                        ? invoke<PreviewResult>('get_video_thumbnail', { path: filePath, size: 256, modified })
+                        : invoke<PreviewResult>('get_thumbnail', { path: filePath, size: 256, modified }),
+                    invoke<string | null>('get_file_dimensions', { path: filePath })
+                ]);
 
-                if (mountedRef.current && result) {
-                    setState({ previewUrl: result.data, isLoading: false, source: result.source, dimensions: result.dimensions || null });
+                if (mountedRef.current) {
+                    setState({
+                        previewUrl: thumbResult.data,
+                        isLoading: false,
+                        source: thumbResult.source,
+                        dimensions: dimsResult
+                    });
                 }
             } catch (error) {
                 console.error(`Failed to generate ${type} preview:`, error);
