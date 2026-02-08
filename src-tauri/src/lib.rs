@@ -6,16 +6,20 @@ use serde::Serialize;
 use std::ffi::OsStr;
 use std::fs;
 use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::sync::OnceLock;
 use std::time::SystemTime;
 // use tauri::Emitter; // Moved to drop_overlay.rs
 use tauri::Manager;
 // use window_vibrancy::apply_mica;
+use std::sync::mpsc;
+use tokio::sync::oneshot;
 use windows::core::{Interface, PCWSTR, PWSTR};
 
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Security::TOKEN_QUERY;
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED, STGM};
+use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, STGM};
 use windows::Win32::System::DataExchange::{
     EmptyClipboard, GetClipboardSequenceNumber, SetClipboardData,
 };
@@ -148,7 +152,7 @@ fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     })
 }
 
-fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
+fn list_recycle_bin_internal() -> Result<Vec<FileEntry>, String> {
     let mut files = Vec::new();
     let now = SystemTime::now();
     let datetime: DateTime<Local> = now.into();
@@ -214,74 +218,10 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
     Ok(files)
 }
 
-#[tauri::command]
-fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
-    if path == "shell:RecycleBin" {
-        return list_recycle_bin();
-    }
-    if path.is_empty() {
-        let mut drives = Vec::new();
-        let now = SystemTime::now();
-        let datetime: DateTime<Local> = now.into();
-        let created_at_str = datetime.format("%d/%m/%Y %H:%M").to_string();
-
-        use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-
-        for b in b'C'..=b'Z' {
-            let drive_letter = b as char;
-            let drive_path = format!("{}:\\", drive_letter);
-            if std::path::Path::new(&drive_path).exists() {
-                let mut free_bytes_available = 0u64;
-                let mut total_number_of_bytes = 0u64;
-                let mut total_number_of_free_bytes = 0u64;
-
-                let path_wide: Vec<u16> = OsStr::new(&drive_path)
-                    .encode_wide()
-                    .chain(std::iter::once(0))
-                    .collect();
-
-                let disk_info = unsafe {
-                    if GetDiskFreeSpaceExW(
-                        PCWSTR(path_wide.as_ptr()),
-                        Some(&mut free_bytes_available),
-                        Some(&mut total_number_of_bytes),
-                        Some(&mut total_number_of_free_bytes),
-                    )
-                    .is_ok()
-                    {
-                        Some(DiskInfo {
-                            total_space: total_number_of_bytes,
-                            available_space: total_number_of_free_bytes,
-                        })
-                    } else {
-                        None
-                    }
-                };
-
-                drives.push(FileEntry {
-                    name: format!("Local Disk ({}:)", drive_letter),
-                    path: drive_path,
-                    is_dir: true,
-                    size: 0,
-                    formatted_size: String::new(),
-                    file_type: "Drive".to_string(),
-                    created_at: created_at_str.clone(),
-                    modified_at: created_at_str.clone(),
-                    is_shortcut: false,
-                    disk_info,
-                    modified_timestamp: 0,
-                    dimensions: None,
-                });
-            }
-        }
-        return Ok(drives);
-    }
-
+fn list_files_internal(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
     let mut files = Vec::new();
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-
         let path_wide: Vec<u16> = OsStr::new(path)
             .encode_wide()
             .chain(std::iter::once(0))
@@ -358,8 +298,6 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
                 }
             }
         }
-
-        CoUninitialize();
     }
 
     files.par_sort_unstable_by(|a, b| {
@@ -368,8 +306,6 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
         } else if !a.is_dir && b.is_dir {
             std::cmp::Ordering::Greater
         } else {
-            // Case-insensitive comparison without full to_lowercase() allocation
-            // We use a simple char-by-char comparison which is much faster than full string conversion
             let a_chars = a.name.chars();
             let b_chars = b.name.chars();
 
@@ -385,6 +321,91 @@ fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
     });
 
     Ok(files)
+}
+
+#[tauri::command]
+async fn list_files(
+    path: String,
+    show_hidden: bool,
+    worker: tauri::State<'_, ShellWorkerHandle>,
+) -> Result<Vec<FileEntry>, String> {
+    if path == "shell:RecycleBin" {
+        let (tx, rx) = oneshot::channel();
+        worker
+            .tx
+            .send(ShellTask::ListRecycleBin { reply: tx })
+            .map_err(|e| e.to_string())?;
+        return rx.await.map_err(|e| e.to_string())?;
+    }
+    if path.is_empty() {
+        let mut drives = Vec::new();
+        let now = SystemTime::now();
+        let datetime: DateTime<Local> = now.into();
+        let created_at_str = datetime.format("%d/%m/%Y %H:%M").to_string();
+
+        use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+        for b in b'C'..=b'Z' {
+            let drive_letter = b as char;
+            let drive_path = format!("{}:\\", drive_letter);
+            if std::path::Path::new(&drive_path).exists() {
+                let mut free_bytes_available = 0u64;
+                let mut total_number_of_bytes = 0u64;
+                let mut total_number_of_free_bytes = 0u64;
+
+                let path_wide: Vec<u16> = OsStr::new(&drive_path)
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+
+                let disk_info = unsafe {
+                    if GetDiskFreeSpaceExW(
+                        PCWSTR(path_wide.as_ptr()),
+                        Some(&mut free_bytes_available),
+                        Some(&mut total_number_of_bytes),
+                        Some(&mut total_number_of_free_bytes),
+                    )
+                    .is_ok()
+                    {
+                        Some(DiskInfo {
+                            total_space: total_number_of_bytes,
+                            available_space: total_number_of_free_bytes,
+                        })
+                    } else {
+                        None
+                    }
+                };
+
+                drives.push(FileEntry {
+                    name: format!("Local Disk ({}:)", drive_letter),
+                    path: drive_path,
+                    is_dir: true,
+                    size: 0,
+                    formatted_size: String::new(),
+                    file_type: "Drive".to_string(),
+                    created_at: created_at_str.clone(),
+                    modified_at: created_at_str.clone(),
+                    is_shortcut: false,
+                    disk_info,
+                    modified_timestamp: 0,
+                    dimensions: None,
+                });
+            }
+        }
+        return Ok(drives);
+    }
+
+    let (tx, rx) = oneshot::channel();
+    worker
+        .tx
+        .send(ShellTask::ListFiles {
+            path,
+            show_hidden,
+            reply: tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    rx.await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1017,9 +1038,7 @@ fn drop_items(files: Vec<String>, target_path: String) -> Result<Vec<String>, St
 
 #[tauri::command]
 fn move_items(paths: Vec<String>, target_path: String) -> Result<(), String> {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-    }
+    {}
 
     let mut from_wide: Vec<u16> = Vec::new();
     for f in &paths {
@@ -1045,8 +1064,6 @@ fn move_items(paths: Vec<String>, target_path: String) -> Result<(), String> {
         };
 
         let result = SHFileOperationW(&mut file_op);
-
-        CoUninitialize();
 
         if result != 0 {
             return Err(format!("Windows Move failed with code: {}", result));
@@ -1099,6 +1116,80 @@ struct ThumbnailResult {
     source: String, // "native" or "ffmpeg"
 }
 
+enum ShellTask {
+    GetThumbnail {
+        path: String,
+        size: u32,
+        reply: oneshot::Sender<Result<(String, Option<String>), String>>,
+    },
+    GetVideoThumbnail {
+        path: String,
+        size: u32,
+        reply: oneshot::Sender<Result<(String, Option<String>), String>>,
+    },
+    GetDimensions {
+        path: String,
+        reply: oneshot::Sender<Result<Option<String>, String>>,
+    },
+    ListFiles {
+        path: String,
+        show_hidden: bool,
+        reply: oneshot::Sender<Result<Vec<FileEntry>, String>>,
+    },
+    ListRecycleBin {
+        reply: oneshot::Sender<Result<Vec<FileEntry>, String>>,
+    },
+}
+
+struct ShellWorkerHandle {
+    tx: mpsc::Sender<ShellTask>,
+}
+
+fn shell_worker_loop(rx: std::sync::Arc<std::sync::Mutex<mpsc::Receiver<ShellTask>>>) {
+    unsafe {
+        let _ = CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED);
+
+        loop {
+            let task = {
+                let lock = rx.lock().unwrap();
+                match lock.recv() {
+                    Ok(t) => t,
+                    Err(_) => break,
+                }
+            };
+
+            match task {
+                ShellTask::GetThumbnail { path, size, reply } => {
+                    let res = generate_shell_thumbnail(&path, size);
+                    let _ = reply.send(res);
+                }
+                ShellTask::GetVideoThumbnail { path, size, reply } => {
+                    let res = generate_shell_thumbnail(&path, size);
+                    let _ = reply.send(res);
+                }
+                ShellTask::GetDimensions { path, reply } => {
+                    let res = get_file_dimensions_internal(&path);
+                    let _ = reply.send(Ok(res));
+                }
+                ShellTask::ListFiles {
+                    path,
+                    show_hidden,
+                    reply,
+                } => {
+                    let res = list_files_internal(&path, show_hidden);
+                    let _ = reply.send(res);
+                }
+                ShellTask::ListRecycleBin { reply } => {
+                    let res = list_recycle_bin_internal();
+                    let _ = reply.send(res);
+                }
+            }
+        }
+
+        CoUninitialize();
+    }
+}
+
 struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, ThumbnailResult>>);
 
 #[tauri::command]
@@ -1107,6 +1198,7 @@ async fn get_video_thumbnail(
     size: u32,
     modified: i64,
     state: tauri::State<'_, ThumbnailCache>,
+    worker: tauri::State<'_, ShellWorkerHandle>,
 ) -> Result<ThumbnailResult, String> {
     let cache_key = format!("video:{}:{}:{}", path, size, modified);
     {
@@ -1116,12 +1208,18 @@ async fn get_video_thumbnail(
         }
     }
 
-    // 1. Try Native Shell first
-    let path_clone = path.clone();
-    let native_res =
-        tokio::task::spawn_blocking(move || generate_shell_thumbnail(&path_clone, size))
-            .await
-            .map_err(|e| format!("Task join error: {}", e))?;
+    // 1. Try Native Shell first via Worker Pool
+    let (tx, rx) = oneshot::channel();
+    worker
+        .tx
+        .send(ShellTask::GetVideoThumbnail {
+            path: path.clone(),
+            size,
+            reply: tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let native_res = rx.await.map_err(|e| e.to_string())?;
 
     if let Ok((data_uri, _)) = native_res {
         let result = ThumbnailResult {
@@ -1185,8 +1283,6 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
     };
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-
         let path_wide: Vec<u16> = OsStr::new(path)
             .encode_wide()
             .chain(std::iter::once(0))
@@ -1196,7 +1292,6 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
             match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
                 Ok(si) => si,
                 Err(_) => {
-                    CoUninitialize();
                     return Err("Failed to create shell item".to_string());
                 }
             };
@@ -1204,7 +1299,6 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
         let image_factory: IShellItemImageFactory = match shell_item.cast() {
             Ok(f) => f,
             Err(_) => {
-                CoUninitialize();
                 return Err("Failed to cast to ImageFactory".to_string());
             }
         };
@@ -1220,7 +1314,6 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
             } else if let Ok(h) = image_factory.GetImage(thumb_size, SIIGBF_ICONONLY) {
                 h
             } else {
-                CoUninitialize();
                 return Err("Failed to get image".to_string());
             };
 
@@ -1233,7 +1326,6 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
 
         if result == 0 {
             let _ = DeleteObject(hbitmap.into());
-            CoUninitialize();
             return Err("Failed to get bitmap info".to_string());
         }
 
@@ -1270,7 +1362,6 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
         SelectObject(hdc, old_bitmap);
         let _ = DeleteDC(hdc);
         let _ = DeleteObject(hbitmap.into());
-        CoUninitialize();
 
         for chunk in pixels.chunks_exact_mut(4) {
             chunk.swap(0, 2);
@@ -1295,6 +1386,7 @@ async fn get_thumbnail(
     size: u32,
     modified: i64,
     state: tauri::State<'_, ThumbnailCache>,
+    worker: tauri::State<'_, ShellWorkerHandle>,
 ) -> Result<ThumbnailResult, String> {
     let cache_key = format!("image:{}:{}:{}", path, size, modified);
 
@@ -1305,10 +1397,17 @@ async fn get_thumbnail(
         }
     }
 
-    let path_clone = path.clone();
-    let data_uri = tokio::task::spawn_blocking(move || generate_shell_thumbnail(&path_clone, size))
-        .await
-        .map_err(|e| format!("Task join error: {}", e))??;
+    let (tx, rx) = oneshot::channel();
+    worker
+        .tx
+        .send(ShellTask::GetThumbnail {
+            path: path.clone(),
+            size,
+            reply: tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let data_uri = rx.await.map_err(|e| e.to_string())??;
 
     let result = ThumbnailResult {
         data: data_uri.0,
@@ -1324,97 +1423,110 @@ async fn get_thumbnail(
 }
 
 #[tauri::command]
-async fn get_file_dimensions(path: String) -> Result<Option<String>, String> {
-    tokio::task::spawn_blocking(move || {
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+fn get_file_dimensions_internal(path: &str) -> Option<String> {
+    unsafe {
+        let path_wide: Vec<u16> = std::ffi::OsStr::new(path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
 
-            let path_wide: Vec<u16> = std::ffi::OsStr::new(&path)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-
-            let shell_item: IShellItem2 =
-                match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
-                    Ok(si) => si,
-                    Err(_) => {
-                        CoUninitialize();
-                        return Ok(None);
-                    }
-                };
-
-            // PKEY_Video_FrameWidth: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 3
-            let k_width = PROPERTYKEY {
-                fmtid: windows::core::GUID::from_values(
-                    0x64440489,
-                    0x4C8E,
-                    0x11D1,
-                    [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
-                ),
-                pid: 3,
-            };
-            // PKEY_Video_FrameHeight: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 4
-            let k_height = PROPERTYKEY {
-                fmtid: windows::core::GUID::from_values(
-                    0x64440489,
-                    0x4C8E,
-                    0x11D1,
-                    [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
-                ),
-                pid: 4,
-            };
-
-            if let (Ok(w), Ok(h)) = (
-                shell_item.GetUInt32(&k_width),
-                shell_item.GetUInt32(&k_height),
-            ) {
-                if w > 0 && h > 0 {
-                    CoUninitialize();
-                    return Ok(Some(format!("{}x{}", w, h)));
+        let shell_item: IShellItem2 =
+            match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
+                Ok(si) => si,
+                Err(_) => {
+                    return None;
                 }
+            };
+
+        // PKEY_Video_FrameWidth: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 3
+        let k_width = PROPERTYKEY {
+            fmtid: windows::core::GUID::from_values(
+                0x64440489,
+                0x4C8E,
+                0x11D1,
+                [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+            ),
+            pid: 3,
+        };
+        // PKEY_Video_FrameHeight: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 4
+        let k_height = PROPERTYKEY {
+            fmtid: windows::core::GUID::from_values(
+                0x64440489,
+                0x4C8E,
+                0x11D1,
+                [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+            ),
+            pid: 4,
+        };
+
+        if let (Ok(w), Ok(h)) = (
+            shell_item.GetUInt32(&k_width),
+            shell_item.GetUInt32(&k_height),
+        ) {
+            if w > 0 && h > 0 {
+                return Some(format!("{}x{}", w, h));
             }
+        }
 
-            // Fallback for images
-            if let Ok((w, h)) = image::image_dimensions(&path) {
-                CoUninitialize();
-                return Ok(Some(format!("{}x{}", w, h)));
-            }
+        // Fallback for images
+        if let Ok((w, h)) = image::image_dimensions(path) {
+            return Some(format!("{}x{}", w, h));
+        }
 
-            // Fallback for videos (FFmpeg probe)
-            let output = std::process::Command::new("ffmpeg")
-                .args(&["-i", &path])
-                .output();
+        // Fallback for videos (FFmpeg probe)
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.args(&["-i", path]);
 
-            if let Ok(output) = output {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if let Some(v_idx) = stderr.find("Video:") {
-                    let sub = &stderr[v_idx..];
-                    let parts: Vec<&str> = sub.split(',').collect();
-                    for part in parts {
-                        let part = part.trim();
-                        if let Some(x_idx) = part.find('x') {
-                            if x_idx > 0 && x_idx < part.len() - 1 {
-                                let w_str = &part[0..x_idx];
-                                let h_str = &part[x_idx + 1..];
-                                let h_str_clean = h_str.split_whitespace().next().unwrap_or(h_str);
-                                if w_str.chars().all(char::is_numeric)
-                                    && h_str_clean.chars().all(char::is_numeric)
-                                {
-                                    CoUninitialize();
-                                    return Ok(Some(format!("{}x{}", w_str, h_str_clean)));
-                                }
+        #[cfg(windows)]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let output = cmd.output();
+
+        if let Ok(output) = output {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if let Some(v_idx) = stderr.find("Video:") {
+                let sub = &stderr[v_idx..];
+                let parts: Vec<&str> = sub.split(',').collect();
+                for part in parts {
+                    let part = part.trim();
+                    if let Some(x_idx) = part.find('x') {
+                        if x_idx > 0 && x_idx < part.len() - 1 {
+                            let w_str = &part[0..x_idx];
+                            let h_str = &part[x_idx + 1..];
+                            let h_str_clean = h_str.split_whitespace().next().unwrap_or(h_str);
+                            if w_str.chars().all(char::is_numeric)
+                                && h_str_clean.chars().all(char::is_numeric)
+                            {
+                                return Some(format!("{}x{}", w_str, h_str_clean));
                             }
                         }
                     }
                 }
             }
-
-            CoUninitialize();
-            Ok(None)
         }
-    })
-    .await
-    .map_err(|e| e.to_string())?
+
+        None
+    }
+}
+
+#[tauri::command]
+async fn get_file_dimensions(
+    path: String,
+    worker: tauri::State<'_, ShellWorkerHandle>,
+) -> Result<Option<String>, String> {
+    let (tx, rx) = oneshot::channel();
+    worker
+        .tx
+        .send(ShellTask::GetDimensions {
+            path: path.clone(),
+            reply: tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    rx.await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1756,13 +1868,11 @@ fn get_recycle_bin_status() -> Result<RecycleBinStatus, String> {
 #[tauri::command]
 fn empty_recycle_bin() -> Result<(), String> {
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let result = SHEmptyRecycleBinW(
             Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
             None,
             SHERB_NOCONFIRMATION | SHERB_NOSOUND,
         );
-        CoUninitialize();
 
         if result.is_err() {
             return Err(format!("Failed to empty recycle bin: {:?}", result));
@@ -1786,12 +1896,22 @@ fn get_dropped_file_paths() -> Result<Vec<String>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let (tx, rx) = mpsc::channel();
+    let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+    for _ in 0..4 {
+        let rx_clone = rx.clone();
+        std::thread::spawn(move || {
+            shell_worker_loop(rx_clone);
+        });
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_drag::init())
+        .manage(ShellWorkerHandle { tx })
         .manage(ThumbnailCache(std::sync::Mutex::new(lru::LruCache::new(
             std::num::NonZeroUsize::new(500).unwrap(),
         ))))
