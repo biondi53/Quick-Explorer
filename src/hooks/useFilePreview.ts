@@ -51,29 +51,22 @@ export function useFilePreview(filePath: string | null, type: FileType, modified
             setState(prev => ({ ...prev, isLoading: true }));
 
             try {
-                // 1. Fetch thumbnail (should be fast index/cache hit)
-                const thumbResult = await (type === 'video'
-                    ? invoke<PreviewResult>('get_video_thumbnail', { path: filePath, size: 256, modified })
-                    : invoke<PreviewResult>('get_thumbnail', { path: filePath, size: 256, modified }));
+                // Fetch thumbnail and dimensions in parallel
+                const [thumbResult, dimsResult] = await Promise.all([
+                    type === 'video'
+                        ? invoke<PreviewResult>('get_video_thumbnail', { path: filePath, size: 256, modified })
+                        : invoke<PreviewResult>('get_thumbnail', { path: filePath, size: 256, modified }),
+                    invoke<string | null>('get_file_dimensions', { path: filePath })
+                ]);
 
                 if (mountedRef.current) {
-                    setState(prev => ({
-                        ...prev,
+                    setState({
                         previewUrl: thumbResult.data,
                         isLoading: false,
-                        source: thumbResult.source
-                    }));
+                        source: thumbResult.source,
+                        dimensions: dimsResult
+                    });
                 }
-
-                // 2. Fetch dimensions in background (don't block the image display)
-                invoke<string | null>('get_file_dimensions', { path: filePath })
-                    .then(dimsResult => {
-                        if (mountedRef.current) {
-                            setState(prev => ({ ...prev, dimensions: dimsResult }));
-                        }
-                    })
-                    .catch(e => console.error("Failed to fetch metadata:", e));
-
             } catch (error) {
                 console.error(`Failed to generate ${type} preview:`, error);
                 if (mountedRef.current) {

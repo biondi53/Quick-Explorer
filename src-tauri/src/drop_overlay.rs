@@ -12,12 +12,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindow,
-    GetWindowRect, KillTimer, RegisterClassW, SetForegroundWindow, SetLayeredWindowAttributes,
-    SetTimer, SetWindowPos, ShowWindow, CS_HREDRAW, CS_VREDRAW, GW_OWNER, HCURSOR, HICON,
-    HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE,
-    SW_SHOW, WM_DROPFILES, WM_LBUTTONDOWN, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOPMOST,
-    WS_POPUP,
+    ChangeWindowMessageFilterEx, CreateWindowExW, DefWindowProcW, GetClientRect, GetCursorPos,
+    GetForegroundWindow, GetWindow, GetWindowRect, KillTimer, RegisterClassW, SetForegroundWindow,
+    SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, CS_HREDRAW, CS_VREDRAW,
+    GW_OWNER, HCURSOR, HICON, HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, MSGFLT_ALLOW,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOW, WM_DROPFILES, WM_LBUTTONDOWN,
+    WM_NCHITTEST, WM_SETCURSOR, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows_core::PCWSTR;
 
@@ -98,7 +98,22 @@ unsafe extern "system" fn overlay_wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    // Log relevant messages for debugging
+    if msg != 0x000F && msg != 0x0085 && msg != 0x0014 && msg != 0x0020 && msg != WM_TIMER {
+        if msg == WM_DROPFILES {
+            println!("[OVERLAY] !!! WM_DROPFILES DETECTED !!!");
+        }
+    }
+
     match msg {
+        WM_NCHITTEST => {
+            // Force the window to be interactive
+            LRESULT(1) // HTCLIENT
+        }
+        WM_SETCURSOR => {
+            // println!("[OVERLAY] WM_SETCURSOR");
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
         WM_DROPFILES => {
             let hdrop = HDROP(wparam.0 as *mut _);
             let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
@@ -128,8 +143,19 @@ unsafe extern "system" fn overlay_wnd_proc(
             // Emit event to frontend
             if let Some(app) = APP_HANDLE.get() {
                 if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.emit("app:file-drop", paths);
+                    println!(
+                        "[OVERLAY] Emitting app:file-drop with {} paths",
+                        paths.len()
+                    );
+                    match win.emit("app:file-drop", paths) {
+                        Ok(_) => println!("[OVERLAY] Event emitted successfully"),
+                        Err(e) => eprintln!("[OVERLAY] FAILED to emit event: {:?}", e),
+                    }
+                } else {
+                    eprintln!("[OVERLAY] CRITICAL: Could not find 'main' window for emission");
                 }
+            } else {
+                eprintln!("[OVERLAY] CRITICAL: APP_HANDLE is empty during drop");
             }
 
             // Hide overlay and kill timer after successful drop
@@ -140,6 +166,15 @@ unsafe extern "system" fn overlay_wnd_proc(
             LRESULT(0)
         }
         WM_TIMER => {
+            // Confirm the timer is still ticking
+            static mut TICKS: u32 = 0;
+            unsafe {
+                TICKS += 1;
+                if TICKS % 40 == 0 {
+                    println!("[OVERLAY] Heartbeat (Timer still ticking...)");
+                }
+            }
+
             // Self-management logic: Hide if mouse leaves the APP or drag is cancelled
             let mut pt = POINT::default();
             if GetCursorPos(&mut pt).is_ok() {
@@ -264,10 +299,10 @@ pub fn create_drop_overlay(parent_hwnd: HWND) -> Option<HWND> {
 
         let hwnd = hwnd.unwrap();
 
-        // Set semi-transparency (50% alpha = 128)
+        // Set semi-transparency
         let _ = SetLayeredWindowAttributes(
             hwnd,
-            windows::Win32::Foundation::COLORREF(0),
+            windows::Win32::Foundation::COLORREF(0x000000FF),
             128,
             LWA_ALPHA,
         );
@@ -275,28 +310,52 @@ pub fn create_drop_overlay(parent_hwnd: HWND) -> Option<HWND> {
         // Enable drag-drop acceptance
         DragAcceptFiles(hwnd, true);
 
+        // UIPI Bypass: Explicitly allow drop messages
+        let r1 = ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES, MSGFLT_ALLOW, None);
+        let r2 = ChangeWindowMessageFilterEx(hwnd, 0x0049, MSGFLT_ALLOW, None); // WM_COPYGLOBALDATA
+        let r3 = ChangeWindowMessageFilterEx(hwnd, 0x004A, MSGFLT_ALLOW, None); // WM_COPYDATA
+
         // Store the HWND for later access
         let _ = OVERLAY_HWND.set(hwnd.0 as isize);
 
-        println!("[OVERLAY] Created overlay window: {:?}", hwnd);
+        println!(
+            "[OVERLAY] Created overlay window: {:?}. FilterRes: {:?}, {:?}, {:?}",
+            hwnd, r1, r2, r3
+        );
 
         Some(hwnd)
     }
 }
 
-/// Shows the overlay window, resizing it to cover the parent's client area
+/// Shows the overlay window, resizing it to cover the parent's client area.
+/// CRITICAL: All Win32 operations are dispatched to the Main Thread to ensure
+/// SetTimer and window manipulation work correctly.
 #[tauri::command]
 pub fn show_overlay(window: tauri::Window, rect: Option<OverlayRect>) {
-    if let Some(&hwnd_val) = OVERLAY_HWND.get() {
+    let Some(&hwnd_val) = OVERLAY_HWND.get() else {
+        println!("[OVERLAY] No overlay HWND found!");
+        return;
+    };
+
+    // Capture parent HWND before moving to main thread
+    let parent_hwnd_raw = window.hwnd().map(|h| h.0 as isize).ok();
+
+    // Dispatch all Win32 operations to the Main Thread
+    let app_handle = window.app_handle().clone();
+    let _ = app_handle.run_on_main_thread(move || {
         let overlay_hwnd = HWND(hwnd_val as *mut _);
 
         unsafe {
             // Ensure timer is running (refreshed on every heartbeat)
-            let _ = SetTimer(Some(overlay_hwnd), 1, 50, None);
+            let timer_id = SetTimer(Some(overlay_hwnd), 1, 50, None);
+            if timer_id == 0 {
+                eprintln!("[OVERLAY] SetTimer FAILED in show_overlay");
+            }
 
             // Get current parent size AND position
-            let parent_hwnd = window.hwnd().map(|h| HWND(h.0 as *mut _)).ok();
-            if let Some(parent) = parent_hwnd {
+            if let Some(parent_raw) = parent_hwnd_raw {
+                let parent = HWND(parent_raw as *mut _);
+
                 // 1. Promote parent window to front (TOPMOST) first
                 let _ = SetWindowPos(
                     parent,
@@ -348,9 +407,7 @@ pub fn show_overlay(window: tauri::Window, rect: Option<OverlayRect>) {
 
             let _ = ShowWindow(overlay_hwnd, SW_SHOW);
         }
-    } else {
-        println!("[OVERLAY] No overlay HWND found!");
-    }
+    });
 }
 
 /// Hides the overlay window

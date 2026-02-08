@@ -3,11 +3,6 @@
 
 ## 🛡️ Stability and Performance (Version Focus)
 
-### 🧩 Total COM Isolation (Crash Fixes)
-- **STA Worker Pool**: Implementation of a dedicated "Single-Threaded Apartment" (STA) thread pool for Windows Shell operations.
-- **Access Violation Fix**: Definitively resolved the `STATUS_ACCESS_VIOLATION` error during file dragging by fully isolating COM environments.
-- **Async Navigation**: File listing and recycle bin operations now run in isolated threads, preventing UI hangs.
-
 ### 📥 Inbound Drag & Drop
 - **Native Drop Overlay**: Implemented a native Rust-based interception layer to capture files before they reach the web engine.
 - **Cursor Fix**: Resolved the "prohibited" cursor issue when dragging external files into the application.

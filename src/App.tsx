@@ -239,29 +239,34 @@ export default function App() {
       if (!isMounted) return;
 
       listen<string[]>('app:file-drop', async (event) => {
-        // Temporal Deduplication (Ignore repeat events within 500ms)
         const now = Date.now();
+        const paths = event.payload;
+        console.log('[APP] app:file-drop RECEIVED. Paths:', paths, 'Time since last:', now - lastProcessedDropRef.current);
+
+        // Temporal Deduplication (Ignore repeat events within 500ms)
         if (now - lastProcessedDropRef.current < 500) {
-          console.warn('[APP] Ignoring duplicate/bouncing drop event');
+          console.warn('[APP] Ignoring duplicate/bouncing drop event (within 500ms)');
           return;
         }
         lastProcessedDropRef.current = now;
 
-        const paths = event.payload;
         const targetPath = currentPathRef.current; // Read from ref, not closure
-
-        console.log('[APP] Received paths from overlay:', paths);
+        console.log('[APP] Processing drop to targetPath:', targetPath);
 
         if (paths.length > 0 && targetPath && targetPath !== '' && targetPath !== 'shell:RecycleBin') {
           try {
-            await invoke('drop_items', {
+            console.log('[APP] Invoking drop_items...');
+            const result = await invoke('drop_items', {
               files: paths,
               targetPath: targetPath
             });
+            console.log('[APP] drop_items success result:', result);
             refreshCurrentTabRef.current(); // Call current ref value
           } catch (error) {
-            console.error('[App] Failed to drop items:', error);
+            console.error('[App] Failed to drop items command:', error);
           }
+        } else {
+          console.warn('[APP] Drop rejected: Invalid targetPath or empty paths. Target:', targetPath);
         }
       }).then(fn => {
         if (!isMounted) {
