@@ -303,7 +303,7 @@ pub fn create_drop_overlay(parent_hwnd: HWND) -> Option<HWND> {
         let _ = SetLayeredWindowAttributes(
             hwnd,
             windows::Win32::Foundation::COLORREF(0x000000FF),
-            128,
+            64,
             LWA_ALPHA,
         );
 
