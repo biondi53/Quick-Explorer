@@ -8,6 +8,11 @@
 - **Eliminación de Violación de Acceso**: Solucionado definitivamente el error `STATUS_ACCESS_VIOLATION` al arrastrar archivos mediante la aislación total de los entornos COM.
 - **Navegación Asíncrona**: El listado de archivos y la papelera ahora operan en hilos aislados, evitando bloqueos en la interfaz.
 
+### 📥 Recepción de Archivos (Inbound DnD)
+- **Native Drop Overlay**: Implementación de una capa de intercepción nativa en Rust para capturar archivos antes de que lleguen al motor web.
+- **Bypass de Bloqueo de Cursor**: Solucionado el problema del cursor "prohibido" al arrastrar archivos externos hacia la aplicación.
+- **Captura Inmediata**: Recuperación robusta de rutas absolutas mediante el mensaje `WM_DROPFILES` para una respuesta instantánea al soltar archivos.
+
 ### ⚡ Optimización de Miniaturas y Previsualización
 - **Carga de Miniaturas bajo demanda**: Las dimensiones de los archivos ahora se obtienen solo cuando son necesarias, acelerando drásticamente el renderizado de carpetas grandes.
 - **Adiós al Parpadeo**: Los procesos de FFmpeg para videos ahora se ejecutan de forma invisible, eliminando el parpadeo de ventanas de terminal.
