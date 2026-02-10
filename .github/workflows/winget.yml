@@ -16,8 +16,5 @@ jobs:
           # Tu identificador oficial de WinGet
           identifier: biondi53.QuickExplorer
           
-          # El apodo para que el comando corto funcione mejor
-          moniker: quickexplorer
-          
           # Para que busque solo los archivos .msi que genera Tauri
           installers-regex: '\.msi$'
