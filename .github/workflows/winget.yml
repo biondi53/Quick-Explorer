@@ -1,0 +1,23 @@
+name: Publish to WinGet
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: WinGet Releaser
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          # El nombre que guardaste en Settings > Secrets
+          token: ${{ secrets.WINGET_TOKEN }}
+          
+          # Tu identificador oficial de WinGet
+          identifier: biondi53.QuickExplorer
+          
+          # El apodo para que el comando corto funcione mejor
+          moniker: quickexplorer
+          
+          # Para que busque solo los archivos .msi que genera Tauri
+          installers-regex: '\.msi$'
