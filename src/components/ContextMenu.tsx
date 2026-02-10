@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { ExternalLink, Copy, Trash, FileSearch, Scissors, Clipboard, Pin, PinOff, Pencil, FolderOpen, ArrowRight } from 'lucide-react';
+import { ExternalLink, Copy, Trash, FileSearch, Scissors, Clipboard, Pin, PinOff, Pencil, FolderOpen, ArrowRight, Archive } from 'lucide-react';
 import { RecycleBinStatus, Tab } from '../types';
 
 interface ContextMenuProps {
@@ -37,6 +37,7 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
     const isMultiple = selectedFiles.length > 1;
     const isSystemFolder = file && pinnedFolders.some(f => f.path === file.path && ['desktop', 'downloads', 'documents', 'pictures', 'recycle-bin', 'home'].includes(f.id));
     const isDrive = file?.file_type === 'Drive';
+    const isArchive = file && !file.is_dir && /\.(zip|7z)$/i.test(file.name);
 
     const normalizePath = (p: string) => p.replace(/[\\/]+$/, '').toLowerCase();
 
@@ -125,6 +126,7 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
         { id: 'cut', label: 'Cut', icon: <Scissors size={20} />, hidden: (fromSidebar && isSystemFolder) || isDrive },
         { id: 'paste', label: 'Paste', icon: <Clipboard size={20} />, disabled: !canPaste, hidden: (fromSidebar && isSystemFolder) || isDrive },
         { id: 'move-to', label: 'Move to', icon: <ArrowRight size={20} />, disabled: otherTabs.length === 0, hidden: (fromSidebar && isSystemFolder) || isDrive, hasSubmenu: true },
+        { id: 'extract-here', label: 'Extract Here', icon: <Archive size={20} />, hidden: !isArchive || (fromSidebar && isSystemFolder) || isDrive },
         { id: 'separator-1', type: 'separator', hidden: (fromSidebar && isSystemFolder) || isDrive },
         {
             id: 'delete',

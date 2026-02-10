@@ -1,3 +1,20 @@
+# 🚀 Quick Explorer v0.1.11
+*Changelog - February 10, 2026*
+
+## ✨ Native Archive Extraction
+
+### 📦 Performant Decompression
+- **Native Support**: Built-in ZIP and 7Z extraction without external dependencies.
+- **Smart Flatting**: Automatic detection and flattening of single-root archives to prevent deep nesting.
+- **Context Integration**: New "Extract Here" option in the context menu for supported formats.
+
+### 📊 Real-Time Progress Indicator
+- **Byte-Based Tracking**: Precise progress calculation based on bytes written, ensuring smooth feedback even for single large files.
+- **Taskbar Integration**: Real-time native Windows Taskbar progress bar.
+- **Streaming 7Z Architecture**: Custom manual decompression loop for 7Z files to provide granular, intra-file progress updates.
+
+---
+
 # 🚀 Quick Explorer v0.1.10
 *Changelog - February 10, 2026*
 

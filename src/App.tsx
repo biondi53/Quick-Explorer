@@ -1219,6 +1219,14 @@ export default function App() {
       handleRename(file);
     } else if (action === 'empty-recycle-bin') {
       handleEmptyRecycleBin();
+    } else if (action === 'extract-here' && file) {
+      try {
+        const parentDir = file.path.substring(0, file.path.lastIndexOf('\\'));
+        await invoke('extract_archive', { archivePath: file.path, targetDir: parentDir || currentTab.path });
+        refreshCurrentTab();
+      } catch (err) {
+        updateTab(currentTab.id, { error: String(err) });
+      }
     }
   };
 

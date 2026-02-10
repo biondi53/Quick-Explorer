@@ -32,6 +32,7 @@ use windows::Win32::UI::Shell::{
 
 mod commands;
 mod drop_overlay;
+mod extraction;
 
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
@@ -1854,7 +1855,8 @@ pub fn run() {
             open_terminal,
             resolve_shortcut,
             drop_overlay::show_overlay,
-            drop_overlay::hide_overlay
+            drop_overlay::hide_overlay,
+            extraction::extract_archive
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

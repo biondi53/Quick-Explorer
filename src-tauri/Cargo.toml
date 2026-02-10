@@ -1,6 +1,6 @@
 [package]
 name = "d-speedexplorer"
-version = "0.1.10"
+version = "0.1.11"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -40,4 +40,6 @@ tauri-plugin-drag = "2"
 log = "0.4"
 simplelog = "0.12"
 backtrace = "0.3"
+zip = "2"
+sevenz-rust = "0.6"
 
