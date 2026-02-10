@@ -1381,9 +1381,13 @@ async fn get_file_dimensions(path: String) -> Result<Option<String>, String> {
             }
 
             // Fallback for videos (FFmpeg probe)
-            let output = std::process::Command::new("ffmpeg")
-                .args(&["-i", &path])
-                .output();
+            let mut cmd = std::process::Command::new("ffmpeg");
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000);
+            }
+            let output = cmd.args(&["-i", &path]).output();
 
             if let Ok(output) = output {
                 let stderr = String::from_utf8_lossy(&output.stderr);

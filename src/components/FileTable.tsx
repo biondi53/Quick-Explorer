@@ -35,6 +35,8 @@ interface FileTableProps {
     columnWidths: Partial<Record<SortColumn, number>>;
     onColumnsResize: (updates: Partial<Record<SortColumn, number>>) => void;
     clipboardInfo: ClipboardInfo | null;
+    onInternalDragStart?: (paths: string[]) => void;
+    onInternalDragEnd?: (caller: string) => void;
 }
 
 const ITEM_HEIGHT = 42;
@@ -108,7 +110,9 @@ const FileTable = memo(({
     onToggleColumn,
     columnWidths,
     onColumnsResize,
-    clipboardInfo
+    clipboardInfo,
+    onInternalDragStart,
+    onInternalDragEnd
 }: FileTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editValue, setEditValue] = useState("");
@@ -148,10 +152,11 @@ const FileTable = memo(({
         // But to be 100% safe from the crash, if dragIconPath is null, we should probably 
         // use a string path that we KNOW exists and is an image, or just skip drag initiation
         // until we have the icon.
-        if (!dragIconPath) {
-            console.warn('[FileTable] dragIconPath is null, delaying or skipping drag to avoid crash');
-            return;
+        if (onInternalDragStart) {
+            onInternalDragStart(paths);
         }
+
+        if (!dragIconPath) return;
 
         // @ts-ignore - 'icon' is required in types.
         startDrag({
@@ -159,8 +164,12 @@ const FileTable = memo(({
             icon: dragIconPath,
             // @ts-ignore
             mode: 'copy'
+        }).then(() => {
+            console.log('[FileTable] Native drag completed successfully');
+            if (onInternalDragEnd) onInternalDragEnd('promise-success');
         }).catch((err) => {
-            console.error('[FileTable] Native drag failed:', err);
+            console.error('[FileTable] Native drag failed or cancelled:', err);
+            if (onInternalDragEnd) onInternalDragEnd('promise-error');
         });
     };
 
@@ -510,6 +519,10 @@ const FileTable = memo(({
 
                                 dragThresholdRef.current = { x: e.clientX, y: e.clientY, paths: pathsToDrag };
 
+                                // IMMEDIATE HANDSHAKE (v7.0): Set lock on mousedown to preempt OS race conditions
+                                // @ts-ignore
+                                window.__SPEED_EXPLORER_DND_LOCK = true;
+
                                 const onMouseMove = (moveEvent: MouseEvent) => {
                                     if (!dragThresholdRef.current) return;
                                     const dx = moveEvent.clientX - dragThresholdRef.current.x;
@@ -526,6 +539,11 @@ const FileTable = memo(({
                                 };
 
                                 const onMouseUp = () => {
+                                    // If we are here, threshold wasn't met -> Release lock if it wasn't a real drag
+                                    if (dragThresholdRef.current) {
+                                        // @ts-ignore
+                                        window.__SPEED_EXPLORER_DND_LOCK = false;
+                                    }
                                     dragThresholdRef.current = null;
                                     window.removeEventListener('mousemove', onMouseMove);
                                     window.removeEventListener('mouseup', onMouseUp);

@@ -24,6 +24,8 @@ interface FileGridProps {
     onRenameSubmit: (file: FileEntry, newName: string) => void;
     onRenameCancel: () => void;
     clipboardInfo: ClipboardInfo | null;
+    onInternalDragStart?: (paths: string[]) => void;
+    onInternalDragEnd?: (caller: string) => void;
 }
 
 const ITEM_SIZE = 160;
@@ -283,7 +285,9 @@ export default function FileGrid({
     renamingPath,
     onRenameSubmit,
     onRenameCancel,
-    clipboardInfo
+    clipboardInfo,
+    onInternalDragStart,
+    onInternalDragEnd
 }: FileGridProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
@@ -382,10 +386,11 @@ export default function FileGrid({
         console.log('[FileGrid] Starting drag for paths:', paths);
         console.log('[FileGrid] Using icon path:', dragIconPath);
 
-        if (!dragIconPath) {
-            console.warn('[FileGrid] dragIconPath is null, skipping drag to avoid crash');
-            return;
+        if (onInternalDragStart) {
+            onInternalDragStart(paths);
         }
+
+        if (!dragIconPath) return;
 
         // @ts-ignore - 'icon' is required in types.
         startDrag({
@@ -393,10 +398,14 @@ export default function FileGrid({
             icon: dragIconPath,
             // @ts-ignore
             mode: 'copy'
+        }).then(() => {
+            console.log('[FileGrid] Native drag completed successfully');
+            if (onInternalDragEnd) onInternalDragEnd('promise-success');
         }).catch((err) => {
-            console.error('[FileGrid] Native drag failed:', err);
+            console.error('[FileGrid] Native drag failed or cancelled:', err);
+            if (onInternalDragEnd) onInternalDragEnd('promise-error');
         });
-    }, [dragIconPath]);
+    }, [dragIconPath, onInternalDragStart]);
 
     // Handler for mousedown on items - handles immediate selection and prepares drag
     const handleItemMouseDown = useCallback((file: FileEntry, e: React.MouseEvent) => {
@@ -424,6 +433,10 @@ export default function FileGrid({
 
         dragThresholdRef.current = { x: e.clientX, y: e.clientY, paths: pathsToDrag };
 
+        // IMMEDIATE HANDSHAKE (v7.0): Set lock on mousedown to preempt OS race conditions
+        // @ts-ignore
+        window.__SPEED_EXPLORER_DND_LOCK = true;
+
         const onMouseMove = (moveEvent: MouseEvent) => {
             if (!dragThresholdRef.current) return;
             const dx = moveEvent.clientX - dragThresholdRef.current.x;
@@ -440,6 +453,11 @@ export default function FileGrid({
         };
 
         const onMouseUp = () => {
+            // If we are here, threshold wasn't met -> Release lock if it wasn't a real drag
+            if (dragThresholdRef.current) {
+                // @ts-ignore
+                window.__SPEED_EXPLORER_DND_LOCK = false;
+            }
             dragThresholdRef.current = null;
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);

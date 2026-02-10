@@ -167,6 +167,12 @@ export default function App() {
   const dragCounterRef = useRef(0);
   const lastProcessedDropRef = useRef(0);
   const lastShowOverlayRef = useRef(0);
+  const isInternalDraggingRef = useRef(false);
+  const internalDragStartTimeRef = useRef(0);
+  const internalDraggedPathsRef = useRef<string[]>([]);
+  const internalDragTimeoutRef = useRef<any>(null);
+  const lastInternalDropTimeRef = useRef(0);
+  const lastInternalLockReleaseTimeRef = useRef(0);
 
   // Sync refs on every render (cheap operation, no side effects)
   useEffect(() => {
@@ -176,6 +182,29 @@ export default function App() {
   useEffect(() => {
     refreshCurrentTabRef.current = refreshCurrentTab;
   }, [refreshCurrentTab]);
+
+  const onInternalDragEnd = useCallback((caller: string = 'unknown') => {
+    // Plan v7.3: Protected Sticky Sessions.
+    // Decouple the UI Lock (clears now) from Data State (clears on drop/next drag).
+    const now = Date.now();
+    const duration = internalDragStartTimeRef.current ? now - internalDragStartTimeRef.current : 0;
+
+    console.log(`[DND-LOG] [${now}] Global UI Lock RELEASED (via ${caller}). Current dragging state persists. Duration: ${duration}ms`);
+
+    if (internalDragTimeoutRef.current) {
+      clearTimeout(internalDragTimeoutRef.current);
+      internalDragTimeoutRef.current = null;
+    }
+
+    // Set drop cooldown to filter out OS "ecos" (Post-Drop Spikes)
+    lastInternalDropTimeRef.current = now;
+    lastInternalLockReleaseTimeRef.current = now;
+
+    // Clear Global Handshake Lock
+    // @ts-ignore
+    window.__SPEED_EXPLORER_DND_LOCK = false;
+    dragCounterRef.current = 0;
+  }, []);
 
   // === Main Drag & Drop Listener (runs ONCE on mount) ===
   useEffect(() => {
@@ -197,42 +226,138 @@ export default function App() {
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
       dragCounterRef.current++;
+      const now = Date.now();
+
+      // GHOST FILTER (v7.2): If buttons === 0, it's an OS-generated echo event from a previous drop.
+      if (e.buttons === 0) {
+        return;
+      }
+
+      // HANDSHAKE LOCK (v5.0): Synchronous check to avoid React state latency
+      // @ts-ignore
+      const isInternalLock = window.__SPEED_EXPLORER_DND_LOCK === true;
+
+      // ORPHAN RECOVERY (v7.3): If state is active but lock is off, check if we are in the Sticky phase.
+      if (!isInternalLock && isInternalDraggingRef.current) {
+        const timeSinceLockRelease = now - lastInternalLockReleaseTimeRef.current;
+        if (timeSinceLockRelease > 500) {
+          console.log(`[DND-LOG] [${now}] Recovering from orphan internal state (Stale: ${timeSinceLockRelease}ms).`);
+          isInternalDraggingRef.current = false;
+          internalDraggedPathsRef.current = [];
+        } else {
+          // PROTECTED STICKY WINDOW: Don't clean up yet, we are likely moving towards a drop.
+          // console.log(`[DND-LOG] [${now}] Maintaining sticky state (Fresh: ${timeSinceLockRelease}ms).`);
+        }
+      }
+
+      const isCooldownActive = now - lastInternalDropTimeRef.current < 2500;
+      const hasFiles = Array.from(e.dataTransfer?.types || []).includes('Files');
+
+      console.log(`[DND-LOG] [${now}] dragenter | Internal: ${isInternalDraggingRef.current} | Lock: ${isInternalLock} | Cooldown: ${isCooldownActive} (Last drop: ${now - lastInternalDropTimeRef.current}ms ago)`);
+
+      // STRICT GUARD (v7.2):
+      if (isInternalLock || isInternalDraggingRef.current || isCooldownActive || !hasFiles) {
+        return;
+      }
 
       // Only show overlay on the FIRST dragenter (0 -> 1)
       if (dragCounterRef.current === 1) {
+        console.log(`[DND-LOG] [${now}] SHOW OVERLAY TRIGGERED`);
         invoke('show_overlay', { rect: getCentralPanelRect() }).catch(() => { });
       }
     };
 
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
+      if (e.buttons === 0) return; // Ghost event
       if (e.dataTransfer) {
         e.dataTransfer.dropEffect = 'copy';
       }
 
-      // Heartbeat: Keep app+overlay at front together (unified unit)
+      // @ts-ignore
+      const isInternalLock = window.__SPEED_EXPLORER_DND_LOCK === true;
       const now = Date.now();
+      const isCooldownActive = now - lastInternalDropTimeRef.current < 2500;
+
+      // MOVEMENT PULSE (v6.0): Keep state alive while moving
+      if (isInternalLock || isInternalDraggingRef.current) {
+        if (internalDragTimeoutRef.current) {
+          clearTimeout(internalDragTimeoutRef.current);
+        }
+
+        internalDragTimeoutRef.current = setTimeout(() => {
+          if (isInternalDraggingRef.current) {
+            console.warn(`[DND-LOG] [${Date.now()}] Internal drag movement timeout (5s pulse) reached.`);
+            // Explicitly clear everything on timeout
+            isInternalDraggingRef.current = false;
+            internalDraggedPathsRef.current = [];
+            // @ts-ignore
+            window.__SPEED_EXPLORER_DND_LOCK = false;
+          }
+        }, 5000); // 5s pulse (Plan v6.0)
+        return;
+      }
+
+      if (isCooldownActive) return;
+
+      const hasFiles = Array.from(e.dataTransfer?.types || []).includes('Files');
+      if (!hasFiles) return;
+
+      // Heartbeat: Keep app+overlay at front together (unified unit)
       if (now - lastShowOverlayRef.current > 150) {
+        // Heartbeat log removed for performance
         lastShowOverlayRef.current = now;
         invoke('show_overlay', { rect: getCentralPanelRect() }).catch(() => { });
       }
     };
 
-    const handleDrop = (e: DragEvent) => {
+    const handleDrop = async (e: DragEvent) => {
       e.preventDefault();
-      dragCounterRef.current = 0;
+      const now = Date.now();
+
+      if (isInternalDraggingRef.current) {
+        const paths = internalDraggedPathsRef.current;
+        const targetPath = currentPathRef.current;
+        console.log(`[DND-LOG] [${now}] Internal drop detected. Paths:`, paths, 'to target:', targetPath);
+
+        // DATA CLEANUP (v7.2): Clear internal state now that we've captured the paths for the drop.
+        isInternalDraggingRef.current = false;
+        internalDraggedPathsRef.current = [];
+        internalDragStartTimeRef.current = 0;
+        lastInternalDropTimeRef.current = now;
+
+        if (paths.length > 0 && targetPath && targetPath !== '' && targetPath !== 'shell:RecycleBin') {
+          try {
+            await invoke('drop_items', {
+              files: paths,
+              targetPath: targetPath
+            });
+            refreshCurrentTabRef.current();
+          } catch (error) {
+            console.error('[App] Failed to drop items command (internal):', error);
+          }
+        }
+      }
     };
 
     const handleDragLeave = (_e: DragEvent) => {
       if (dragCounterRef.current > 0) {
         dragCounterRef.current--;
       }
+      // DragLeave log removed for brevity
     };
+
+    const handleDragEnd = () => {
+      // NOTE: In v4.0, we ignore dragend for internal state to avoid premature resets.
+      // The 5s timeout or a Drop event are the only ways out.
+    };
+
 
     window.addEventListener('dragenter', handleDragEnter);
     window.addEventListener('dragover', handleDragOver);
     window.addEventListener('drop', handleDrop);
     window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('dragend', handleDragEnd);
 
     // 2. Tauri event listener (registered ONCE)
     import('@tauri-apps/api/event').then(({ listen }) => {
@@ -283,6 +408,7 @@ export default function App() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
       window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('dragend', handleDragEnd);
       if (unlistenFn) unlistenFn();
     };
   }, []); // Empty deps = runs ONCE on mount, never re-registers
@@ -420,14 +546,16 @@ export default function App() {
 
     // Also postpone refresh if the window is currently moving or resizing
     const win = getCurrentWindow();
-    const unlistenMoved = win.onMoved(() => triggerRefresh());
-    const unlistenResized = win.onResized(() => triggerRefresh());
+    let unMoved: () => void;
+    let unResized: () => void;
+    win.onMoved(() => triggerRefresh()).then(fn => { unMoved = fn; });
+    win.onResized(() => triggerRefresh()).then(fn => { unResized = fn; });
 
     return () => {
       window.removeEventListener('focus', handleFocus);
       if (focusTimeout) window.clearTimeout(focusTimeout);
-      unlistenMoved.then((fn: any) => { if (typeof fn === 'function') fn(); }).catch(e => console.error(e));
-      unlistenResized.then((fn: any) => { if (typeof fn === 'function') fn(); }).catch(e => console.error(e));
+      if (unMoved) unMoved();
+      if (unResized) unResized();
     };
   }, [fetchRecycleBinStatus, refreshCurrentTab]);
 
@@ -1591,6 +1719,28 @@ export default function App() {
                         onRenameSubmit={handleRenameSubmit}
                         onRenameCancel={handleRenameCancel}
                         clipboardInfo={clipboardInfo}
+                        onInternalDragStart={(paths: string[]) => {
+                          const now = Date.now();
+                          console.log(`[DND-LOG] [${now}] Internal drag state -> TRUE (FileGrid)`);
+
+                          if (internalDragTimeoutRef.current) {
+                            clearTimeout(internalDragTimeoutRef.current);
+                          }
+
+                          isInternalDraggingRef.current = true;
+                          internalDragStartTimeRef.current = now;
+                          internalDraggedPathsRef.current = paths;
+
+                          // Safety Timeout (v6.0): Movement Pulse will keep this alive, 
+                          // Initial fail-safe at 30s as per Plan v6.0.
+                          internalDragTimeoutRef.current = setTimeout(() => {
+                            if (isInternalDraggingRef.current) {
+                              console.warn(`[DND-LOG] [${Date.now()}] Internal drag safety timeout (30s) reached.`);
+                              onInternalDragEnd('timeout-grid');
+                            }
+                          }, 30000);
+                        }}
+                        onInternalDragEnd={onInternalDragEnd}
                       />
                     ) : (
                       <FileTable
@@ -1623,6 +1773,26 @@ export default function App() {
                         columnWidths={columnWidths}
                         onColumnsResize={handleColumnsResize}
                         clipboardInfo={clipboardInfo}
+                        onInternalDragStart={(paths: string[]) => {
+                          const now = Date.now();
+                          console.log(`[DND-LOG] [${now}] Internal drag state -> TRUE (FileTable)`);
+
+                          if (internalDragTimeoutRef.current) {
+                            clearTimeout(internalDragTimeoutRef.current);
+                          }
+
+                          isInternalDraggingRef.current = true;
+                          internalDragStartTimeRef.current = now;
+                          internalDraggedPathsRef.current = paths;
+
+                          internalDragTimeoutRef.current = setTimeout(() => {
+                            if (isInternalDraggingRef.current) {
+                              console.warn(`[DND-LOG] [${Date.now()}] Internal drag safety timeout (30s) reached.`);
+                              onInternalDragEnd('timeout-table');
+                            }
+                          }, 30000);
+                        }}
+                        onInternalDragEnd={onInternalDragEnd}
                       />
                     )}
 
