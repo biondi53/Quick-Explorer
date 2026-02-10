@@ -12,6 +12,10 @@
 - **WinGet Automation**: Added GitHub action for automatic publishing to the Windows Package Manager.
 - **Optimized Packaging**: Refined MSI and portable builds for better distribution.
 
+### 🛡️ Critical Fixes & UI Enhancements
+- **Focus Refresh Fix**: Resolved a critical issue where switching windows caused folder loops or UI freezes. Implemented a robust "Generation ID" system and stale closure prevention.
+- **Video Indicators**: Added a subtle "Play" icon to video thumbnails in grid view for easy identification.
+
 ---
 
 # 🚀 Quick Explorer v0.1.9
