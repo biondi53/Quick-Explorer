@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { invoke } from '@tauri-apps/api/core';
 import {
-    Link as LinkIcon
+    Link as LinkIcon,
+    Play
 } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 
@@ -33,13 +34,14 @@ const GAP = 8;
 const MAX_CONCURRENT = 6;
 const THUMBNAIL_TIMEOUT = 10000;
 
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
+const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
+
 // Load thumbnails for images and videos (IShellItemImageFactory handles both)
 const shouldLoadThumbnail = (file: FileEntry) => {
     if (file.is_dir) return false;
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
-    const videoExts = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
-    return imageExts.includes(ext) || videoExts.includes(ext);
+    return IMAGE_EXTS.includes(ext) || VIDEO_EXTS.includes(ext);
 };
 
 // ===== THUMBNAIL MANAGER WITH CANCELLATION =====
@@ -231,6 +233,13 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                 {file.is_shortcut && (
                     <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center border border-zinc-600">
                         <LinkIcon size={10} className="text-blue-400" />
+                    </div>
+                )}
+
+                {/* Video Indicator */}
+                {!file.is_dir && VIDEO_EXTS.includes(file.name.split('.').pop()?.toLowerCase() || '') && (
+                    <div className="absolute bottom-1 right-1 bg-zinc-900/80 text-white p-1 rounded-full shadow-md border border-white/30 flex items-center justify-center backdrop-blur-sm">
+                        <Play size={10} fill="currentColor" className="ml-[1px]" />
                     </div>
                 )}
             </div>

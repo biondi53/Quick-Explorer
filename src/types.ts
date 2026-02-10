@@ -42,6 +42,7 @@ export interface Tab {
     viewMode: ViewMode;
     sortConfig: SortConfig;
     renamingPath: string | null;
+    generationId: number;
 }
 
 export interface ClipboardInfo {

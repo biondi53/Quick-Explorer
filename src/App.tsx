@@ -532,7 +532,7 @@ export default function App() {
       if (focusTimeout) window.clearTimeout(focusTimeout);
       focusTimeout = window.setTimeout(() => {
         fetchRecycleBinStatus();
-        refreshCurrentTab();
+        refreshCurrentTab(true); // Auto-refresh (subject to cooldown)
       }, 1000);
     };
 
@@ -1436,7 +1436,7 @@ export default function App() {
                   <ArrowUp size={18} />
                 </button>
                 <button
-                  onClick={refreshCurrentTab}
+                  onClick={() => refreshCurrentTab(false)}
                   className="p-2 rounded-lg hover:bg-white/10 text-zinc-300 transition-all"
                   title="Refresh"
                 >

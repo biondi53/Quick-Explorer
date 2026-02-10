@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Tab, SortConfig, FileEntry, SortColumn, QuickAccessConfig } from '../types';
 
@@ -21,6 +21,7 @@ const createTab = (path: string = '', defaultSort?: SortConfig): Tab => ({
     viewMode: 'list',
     sortConfig: defaultSort || { column: 'name', direction: 'asc' },
     renamingPath: null,
+    generationId: 0,
 });
 
 export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean, quickAccessConfig: QuickAccessConfig) => {
@@ -30,7 +31,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             if (saved) {
                 return JSON.parse(saved).map((t: any) => ({
                     ...t,
-                    sortConfig: t.sortConfig || initialSortConfig
+                    sortConfig: t.sortConfig || initialSortConfig,
+                    generationId: t.generationId || 0
                 }));
             }
         } catch (e) { }
@@ -40,6 +42,19 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
     const [activeTabId, setActiveTabId] = useState<string>(() => {
         return localStorage.getItem('speedexplorer-active-tab') || tabs[0]?.id || '';
     });
+
+    const lastNavigationTimeRef = useRef(0);
+    const tabsRef = useRef(tabs);
+    const activeTabIdRef = useRef(activeTabId);
+
+    // Keep refs in sync with state for event listeners / async callbacks
+    useEffect(() => {
+        tabsRef.current = tabs;
+    }, [tabs]);
+
+    useEffect(() => {
+        activeTabIdRef.current = activeTabId;
+    }, [activeTabId]);
 
     // Persistence
     useEffect(() => {
@@ -63,79 +78,145 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         setTabs(prev => prev.map(t => t.id === tabId ? { ...t, ...updates } : t));
     }, []);
 
-    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[]) => {
+    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[], expectedGenerationId?: number) => {
+        // If expectedGenerationId is provided, we only want to proceed if it matches the current tab's ID.
+        // However, we can't easily check the *current* state inside this callback before the async call without refs or functional updates.
+        // But the robust check MUST happen AFTER the async call.
+        // What we CAN do is pass the ID we expect to be valid when the result returns.
+
+        // If no Expected ID is valid, we assume we are just loading for the current state (e.g. initial load)
+        // But for navigations, we MUST pass the new ID.
+
+        const targetTab = tabsRef.current.find(t => t.id === tabId);
+        const currentGenId = expectedGenerationId !== undefined ? expectedGenerationId : (targetTab?.generationId ?? 0);
+
         updateTab(tabId, { loading: true, error: null });
+
         try {
             const result = await invoke<FileEntry[]>('list_files', { path, showHidden: showHidden ?? showHiddenFiles });
 
-            let selectedFiles: FileEntry[] = [];
-            let lastSelectedFile: FileEntry | null = null;
-
-            if (pathsToSelect && pathsToSelect.length > 0) {
-                const normalizedToSelect = pathsToSelect.map(normalizePath);
-                selectedFiles = result.filter(f => normalizedToSelect.includes(normalizePath(f.path)));
-                if (selectedFiles.length > 0) {
-                    lastSelectedFile = selectedFiles[selectedFiles.length - 1];
+            // ROBUSTNESS CHECK: Capture the LATEST version of the tab to check generationId
+            setTabs(prev => {
+                const currentTabState = prev.find(t => t.id === tabId);
+                // If tab is gone, or generationId has changed (user navigated again), DISCARD result.
+                if (!currentTabState || currentTabState.generationId !== currentGenId) {
+                    console.log(`[Navigation] Discarding stale response for ${path} (Gen: ${currentGenId} vs Current: ${currentTabState?.generationId})`);
+                    return prev;
                 }
-            } else {
-                // Try to preserve existing selection if files still exist
-                // Access current tab state from the 'tabs' state variable in scope
-                // We use a functional update in setTabs/updateTab usually, but here we need current value.
-                // 'tabs' dependency is needed or we find it in the list.
-                // However, 'loadFilesForTab' depends on 'updateTab'. If we add 'tabs' to dependency it might cause loops?
-                // Actually, let's look at the implementation. 'tabs' IS in the outer scope.
-                const targetTab = tabs.find(t => t.id === tabId);
-                if (targetTab && targetTab.selectedFiles.length > 0) {
-                    const currentSelectedPaths = targetTab.selectedFiles.map(f => normalizePath(f.path));
-                    selectedFiles = result.filter(f => currentSelectedPaths.includes(normalizePath(f.path)));
+
+                // If we are here, the result is valid for the current UI state.
+                let selectedFiles: FileEntry[] = [];
+                let lastSelectedFile: FileEntry | null = null;
+
+                if (pathsToSelect && pathsToSelect.length > 0) {
+                    const normalizedToSelect = pathsToSelect.map(normalizePath);
+                    selectedFiles = result.filter(f => normalizedToSelect.includes(normalizePath(f.path)));
                     if (selectedFiles.length > 0) {
-                        // Try to keep the same lastSelectedFile if it still exists
-                        const lastPath = targetTab.lastSelectedFile ? normalizePath(targetTab.lastSelectedFile.path) : null;
-                        lastSelectedFile = selectedFiles.find(f => normalizePath(f.path) === lastPath) || selectedFiles[0];
+                        lastSelectedFile = selectedFiles[selectedFiles.length - 1];
+                    }
+                } else {
+                    if (currentTabState.selectedFiles.length > 0) {
+                        const currentSelectedPaths = currentTabState.selectedFiles.map(f => normalizePath(f.path));
+                        selectedFiles = result.filter(f => currentSelectedPaths.includes(normalizePath(f.path)));
+                        if (selectedFiles.length > 0) {
+                            const lastPath = currentTabState.lastSelectedFile ? normalizePath(currentTabState.lastSelectedFile.path) : null;
+                            lastSelectedFile = selectedFiles.find(f => normalizePath(f.path) === lastPath) || selectedFiles[0];
+                        }
                     }
                 }
-            }
 
-            updateTab(tabId, { files: result, path, selectedFiles, lastSelectedFile, loading: false });
+                return prev.map(t => t.id === tabId ? {
+                    ...t,
+                    files: result,
+                    path, // Enforce path sync with data
+                    selectedFiles,
+                    lastSelectedFile,
+                    loading: false
+                } : t);
+            });
+
         } catch (err) {
-            updateTab(tabId, { error: String(err), loading: false });
+            setTabs(prev => {
+                const currentTabState = prev.find(t => t.id === tabId);
+                if (!currentTabState || currentTabState.generationId !== currentGenId) {
+                    return prev;
+                }
+                return prev.map(t => t.id === tabId ? { ...t, error: String(err), loading: false } : t);
+            });
         }
-    }, [updateTab, showHiddenFiles, tabs]);
+    }, [updateTab, showHiddenFiles]);
 
     const refreshTabsViewing = useCallback((paths: string | string[]) => {
         const pathList = (Array.isArray(paths) ? paths : [paths]).map(normalizePath);
-        tabs.forEach(tab => {
+        tabsRef.current.forEach(tab => {
             if (pathList.includes(normalizePath(tab.path))) {
                 loadFilesForTab(tab.id, tab.path);
             }
         });
-    }, [tabs, loadFilesForTab]);
+    }, [loadFilesForTab]);
 
     const navigateTo = useCallback((path: string) => {
         if (!currentTab) return;
+
+        // OPTIMISTIC UPDATE: Update UI path and history immediately.
+        // INCREMENT GENERATION: Invalidate any pending old requests.
+        const nextGenId = currentTab.generationId + 1;
+        lastNavigationTimeRef.current = Date.now();
+
         const newHistory = currentTab.history.slice(0, currentTab.historyIndex + 1);
         newHistory.push(path);
+
         updateTab(currentTab.id, {
             history: newHistory,
             historyIndex: newHistory.length - 1,
             searchQuery: '',
             renamingPath: null,
+            path: path, // Optimistic update
+            generationId: nextGenId,
+            selectedFiles: [], // Clear selection immediately on nav
+            lastSelectedFile: null
         });
-        loadFilesForTab(currentTab.id, path);
+
+        loadFilesForTab(currentTab.id, path, undefined, undefined, nextGenId);
     }, [currentTab, updateTab, loadFilesForTab]);
 
     const goBack = useCallback(() => {
         if (!currentTab || currentTab.historyIndex <= 0) return;
+
         const newIndex = currentTab.historyIndex - 1;
-        updateTab(currentTab.id, { historyIndex: newIndex, searchQuery: '' });
-        loadFilesForTab(currentTab.id, currentTab.history[newIndex]);
+        const newPath = currentTab.history[newIndex];
+        const nextGenId = currentTab.generationId + 1;
+        lastNavigationTimeRef.current = Date.now();
+
+        updateTab(currentTab.id, {
+            historyIndex: newIndex,
+            searchQuery: '',
+            path: newPath, // Optimistic
+            generationId: nextGenId,
+            selectedFiles: [],
+            lastSelectedFile: null
+        });
+
+        loadFilesForTab(currentTab.id, newPath, undefined, undefined, nextGenId);
     }, [currentTab, updateTab, loadFilesForTab]);
 
     const goForward = useCallback(() => {
         if (!currentTab || currentTab.historyIndex >= currentTab.history.length - 1) return;
+
         const newIndex = currentTab.historyIndex + 1;
-        updateTab(currentTab.id, { historyIndex: newIndex, searchQuery: '' });
-        loadFilesForTab(currentTab.id, currentTab.history[newIndex]);
+        const newPath = currentTab.history[newIndex];
+        const nextGenId = currentTab.generationId + 1;
+        lastNavigationTimeRef.current = Date.now();
+
+        updateTab(currentTab.id, {
+            historyIndex: newIndex,
+            searchQuery: '',
+            path: newPath,
+            generationId: nextGenId,
+            selectedFiles: [],
+            lastSelectedFile: null
+        });
+        loadFilesForTab(currentTab.id, newPath, undefined, undefined, nextGenId);
     }, [currentTab, updateTab, loadFilesForTab]);
 
     const goUp = useCallback(() => {
@@ -160,9 +241,30 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         }
     }, [currentTab, navigateTo, quickAccessConfig]);
 
-    const refreshCurrentTab = useCallback(() => {
-        if (currentTab) loadFilesForTab(currentTab.id, currentTab.path);
-    }, [currentTab, loadFilesForTab]);
+    const refreshCurrentTab = useCallback((isAutoRefresh: boolean = false) => {
+        // Use refs to get the ABSOLUTE LATEST state, bypassing any stale closures
+        const currentTabs = tabsRef.current;
+        const currentActiveId = activeTabIdRef.current;
+        const targetTab = currentTabs.find(t => t.id === currentActiveId);
+
+        if (targetTab) {
+            // FILTER: If this is an auto-refresh (focus/resize) AND we navigated very recently,
+            // ignore it to prevent race conditions or "stickiness" to old states.
+            if (isAutoRefresh) {
+                const timeSinceNav = Date.now() - lastNavigationTimeRef.current;
+                if (timeSinceNav < 2000) {
+                    console.log(`[Refresh] Auto-refresh ignored (Cooldown active: ${timeSinceNav}ms < 2000ms)`);
+                    return;
+                }
+            }
+
+            // Even for refresh, we bump the generation ID to "cancel" any previous pending loads
+            // and ensure this refresh is the authoritative source of truth.
+            const nextGenId = targetTab.generationId + 1;
+            updateTab(targetTab.id, { generationId: nextGenId });
+            loadFilesForTab(targetTab.id, targetTab.path, undefined, undefined, nextGenId);
+        }
+    }, [loadFilesForTab, updateTab]);
 
     const addTab = useCallback((path: string = '', shouldFocus: boolean = true) => {
         const newTab = createTab(path, initialSortConfig);

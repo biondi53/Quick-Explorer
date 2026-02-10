@@ -46,14 +46,24 @@ Subir **AMBOS** archivos al release:
 1. **Instalador MSI** (ubicado en `src-tauri/target/release/bundle/msi/Quick Explorer_[VERSION]_x64_en-US.msi`)
 2. **Ejecutable portable** (ubicado en `src-tauri/target/release/d-speedexplorer.exe`)
 
+Primero, extraer solo el changelog de la versión actual para las notas del release:
+
+```powershell
+# Extraer la primera sección (hasta el primer '---') del CHANGELOG.md
+(Get-Content CHANGELOG.md -Raw) -split '---' | Select-Object -First 1 | Out-File -FilePath LATEST_CHANGELOG.md -Encoding utf8
+```
+
 Comando para crear el release:
 
 ```bash
-# Crear release con el instalador MSI
-gh release create v[VERSION] "src-tauri/target/release/bundle/msi/Quick Explorer_[VERSION]_x64_en-US.msi" --title "Quick Explorer v[VERSION]" --notes-file "CHANGELOG.md"
+# Crear release con el instalador MSI usando solo el changelog reciente
+gh release create v[VERSION] "src-tauri/target/release/bundle/msi/Quick Explorer_[VERSION]_x64_en-US.msi" --title "Quick Explorer v[VERSION]" --notes-file "LATEST_CHANGELOG.md"
 
 # Agregar el ejecutable portable
 gh release upload v[VERSION] "src-tauri/target/release/d-speedexplorer.exe#Quick.Explorer_[VERSION]_x64.exe"
+
+# Eliminar el archivo temporal
+Remove-Item LATEST_CHANGELOG.md
 ```
 
 ### 5. Verificar el release
