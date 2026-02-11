@@ -1,3 +1,11 @@
+# 🚀 Quick Explorer v0.1.12
+*Changelog - February 10, 2026*
+
+## 🛡️ WinGet Compatibility Fix
+- **Log Relocation**: Moved application logs from the installation directory to `%LOCALAPPDATA%\Quick Explorer\logs\debug.log`. This resolves permission issues during WinGet validation and ensures the application runs correctly as a standard user.
+
+---
+
 # 🚀 Quick Explorer v0.1.11
 *Changelog - February 10, 2026*
 
@@ -98,4 +106,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Version 0.1.10*
+*Quick Explorer Project © 2026 - Version 0.1.12*
