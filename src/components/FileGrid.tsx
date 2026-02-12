@@ -304,6 +304,7 @@ export default function FileGrid({
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
     const [dragIconPath, setDragIconPath] = useState<string | null>(null);
+    const selectedBeforeDownRef = useRef<boolean>(false);
 
     useEffect(() => {
         resolveResource('icons/32x32.png')
@@ -421,14 +422,15 @@ export default function FileGrid({
 
     // Handler for mousedown on items - handles immediate selection and prepares drag
     const handleItemMouseDown = useCallback((file: FileEntry, e: React.MouseEvent) => {
-        const isSelected = selectedPaths.has(file.path);
+        const isSelectedAtStart = selectedPaths.has(file.path);
+        selectedBeforeDownRef.current = isSelectedAtStart;
 
         // If item is NOT selected, select it immediately (for visual feedback)
-        if (!isSelected && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        if (!isSelectedAtStart && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
             onSelectMultiple([file], file);
-        } else if (!isSelected && (e.ctrlKey || e.metaKey)) {
+        } else if (!isSelectedAtStart && (e.ctrlKey || e.metaKey)) {
             onSelectMultiple([...selectedFiles, file], file);
-        } else if (!isSelected && e.shiftKey && lastSelectedFile) {
+        } else if (!isSelectedAtStart && e.shiftKey && lastSelectedFile) {
             const lastIndex = files.findIndex(f => f.path === lastSelectedFile.path);
             const currentIndex = files.findIndex(f => f.path === file.path);
             if (lastIndex !== -1 && currentIndex !== -1) {
@@ -439,8 +441,8 @@ export default function FileGrid({
         }
 
         // Prepare for potential drag
-        const pathsToDrag = (isSelected || e.ctrlKey || e.metaKey || e.shiftKey)
-            ? (isSelected ? Array.from(selectedPaths) : [...Array.from(selectedPaths), file.path])
+        const pathsToDrag = (isSelectedAtStart || e.ctrlKey || e.metaKey || e.shiftKey)
+            ? (isSelectedAtStart ? Array.from(selectedPaths) : [...Array.from(selectedPaths), file.path])
             : [file.path];
 
         dragThresholdRef.current = { x: e.clientX, y: e.clientY, paths: pathsToDrag };
@@ -486,8 +488,10 @@ export default function FileGrid({
         // Handle click on an already-selected item (user released without dragging)
         if (isSelected) {
             if (e.ctrlKey || e.metaKey) {
-                // Ctrl+click on selected: remove from selection
-                onSelectMultiple(selectedFiles.filter(f => f.path !== file.path), lastSelectedFile);
+                // Ctrl+click on selected: remove from selection if it was selected BEFORE mousedown
+                if (selectedBeforeDownRef.current) {
+                    onSelectMultiple(selectedFiles.filter(f => f.path !== file.path), lastSelectedFile);
+                }
             } else if (!e.shiftKey) {
                 // Plain click on selected item in multi-selection: select only this item
                 onSelectMultiple([file], file);

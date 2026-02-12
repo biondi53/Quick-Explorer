@@ -137,6 +137,7 @@ const FileTable = memo(({
 
     // Native drag support
     const dragThresholdRef = useRef<{ x: number, y: number, paths: string[] } | null>(null);
+    const selectedBeforeDownRef = useRef<boolean>(false);
 
     const selectedPaths = useMemo(() => {
         return new Set(selectedFiles.map(f => f.path));
@@ -497,8 +498,11 @@ const FileTable = memo(({
                                 if (e.button === 1) { e.preventDefault(); return; } // Prevent autoscroll
                                 if (e.button !== 0) return;
 
+                                const isSelectedAtStart = selectedPaths.has(file.path);
+                                selectedBeforeDownRef.current = isSelectedAtStart;
+
                                 // If item is NOT selected, select it immediately (for visual feedback)
-                                if (!isSelected && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                                if (!isSelectedAtStart && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
                                     onSelectMultiple([file], file);
                                 } else if (!isSelected && (e.ctrlKey || e.metaKey)) {
                                     onSelectMultiple([...selectedFiles, file], file);
@@ -557,8 +561,10 @@ const FileTable = memo(({
                                 // Handle click on an already-selected item (user released without dragging)
                                 if (isSelected) {
                                     if (e.ctrlKey || e.metaKey) {
-                                        // Ctrl+click on selected: remove from selection
-                                        onSelectMultiple(selectedFiles.filter(f => f.path !== file.path), lastSelectedFile);
+                                        // Ctrl+click on selected: remove from selection if it was selected BEFORE mousedown
+                                        if (selectedBeforeDownRef.current) {
+                                            onSelectMultiple(selectedFiles.filter(f => f.path !== file.path), lastSelectedFile);
+                                        }
                                     } else if (!e.shiftKey) {
                                         // Plain click on selected item in multi-selection: select only this item
                                         onSelectMultiple([file], file);
