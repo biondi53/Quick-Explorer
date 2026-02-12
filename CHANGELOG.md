@@ -1,3 +1,14 @@
+# 🚀 Quick Explorer v0.1.13
+*Changelog - February 12, 2026*
+
+## ✨ Glow UI Refresh & Selection Fixes
+- **Glow UI Refresh**: Modernized Settings, Sidebar, and Tab Bar with new Glow effects and refined layouts for a more premium feel.
+- **🖱️ Multi-Selection Fix**: Resolved a critical bug where CTRL+click multi-selection was broken.
+- **🎨 Aesthetic Improvements**: Introduced the `GlowCard` component and polished overall visual consistency across the app.
+- **🛠️ Refined Layouts**: Optimized spacing and alignment in the Sidebar and Settings panel.
+
+---
+
 # 🚀 Quick Explorer v0.1.12
 *Changelog - February 10, 2026*
 
@@ -106,4 +117,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Version 0.1.12*
+*Quick Explorer Project © 2026 - Version 0.1.13*
