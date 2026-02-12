@@ -21,7 +21,8 @@ import {
   File as FileIcon,
   Files as FilesIcon,
   Scissors,
-  Terminal
+  Terminal,
+  ChevronRight
 } from 'lucide-react';
 
 const DEFAULT_COLUMNS: SortColumn[] = ['name', 'modified_at', 'created_at', 'file_type', 'size'];
@@ -1475,13 +1476,18 @@ export default function App() {
                     <div className="flex items-center overflow-hidden">
                       {breadcrumbs.map((crumb, index) => (
                         <Fragment key={crumb.path}>
-                          {index > 0 && <span className="text-zinc-600 mx-1">/</span>}
+                          {index > 0 && <ChevronRight size={14} className="text-zinc-600 mx-1" />}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               navigateTo(crumb.path);
                             }}
-                            className="text-sm text-zinc-300 hover:bg-white/10 px-1.5 py-0.5 rounded transition-colors truncate max-w-[150px]"
+                            className={`text-sm px-3 py-1 rounded-full transition-all truncate max-w-[150px]
+                              ${index === breadcrumbs.length - 1
+                                ? 'bg-[var(--accent-primary)]/20 text-white font-medium shadow-[0_0_10px_rgba(var(--accent-rgb),0.2)]'
+                                : 'text-zinc-300 hover:bg-white/10 hover:text-white'
+                              }
+                            `}
                           >
                             {crumb.label}
                           </button>

@@ -50,7 +50,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
     if (selectedFiles.length === 0) {
         return (
             <aside
-                className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl items-center justify-center text-zinc-500 p-8 text-center"
+                className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl items-center justify-center text-[var(--text-muted)] p-8 text-center"
                 style={{ width }}
                 onContextMenu={(e) => e.preventDefault()}
             >
@@ -212,12 +212,12 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                                 )}
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center text-zinc-600">
+                            <div className="flex flex-col items-center text-[var(--text-muted)]">
                                 <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-6 relative group transform transition-transform duration-500">
                                     <div className="absolute inset-0 bg-white/5 rounded-[2.5rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                     <div className="relative">
                                         {selectedFile.is_dir ? (
-                                            <Folder size={64} className="text-amber-400 opacity-40" />
+                                            <Folder size={64} className="text-[var(--accent-primary)] opacity-40" />
                                         ) : selectedFile.is_shortcut ? (
                                             <div className="relative">
                                                 <File size={64} className="text-blue-400 opacity-40" />

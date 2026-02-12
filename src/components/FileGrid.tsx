@@ -10,6 +10,7 @@ import { getIconComponent } from '../utils/fileIcons';
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
 import { resolveResource } from '@tauri-apps/api/path';
+import GlowCard from './ui/GlowCard';
 
 interface FileGridProps {
     files: FileEntry[];
@@ -178,106 +179,108 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
     const Icon = getIconComponent(file);
 
     return (
-        <div
-            className={`
-                flex flex-col items-center justify-center p-2 rounded-xl cursor-default
-                transition-all duration-150 group
-                ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
-                ${isSelected
-                    ? 'bg-[var(--accent-primary)]/20 ring-2 ring-[var(--accent-primary)]/50'
-                    : 'hover:bg-white/5'
-                }
-            `}
-            onMouseDown={(e) => {
-                if (e.button === 1) { e.preventDefault(); return; } // Prevent autoscroll
-                if (e.button !== 0) return;
-                onMouseDown(file, e);
-            }}
-            onClick={(e) => {
-                if (e.button !== 0) return;
-                onClick(file, e);
-            }}
-            onDoubleClick={() => onOpen(file)}
-            onAuxClick={(e) => {
-                if (e.button === 1 && file.is_dir) {
-                    e.preventDefault();
-                    onOpenInNewTab(file);
-                }
-            }}
-            onContextMenu={(e) => onContextMenu(e, file)}
-            style={{ width: ITEM_SIZE, height: ITEM_SIZE }}
-        >
-            <div className="w-28 h-28 flex items-center justify-center mb-2 relative">
-                {thumbnail ? (
-                    <>
-                        <img
-                            src={thumbnail}
-                            alt={file.name}
-                            className="w-full h-full object-cover rounded-lg shadow-md"
+        <GlowCard className="rounded-xl" glowColor="rgba(var(--accent-rgb), 0.15)">
+            <div
+                className={`
+                    flex flex-col items-center justify-center p-2 rounded-xl cursor-default
+                    transition-all duration-150 group h-full w-full
+                    ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
+                    ${isSelected
+                        ? 'bg-[var(--accent-primary)]/20 ring-2 ring-[var(--accent-primary)]/50'
+                        : 'hover:bg-white/5'
+                    }
+                `}
+                onMouseDown={(e) => {
+                    if (e.button === 1) { e.preventDefault(); return; } // Prevent autoscroll
+                    if (e.button !== 0) return;
+                    onMouseDown(file, e);
+                }}
+                onClick={(e) => {
+                    if (e.button !== 0) return;
+                    onClick(file, e);
+                }}
+                onDoubleClick={() => onOpen(file)}
+                onAuxClick={(e) => {
+                    if (e.button === 1 && file.is_dir) {
+                        e.preventDefault();
+                        onOpenInNewTab(file);
+                    }
+                }}
+                onContextMenu={(e) => onContextMenu(e, file)}
+                style={{ width: ITEM_SIZE, height: ITEM_SIZE }}
+            >
+                <div className="w-28 h-28 flex items-center justify-center mb-2 relative">
+                    {thumbnail ? (
+                        <>
+                            <img
+                                src={thumbnail}
+                                alt={file.name}
+                                className="w-full h-full object-cover rounded-lg shadow-md"
+                            />
+                            {/* Thumbnail source indicator commented out for now */}
+                        </>
+                    ) : loading ? (
+                        <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />
+                    ) : (
+                        <Icon
+                            size={80}
+                            className={`
+                                ${file.is_dir ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}
+                                group-hover:scale-110 transition-transform
+                            `}
+                            fill={file.is_dir ? 'rgba(var(--accent-rgb), 0.2)' : 'none'}
                         />
-                        {/* Thumbnail source indicator commented out for now */}
-                    </>
-                ) : loading ? (
-                    <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />
-                ) : (
-                    <Icon
-                        size={80}
-                        className={`
-                            ${file.is_dir ? 'text-amber-400' : 'text-zinc-400'}
-                            group-hover:scale-110 transition-transform
-                        `}
-                        fill={file.is_dir ? 'rgba(251, 191, 36, 0.2)' : 'none'}
-                    />
-                )}
+                    )}
 
-                {file.is_shortcut && (
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center border border-zinc-600">
-                        <LinkIcon size={10} className="text-blue-400" />
-                    </div>
-                )}
+                    {file.is_shortcut && (
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center border border-zinc-600">
+                            <LinkIcon size={10} className="text-blue-400" />
+                        </div>
+                    )}
 
-                {/* Video Indicator */}
-                {!file.is_dir && VIDEO_EXTS.includes(file.name.split('.').pop()?.toLowerCase() || '') && (
-                    <div className="absolute bottom-1 right-1 bg-zinc-900/80 text-white p-1 rounded-full shadow-md border border-white/30 flex items-center justify-center backdrop-blur-sm">
-                        <Play size={10} fill="currentColor" className="ml-[1px]" />
-                    </div>
-                )}
-            </div>
+                    {/* Video Indicator */}
+                    {!file.is_dir && VIDEO_EXTS.includes(file.name.split('.').pop()?.toLowerCase() || '') && (
+                        <div className="absolute bottom-1 right-1 bg-zinc-900/80 text-white p-1 rounded-full shadow-md border border-white/30 flex items-center justify-center backdrop-blur-sm">
+                            <Play size={10} fill="currentColor" className="ml-[1px]" />
+                        </div>
+                    )}
+                </div>
 
-            {isRenaming ? (
-                <input
-                    ref={editInputRef}
-                    className="mt-1 bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]/50 rounded px-1.5 py-0.5 text-[11px] text-white outline-none w-full text-center"
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    onBlur={() => {
-                        if (submittingRef.current) return;
-                        submittingRef.current = true;
-                        onRenameSubmit(file, editValue);
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                {isRenaming ? (
+                    <input
+                        ref={editInputRef}
+                        className="mt-1 bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]/50 rounded px-1.5 py-0.5 text-[11px] text-white outline-none w-full text-center"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => {
                             if (submittingRef.current) return;
                             submittingRef.current = true;
                             onRenameSubmit(file, editValue);
-                        } else if (e.key === 'Escape') {
-                            onRenameCancel();
-                        }
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                />
-            ) : (
-                <span
-                    className={`
-                        text-[11px] text-center leading-tight line-clamp-2 w-full px-1 mt-1
-                        ${isSelected ? 'text-white font-medium' : 'text-zinc-300'}
-                    `}
-                    title={file.name}
-                >
-                    {file.name}
-                </span>
-            )}
-        </div>
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                if (submittingRef.current) return;
+                                submittingRef.current = true;
+                                onRenameSubmit(file, editValue);
+                            } else if (e.key === 'Escape') {
+                                onRenameCancel();
+                            }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                ) : (
+                    <span
+                        className={`
+                            text-[11px] text-center leading-tight line-clamp-2 w-full px-1 mt-1
+                            ${isSelected ? 'text-white font-medium' : 'text-[var(--text-dim)]'}
+                        `}
+                        title={file.name}
+                    >
+                        {file.name}
+                    </span>
+                )}
+            </div>
+        </GlowCard>
     );
 });
 

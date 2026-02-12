@@ -16,11 +16,10 @@
   --accent-rgb: 99, 102, 241;
   --accent-secondary: #06b6d4;
   --accent-glow: rgba(99, 102, 241, 0.5);
-  --text-main: #ffffff;
-  --text-dim: #cbd5e1;
-  /* From 94a3b8 (zinc-400) to slate-300 approx */
-  --text-muted: #94a3b8;
-  /* From 64748b (zinc-500) to zinc-400 */
+  --text-dim: #e2e8f0;
+  /* Slate-200 (was #cbd5e1 / Slate-300) */
+  --text-muted: #cbd5e1;
+  /* Slate-300 (was #94a3b8 / Slate-400) */
   --border-glow: rgba(255, 255, 255, 0.15);
   --border-active: rgba(99, 102, 241, 0.7);
   --mica-bg: rgba(11, 14, 28, 0.6);

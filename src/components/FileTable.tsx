@@ -76,12 +76,12 @@ const ColumnMenu = ({ x, y, visibleColumns, onToggle, onClose }: ColumnMenuProps
             className="fixed z-[100] w-64 bg-[#0f111a]/95 backdrop-blur-3xl border border-white/10 rounded-xl py-2 shadow-[0_10px_35px_rgba(0,0,0,0.7)] animate-in fade-in zoom-in-95 duration-100"
             style={{ left: x, top: y }}
         >
-            <div className="px-3 mb-2 text-[11px] font-black text-zinc-500 uppercase tracking-widest">Visible Columns</div>
+            <div className="px-3 mb-2 text-[11px] font-black text-[var(--text-muted)] uppercase tracking-widest">Visible Columns</div>
             {(Object.keys(COLUMN_CONFIG) as SortColumn[]).map(col => (
                 <button
                     key={col}
                     onClick={() => onToggle(col)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-zinc-300 hover:bg-[var(--accent-primary)]/20 hover:text-white transition-all group"
+                    className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-[var(--text-dim)] hover:bg-[var(--accent-primary)]/20 hover:text-white transition-all group"
                 >
                     <span>{COLUMN_CONFIG[col].label}</span>
                     {visibleColumns.includes(col) && <Check size={20} className="text-[var(--accent-primary)]" />}
@@ -331,7 +331,7 @@ const FileTable = memo(({
 
     if (files.length === 0) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center text-zinc-600" onContextMenu={(e) => onContextMenu(e, null)}>
+            <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]" onContextMenu={(e) => onContextMenu(e, null)}>
                 {(() => {
                     const FolderIcon = getIconComponent({ name: '', is_dir: true, is_shortcut: false });
                     return <FolderIcon size={48} className="opacity-10 mb-4" />;
@@ -444,7 +444,7 @@ const FileTable = memo(({
                         className="relative h-full flex items-center group/header"
                     >
                         <div
-                            className={`flex-1 text-[11px] font-bold text-zinc-400 hover:text-zinc-200 cursor-pointer flex items-center gap-1.5 truncate h-full ${COLUMN_CONFIG[col].align === 'right' ? 'justify-end' : ''}`}
+                            className={`flex-1 text-[11px] font-bold text-[var(--text-muted)] hover:text-white cursor-pointer flex items-center gap-1.5 truncate h-full ${COLUMN_CONFIG[col].align === 'right' ? 'justify-end' : ''}`}
                             onClick={() => onSort(col)}
                         >
                             {COLUMN_CONFIG[col].label}
@@ -577,7 +577,7 @@ const FileTable = memo(({
                                             <div className="flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center">
                                                 {(() => {
                                                     const IconComponent = getIconComponent(file);
-                                                    return <IconComponent size={16} className={`${file.is_dir ? 'text-amber-400' : 'text-zinc-400'} ${isSelected ? 'text-white' : 'group-hover:text-zinc-200'}`} fill={file.is_dir ? 'rgba(251, 191, 36, 0.2)' : 'none'} />;
+                                                    return <IconComponent size={16} className={`${file.is_dir ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'} ${isSelected ? 'text-white' : 'group-hover:text-white'}`} fill={file.is_dir ? 'rgba(var(--accent-rgb), 0.2)' : 'none'} />;
                                                 })()}
                                             </div>
                                             {renamingPath === file.path ? (
@@ -604,11 +604,11 @@ const FileTable = memo(({
                                                     onDoubleClick={(e) => e.stopPropagation()}
                                                 />
                                             ) : (
-                                                <span className={`text-sm truncate transition-colors ${isSelected ? 'text-white font-bold' : 'text-zinc-300 group-hover:text-white'}`}>{file.name}</span>
+                                                <span className={`text-sm truncate transition-colors ${isSelected ? 'text-white font-bold' : 'text-[var(--text-dim)] font-medium group-hover:text-white'}`}>{file.name}</span>
                                             )}
                                         </div>
                                     ) : (
-                                        <span className={`text-xs ${col === 'size' ? 'text-zinc-400 font-mono' : 'text-zinc-400 font-medium'}`}>
+                                        <span className={`text-xs ${col === 'size' ? 'text-[var(--text-muted)] font-mono' : 'text-[var(--text-muted)] font-light'}`}>
                                             {col === 'modified_at' && file.modified_at}
                                             {col === 'created_at' && file.created_at}
                                             {col === 'file_type' && file.file_type}
