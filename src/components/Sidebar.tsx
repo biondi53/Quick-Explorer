@@ -1,5 +1,5 @@
 import { useState, useEffect, memo } from 'react';
-import { Home, Download, FileText, Image, HardDrive, ChevronRight, Monitor, Trash2, Trash } from 'lucide-react';
+import { Download, FileText, Image, HardDrive, ChevronRight, Monitor, Trash2, Trash } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 import { RecycleBinStatus } from '../types';
@@ -54,7 +54,7 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
 
     const getIcon = (id: string) => {
         switch (id) {
-            case 'home': return <Home size={18} />;
+            case 'home': return <Monitor size={18} />;
             case 'downloads': return <Download size={18} />;
             case 'documents': return <FileText size={18} />;
             case 'pictures': return <Image size={18} />;

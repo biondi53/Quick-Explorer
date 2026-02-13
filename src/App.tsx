@@ -62,7 +62,7 @@ export default function App() {
       const saved = localStorage.getItem('speedexplorer-config');
       const basePinned = [
         { id: 'desktop', name: 'Desktop', path: '', enabled: true },
-        { id: 'home', name: 'Home', path: '', enabled: true },
+        { id: 'home', name: 'This PC', path: '', enabled: true },
         { id: 'downloads', name: 'Downloads', path: '', enabled: true },
         { id: 'documents', name: 'Documents', path: '', enabled: true },
         { id: 'pictures', name: 'Pictures', path: '', enabled: true },
@@ -77,6 +77,8 @@ export default function App() {
           const merged = parsed.pinnedFolders.map((f: any) => {
             const isSystem = basePinned.some(b => b.id === f.id);
             if (isSystem && f.enabled === undefined) return { ...f, enabled: true };
+            // Migration: Rename 'Home' to 'This PC' for existing users
+            if (f.id === 'home' && f.name === 'Home') return { ...f, name: 'This PC' };
             return f;
           });
           toAdd.forEach(item => merged.push(item));
@@ -90,7 +92,7 @@ export default function App() {
     return {
       pinnedFolders: [
         { id: 'desktop', name: 'Desktop', path: '', enabled: true },
-        { id: 'home', name: 'Home', path: '', enabled: true },
+        { id: 'home', name: 'This PC', path: '', enabled: true },
         { id: 'downloads', name: 'Downloads', path: '', enabled: true },
         { id: 'documents', name: 'Documents', path: '', enabled: true },
         { id: 'pictures', name: 'Pictures', path: '', enabled: true },
@@ -381,25 +383,25 @@ export default function App() {
 
         if (paths.length > 0 && targetPath && targetPath !== '' && targetPath !== 'shell:RecycleBin') {
           try {
-            console.log('[APP] Invoking drop_items...');
+            console.log(`[APP] [${now}] Invoking drop_items for ${paths.length} files to: ${targetPath}`);
             const result = await invoke('drop_items', {
               files: paths,
               targetPath: targetPath
             });
-            console.log('[APP] drop_items success result:', result);
+            console.log(`[APP] [${now}] drop_items success result:`, result);
             refreshCurrentTabRef.current(); // Call current ref value
           } catch (error) {
-            console.error('[App] Failed to drop items command:', error);
+            console.error(`[APP] [${now}] Failed to drop items command:`, error);
           }
         } else {
-          console.warn('[APP] Drop rejected: Invalid targetPath or empty paths. Target:', targetPath);
+          console.warn(`[APP] [${now}] Drop rejected: Invalid targetPath or empty paths. Target: "${targetPath}", Paths count: ${paths.length}`);
         }
       }).then(fn => {
         if (!isMounted) {
-          fn(); // Unmount occurred during async registration
-        } else {
-          unlistenFn = fn;
+          fn();
+          return;
         }
+        unlistenFn = fn;
       });
     });
 

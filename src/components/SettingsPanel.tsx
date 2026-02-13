@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, Folder, Check, X, ChevronRight, SlidersHorizontal, Monitor, Home, Download, FileText, Image, Trash2 } from 'lucide-react';
+import { Settings, Folder, Check, X, ChevronRight, SlidersHorizontal, Monitor, Download, FileText, Image, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface PinnedFolder {
@@ -84,7 +84,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
     const getIcon = (id: string) => {
         switch (id) {
             case 'desktop': return <Monitor size={16} />;
-            case 'home': return <Home size={16} />;
+            case 'home': return <Monitor size={16} />;
             case 'downloads': return <Download size={16} />;
             case 'documents': return <FileText size={16} />;
             case 'pictures': return <Image size={16} />;
@@ -295,10 +295,10 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                                         type="text"
                                                         value={folder.path}
                                                         onChange={(e) => updatePath(folder.id, e.target.value)}
-                                                        disabled={folder.id === 'recycle-bin'}
-                                                        title={folder.id === 'recycle-bin' ? "The Recycle Bin path is managed by the system" : ""}
+                                                        disabled={folder.id === 'recycle-bin' || folder.id === 'home'}
+                                                        title={folder.id === 'recycle-bin' || folder.id === 'home' ? "This path is managed by the system" : ""}
                                                         className={`w-full bg-black/20 border border-white/5 rounded-lg px-3 py-1.5 text-xs transition-all font-mono
-                                                            ${folder.id === 'recycle-bin' ? 'text-zinc-600 cursor-not-allowed opacity-50' : 'text-zinc-400 focus:outline-none focus:border-[var(--accent-primary)]/50'}`}
+                                                            ${(folder.id === 'recycle-bin' || folder.id === 'home') ? 'text-zinc-600 cursor-not-allowed opacity-50' : 'text-zinc-400 focus:outline-none focus:border-[var(--accent-primary)]/50'}`}
                                                         placeholder="Path not set"
                                                     />
                                                 </div>

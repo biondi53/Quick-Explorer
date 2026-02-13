@@ -1,7 +1,6 @@
 use base64::prelude::*;
 use chrono::{DateTime, Local};
 use clipboard_win::{formats, Clipboard};
-use rayon::prelude::*;
 use serde::Serialize;
 use std::ffi::OsStr;
 use std::fs;
@@ -11,7 +10,7 @@ use std::time::SystemTime;
 // use tauri::Emitter; // Moved to drop_overlay.rs
 use tauri::Manager;
 // use window_vibrancy::apply_mica;
-use windows::core::{Interface, PCWSTR, PWSTR};
+use windows::core::{Interface, PCWSTR};
 
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Security::TOKEN_QUERY;
@@ -20,65 +19,63 @@ use windows::Win32::System::DataExchange::{
     EmptyClipboard, GetClipboardSequenceNumber, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows::Win32::System::SystemServices::SFGAO_FLAGS;
 use windows::Win32::UI::Shell::{
-    BHID_EnumItems, FOLDERID_RecycleBinFolder, IEnumShellItems, IShellItem, IShellItem2,
-    IShellItemImageFactory, SHCreateItemFromParsingName, SHEmptyRecycleBinW, SHFileOperationW,
-    SHGetKnownFolderItem, SHQueryRecycleBinW, FOF_ALLOWUNDO, FOF_MULTIDESTFILES,
-    FOF_NOCONFIRMATION, FO_COPY, FO_DELETE, FO_MOVE, FO_RENAME, KF_FLAG_DEFAULT,
-    SHERB_NOCONFIRMATION, SHERB_NOSOUND, SHFILEOPSTRUCTW, SHQUERYRBINFO, SIGDN_FILESYSPATH,
-    SIGDN_NORMALDISPLAY, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
+    IShellItem2, IShellItemImageFactory, SHCreateItemFromParsingName, SHFileOperationW,
+    SHQueryRecycleBinW, FOF_ALLOWUNDO, FOF_MULTIDESTFILES, FOF_NOCONFIRMATION, FO_COPY, FO_DELETE,
+    FO_MOVE, FO_RENAME, SHFILEOPSTRUCTW, SHQUERYRBINFO, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
 };
 
 mod commands;
 mod drop_overlay;
 mod extraction;
+mod sta_worker;
 
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 #[derive(Clone, Serialize)]
-struct ClipboardInfo {
-    has_files: bool,
-    paths: Vec<String>,
-    is_cut: bool,
-    file_count: usize,
-    file_summary: Option<String>,
-    has_image: bool,
-    image_data: Option<String>, // Base64 Data URI
+pub struct ClipboardInfo {
+    pub has_files: bool,
+    pub paths: Vec<String>,
+    pub is_cut: bool,
+    pub file_count: usize,
+    pub file_summary: Option<String>,
+    pub has_image: bool,
+    pub image_data: Option<String>, // Base64 Data URI
 }
 
-struct ClipboardCache(std::sync::Mutex<Option<(u32, ClipboardInfo)>>);
+pub struct ClipboardCache(std::sync::Mutex<Option<(u32, ClipboardInfo)>>);
 
 #[derive(Serialize, Clone)]
-struct DiskInfo {
-    total_space: u64,
-    available_space: u64,
+pub struct DiskInfo {
+    pub total: u64,
+    pub used: u64,
+    pub free: u64,
 }
 
 #[derive(Serialize, Default, Clone)]
-struct RecycleBinStatus {
-    is_empty: bool,
-    item_count: i64,
-    total_size: i64,
+pub struct RecycleBinStatus {
+    pub is_empty: bool,
+    pub item_count: i64,
+    pub total_size: i64,
 }
 
 #[derive(Serialize)]
-struct FileEntry {
-    name: String,
-    path: String,
-    is_dir: bool,
-    size: u64,
-    formatted_size: String,
-    file_type: String,
-    created_at: String,
-    modified_at: String,
-    is_shortcut: bool,
-    disk_info: Option<DiskInfo>,
-    modified_timestamp: i64,
-    dimensions: Option<String>,
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub formatted_size: String,
+    pub file_type: String,
+    pub created_at: String,
+    pub modified_at: String,
+    pub is_shortcut: bool,
+    pub disk_info: Option<DiskInfo>,
+    pub modified_timestamp: i64,
+    pub dimensions: Option<String>,
 }
 
-fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
+pub fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     let metadata = path.metadata().map_err(|e| e.to_string())?;
     let name = path
         .file_name()
@@ -128,8 +125,6 @@ fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     let modified_datetime: DateTime<Local> = modified_at.into();
     let modified_at_str = modified_datetime.format("%d/%m/%Y %H:%M").to_string();
 
-    let dimensions = None;
-
     Ok(FileEntry {
         name,
         path: path_string,
@@ -145,247 +140,13 @@ fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64,
-        dimensions,
+        dimensions: None,
     })
-}
-
-fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
-    let mut files = Vec::new();
-    let now = SystemTime::now();
-    let datetime: DateTime<Local> = now.into();
-    let now_str = datetime.format("%d/%m/%Y %H:%M").to_string();
-
-    unsafe {
-        let bin_item: IShellItem =
-            match SHGetKnownFolderItem(&FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, None) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err("Failed to get bin item".to_string());
-                }
-            };
-
-        let enum_items: IEnumShellItems = match bin_item.BindToHandler(None, &BHID_EnumItems) {
-            Ok(e) => e,
-            Err(_) => {
-                return Ok(files);
-            }
-        };
-
-        let mut fetched = 0;
-        let mut item_opt = [None];
-
-        while enum_items.Next(&mut item_opt, Some(&mut fetched)).is_ok() && fetched > 0 {
-            if let Some(item) = item_opt[0].take() {
-                let name = item
-                    .GetDisplayName(SIGDN_NORMALDISPLAY)
-                    .map(|p: PWSTR| {
-                        let s = p.to_string().unwrap_or_else(|_| "Unknown".to_string());
-                        windows::Win32::System::Com::CoTaskMemFree(Some(p.as_ptr() as *const _));
-                        s
-                    })
-                    .unwrap_or_else(|_| "Unknown".to_string());
-
-                let path = item
-                    .GetDisplayName(SIGDN_FILESYSPATH)
-                    .map(|p: PWSTR| {
-                        let s = p.to_string().unwrap_or_else(|_| name.clone());
-                        windows::Win32::System::Com::CoTaskMemFree(Some(p.as_ptr() as *const _));
-                        s
-                    })
-                    .unwrap_or_else(|_| name.clone());
-
-                files.push(FileEntry {
-                    name,
-                    path,
-                    is_dir: false,
-                    size: 0,
-                    formatted_size: String::new(),
-                    file_type: "Deleted Item".to_string(),
-                    created_at: now_str.clone(),
-                    modified_at: now_str.clone(),
-                    is_shortcut: false,
-                    disk_info: None,
-                    modified_timestamp: 0,
-                    dimensions: None,
-                });
-            }
-        }
-    }
-
-    Ok(files)
 }
 
 #[tauri::command]
 fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
-    if path == "shell:RecycleBin" {
-        return list_recycle_bin();
-    }
-    if path.is_empty() {
-        let mut drives = Vec::new();
-        let now = SystemTime::now();
-        let datetime: DateTime<Local> = now.into();
-        let created_at_str = datetime.format("%d/%m/%Y %H:%M").to_string();
-
-        use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-
-        for b in b'C'..=b'Z' {
-            let drive_letter = b as char;
-            let drive_path = format!("{}:\\", drive_letter);
-            if std::path::Path::new(&drive_path).exists() {
-                let mut free_bytes_available = 0u64;
-                let mut total_number_of_bytes = 0u64;
-                let mut total_number_of_free_bytes = 0u64;
-
-                let path_wide: Vec<u16> = OsStr::new(&drive_path)
-                    .encode_wide()
-                    .chain(std::iter::once(0))
-                    .collect();
-
-                let disk_info = unsafe {
-                    if GetDiskFreeSpaceExW(
-                        PCWSTR(path_wide.as_ptr()),
-                        Some(&mut free_bytes_available),
-                        Some(&mut total_number_of_bytes),
-                        Some(&mut total_number_of_free_bytes),
-                    )
-                    .is_ok()
-                    {
-                        Some(DiskInfo {
-                            total_space: total_number_of_bytes,
-                            available_space: total_number_of_free_bytes,
-                        })
-                    } else {
-                        None
-                    }
-                };
-
-                drives.push(FileEntry {
-                    name: format!("Local Disk ({}:)", drive_letter),
-                    path: drive_path,
-                    is_dir: true,
-                    size: 0,
-                    formatted_size: String::new(),
-                    file_type: "Drive".to_string(),
-                    created_at: created_at_str.clone(),
-                    modified_at: created_at_str.clone(),
-                    is_shortcut: false,
-                    disk_info,
-                    modified_timestamp: 0,
-                    dimensions: None,
-                });
-            }
-        }
-        return Ok(drives);
-    }
-
-    let mut files = Vec::new();
-
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-
-        let path_wide: Vec<u16> = OsStr::new(path)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        let item: IShellItem = match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
-            Ok(i) => i,
-            Err(e) => {
-                return Err(format!("Failed to access path: {}", e));
-            }
-        };
-
-        // Bind to the enum handler. This handles junctions and restricted folders much better than read_dir.
-        let enum_items: IEnumShellItems = match item.BindToHandler(None, &BHID_EnumItems) {
-            Ok(e) => e,
-            Err(e) => {
-                // If we can't enumerate, it might truly be access denied or an empty folder.
-                return Err(format!("Access Denied or folder empty: {}", e));
-            }
-        };
-
-        let mut fetched = 0;
-        let mut item_opt = [None];
-
-        while enum_items.Next(&mut item_opt, Some(&mut fetched)).is_ok() && fetched > 0 {
-            if let Some(child_item) = item_opt[0].take() {
-                let name = child_item
-                    .GetDisplayName(SIGDN_NORMALDISPLAY)
-                    .map(|p: PWSTR| {
-                        let s = p.to_string().unwrap_or_else(|_| "Unknown".to_string());
-                        windows::Win32::System::Com::CoTaskMemFree(Some(p.as_ptr() as *const _));
-                        s
-                    })
-                    .unwrap_or_else(|_| "Unknown".to_string());
-
-                let full_path = child_item
-                    .GetDisplayName(SIGDN_FILESYSPATH)
-                    .map(|p: PWSTR| {
-                        let s = p.to_string().unwrap_or_else(|_| name.clone());
-                        windows::Win32::System::Com::CoTaskMemFree(Some(p.as_ptr() as *const _));
-                        s
-                    })
-                    .unwrap_or_else(|_| name.clone());
-
-                let path_obj = std::path::Path::new(&full_path);
-
-                if !show_hidden {
-                    let hidden_flag = SFGAO_FLAGS(0x80000);
-                    if let Ok(attr) = child_item.GetAttributes(hidden_flag) {
-                        if (attr & hidden_flag) != SFGAO_FLAGS(0) {
-                            continue;
-                        }
-                    }
-                }
-
-                if let Ok(entry) = get_file_entry(path_obj) {
-                    files.push(entry);
-                } else {
-                    // Fallback for items that get_file_entry might fail on (like some system items)
-                    files.push(FileEntry {
-                        name,
-                        path: full_path,
-                        is_dir: false, // Default to false if we can't tell, or use Shell attributes
-                        size: 0,
-                        formatted_size: String::new(),
-                        file_type: "System Item".to_string(),
-                        created_at: "".to_string(),
-                        modified_at: "".to_string(),
-                        is_shortcut: false,
-                        disk_info: None,
-                        modified_timestamp: 0,
-                        dimensions: None,
-                    });
-                }
-            }
-        }
-
-        CoUninitialize();
-    }
-
-    files.par_sort_unstable_by(|a, b| {
-        if a.is_dir && !b.is_dir {
-            std::cmp::Ordering::Less
-        } else if !a.is_dir && b.is_dir {
-            std::cmp::Ordering::Greater
-        } else {
-            // Case-insensitive comparison without full to_lowercase() allocation
-            // We use a simple char-by-char comparison which is much faster than full string conversion
-            let a_chars = a.name.chars();
-            let b_chars = b.name.chars();
-
-            for (ac, bc) in a_chars.zip(b_chars) {
-                let alc = ac.to_lowercase().next().unwrap();
-                let blc = bc.to_lowercase().next().unwrap();
-                if alc != blc {
-                    return alc.cmp(&blc);
-                }
-            }
-            a.name.len().cmp(&b.name.len())
-        }
-    });
-
-    Ok(files)
+    crate::sta_worker::StaWorker::global().list_files(path.to_string(), show_hidden)
 }
 
 #[tauri::command]
@@ -732,7 +493,7 @@ fn resolve_shortcut(path: String) -> Result<String, String> {
     }
 }
 
-fn get_next_available_path(target_dir: &str, original_name: &str) -> std::path::PathBuf {
+pub fn get_next_available_path(target_dir: &str, original_name: &str) -> std::path::PathBuf {
     let base_path = std::path::Path::new(target_dir).join(original_name);
     if !base_path.exists() {
         return base_path;
@@ -963,101 +724,12 @@ fn paste_items(target_path: String) -> Result<Vec<String>, String> {
 /// This bypasses clipboard and directly copies files to the target directory.
 #[tauri::command]
 fn drop_items(files: Vec<String>, target_path: String) -> Result<Vec<String>, String> {
-    println!(
-        "DEBUG: drop_items called with files: {:?} target: {}",
-        files, target_path
-    );
-    if files.is_empty() {
-        return Err("No files to drop".into());
-    }
-
-    let mut from_wide: Vec<u16> = Vec::new();
-    let mut to_wide: Vec<u16> = Vec::new();
-    let mut copied_paths: Vec<String> = Vec::new();
-
-    for f in &files {
-        from_wide.extend(OsStr::new(f).encode_wide());
-        from_wide.push(0);
-
-        let path_obj = std::path::Path::new(f);
-        let filename = path_obj
-            .file_name()
-            .map(|n| n.to_string_lossy())
-            .unwrap_or_else(|| "unknown".into());
-
-        // Calculate unique destination path to avoid overwrite
-        let dest_path_buf = get_next_available_path(&target_path, &filename);
-        let dest_path_str = dest_path_buf.to_string_lossy().to_string();
-        copied_paths.push(dest_path_str.clone());
-
-        to_wide.extend(dest_path_buf.as_os_str().encode_wide());
-        to_wide.push(0);
-    }
-    from_wide.push(0); // Double null termination
-    to_wide.push(0); // Double null termination
-
-    unsafe {
-        let mut file_op = SHFILEOPSTRUCTW {
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            wFunc: FO_COPY,
-            pFrom: PCWSTR(from_wide.as_ptr()),
-            pTo: PCWSTR(to_wide.as_ptr()),
-            fFlags: (FOF_ALLOWUNDO.0 as u16) | (FOF_MULTIDESTFILES.0 as u16),
-            fAnyOperationsAborted: windows_core::BOOL(0),
-            hNameMappings: std::ptr::null_mut(),
-            lpszProgressTitle: PCWSTR(std::ptr::null()),
-        };
-
-        let result = SHFileOperationW(&mut file_op);
-        if result != 0 {
-            return Err(format!("Windows Copy failed with code: {}", result));
-        }
-    }
-    Ok(copied_paths)
+    crate::sta_worker::StaWorker::global().drop_items(files, target_path)
 }
 
 #[tauri::command]
 fn move_items(paths: Vec<String>, target_path: String) -> Result<(), String> {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-    }
-
-    let mut from_wide: Vec<u16> = Vec::new();
-    for f in &paths {
-        from_wide.extend(OsStr::new(f).encode_wide());
-        from_wide.push(0);
-    }
-    from_wide.push(0);
-
-    let mut to_wide: Vec<u16> = OsStr::new(&target_path).encode_wide().collect();
-    to_wide.push(0);
-    to_wide.push(0);
-
-    unsafe {
-        let mut file_op = SHFILEOPSTRUCTW {
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            wFunc: FO_MOVE,
-            pFrom: PCWSTR(from_wide.as_ptr()),
-            pTo: PCWSTR(to_wide.as_ptr()),
-            fFlags: (FOF_ALLOWUNDO.0 as u16),
-            fAnyOperationsAborted: windows_core::BOOL(0),
-            hNameMappings: std::ptr::null_mut(),
-            lpszProgressTitle: PCWSTR(std::ptr::null()),
-        };
-
-        let result = SHFileOperationW(&mut file_op);
-
-        CoUninitialize();
-
-        if result != 0 {
-            return Err(format!("Windows Move failed with code: {}", result));
-        }
-
-        if file_op.fAnyOperationsAborted.0 != 0 {
-            return Err("Move aborted by user".to_string());
-        }
-    }
-    Ok(())
+    crate::sta_worker::StaWorker::global().move_items(paths, target_path)
 }
 
 #[tauri::command]
@@ -1760,20 +1432,7 @@ fn get_recycle_bin_status() -> Result<RecycleBinStatus, String> {
 
 #[tauri::command]
 fn empty_recycle_bin() -> Result<(), String> {
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let result = SHEmptyRecycleBinW(
-            Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
-            None,
-            SHERB_NOCONFIRMATION | SHERB_NOSOUND,
-        );
-        CoUninitialize();
-
-        if result.is_err() {
-            return Err(format!("Failed to empty recycle bin: {:?}", result));
-        }
-    }
-    Ok(())
+    crate::sta_worker::StaWorker::global().empty_recycle_bin()
 }
 
 /// Window subclass procedure to intercept WM_DROPFILES for legacy drop handling
@@ -1782,7 +1441,7 @@ fn empty_recycle_bin() -> Result<(), String> {
 fn get_dropped_file_paths() -> Result<Vec<String>, String> {
     if let Ok(_clip) = Clipboard::new() {
         if let Ok(paths) = clipboard_win::get_clipboard::<Vec<String>, _>(formats::FileList) {
-            println!("!!! [RUST] Captured {} paths from clipboard", paths.len());
+            log::info!("!!! [RUST] Captured {} paths from clipboard", paths.len());
             return Ok(paths);
         }
     }
@@ -1803,7 +1462,7 @@ pub fn run() {
         .manage(ClipboardCache(std::sync::Mutex::new(None)))
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Focused(focused) = event {
-                println!("!!! [RUST] Window focused: {}", focused);
+                log::info!("!!! [RUST] Window focused: {}", focused);
             }
         })
         .setup(|app| {
@@ -1818,11 +1477,8 @@ pub fn run() {
                 let whwnd = HWND(hwnd.0 as *mut _);
 
                 // Create the drop overlay window (invisible until show_overlay is called)
-                if let Some(overlay) = drop_overlay::create_drop_overlay(whwnd) {
-                    println!("[SETUP] Drop overlay created: {:?}", overlay);
-                } else {
-                    eprintln!("[SETUP] Failed to create drop overlay!");
-                }
+                drop_overlay::create_drop_overlay(whwnd);
+                println!("[SETUP] Drop overlay creation triggered");
             }
             Ok(())
         })

@@ -6,8 +6,13 @@ use simplelog::*;
 use std::fs::File;
 use std::io::Write;
 use std::panic;
+use windows::Win32::System::Ole::OleInitialize;
 
 fn main() {
+    // 0. Initialize OLE for the main thread (required for Native Drag & Drop)
+    unsafe {
+        let _ = OleInitialize(None);
+    }
     // 1. Calculate Log Path in %LOCALAPPDATA%
     let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
     let log_dir = std::path::Path::new(&local_app_data)
@@ -27,7 +32,7 @@ fn main() {
     CombinedLogger::init(vec![
         #[cfg(debug_assertions)]
         TermLogger::new(
-            LevelFilter::Info,
+            LevelFilter::Debug,
             Config::default(),
             TerminalMode::Mixed,
             ColorChoice::Auto,
