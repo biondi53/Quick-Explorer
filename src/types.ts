@@ -1,22 +1,12 @@
-export interface DiskInfo {
-    total_space: number;
-    available_space: number;
-}
+import type { DiskInfo as GeneratedDiskInfo } from './bindings/DiskInfo';
+import type { FileEntry as GeneratedFileEntry } from './bindings/FileEntry';
+import type { ClipboardInfo as GeneratedClipboardInfo } from './bindings/ClipboardInfo';
+import type { RecycleBinStatus as GeneratedRecycleBinStatus } from './bindings/RecycleBinStatus';
 
-export interface FileEntry {
-    name: string;
-    path: string;
-    is_dir: boolean;
-    size: number;
-    formatted_size: string;
-    file_type: string;
-    created_at: string;
-    modified_at: string;
-    is_shortcut: boolean;
-    disk_info: DiskInfo | null;
-    modified_timestamp: number;
-    dimensions?: string;
-}
+export type DiskInfo = GeneratedDiskInfo;
+export type FileEntry = GeneratedFileEntry;
+export type ClipboardInfo = GeneratedClipboardInfo;
+export type RecycleBinStatus = GeneratedRecycleBinStatus;
 
 export type SortColumn = 'name' | 'modified_at' | 'created_at' | 'file_type' | 'size';
 export type SortDirection = 'asc' | 'desc';
@@ -45,15 +35,6 @@ export interface Tab {
     generationId: number;
 }
 
-export interface ClipboardInfo {
-    has_files: boolean;
-    paths: string[];
-    is_cut: boolean;
-    file_count: number;
-    file_summary: string | null;
-    has_image: boolean;
-    image_data: string | null;
-}
 
 export interface PinnedFolder {
     id: string;
@@ -66,11 +47,6 @@ export interface QuickAccessConfig {
     pinnedFolders: PinnedFolder[];
 }
 
-export interface RecycleBinStatus {
-    is_empty: boolean;
-    item_count: number;
-    total_size: number;
-}
 
 export type ColumnWidths = Partial<Record<SortColumn, number>>;
 

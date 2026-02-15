@@ -13,12 +13,13 @@ interface ThisPCViewProps {
 }
 
 
-const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
+const formatSize = (bytes: number | bigint) => {
+    const b = Number(bytes);
+    if (b === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    const value = bytes / Math.pow(k, i);
+    const i = Math.floor(Math.log(b) / Math.log(k));
+    const value = b / Math.pow(k, i);
 
     // Omit decimals if value is >= 100 GB
     if (i > 3 || (i === 3 && value >= 100)) {
@@ -56,7 +57,7 @@ export default function ThisPCView({
                         {drives.map(drive => {
                             const info = drive.disk_info;
                             const selected = isSelected(drive.path);
-                            const usagePercent = info ? ((info.total_space - info.available_space) / info.total_space) * 100 : 0;
+                            const usagePercent = info ? (Number(info.total_space - info.available_space) / Number(info.total_space)) * 100 : 0;
                             const isLowSpace = usagePercent > 90;
 
                             return (

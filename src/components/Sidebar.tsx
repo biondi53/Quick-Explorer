@@ -22,12 +22,13 @@ interface SidebarProps {
 
 const SYSTEM_ORDER = ['desktop', 'home', 'downloads', 'documents', 'pictures', 'recycle-bin'];
 
-const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
+const formatSize = (bytes: number | bigint) => {
+    const b = Number(bytes);
+    if (b === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    const value = bytes / Math.pow(k, i);
+    const i = Math.floor(Math.log(b) / Math.log(k));
+    const value = b / Math.pow(k, i);
     // Omit decimals if value is >= 100 GB
     if (i > 3 || (i === 3 && value >= 100)) {
         return Math.round(value) + ' ' + sizes[i];
@@ -169,16 +170,16 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
                                                 <div className="h-1 w-full bg-white/10 rounded-full overflow-hidden">
                                                     <div
                                                         className={`h-full rounded-full transition-all duration-500 shadow-[0_0_4px_rgba(0,0,0,0.1)]
-                                                            ${((item as any).disk_info.total_space - (item as any).disk_info.available_space) / (item as any).disk_info.total_space > 0.9
+                                                            ${Number((item as any).disk_info.total_space - (item as any).disk_info.available_space) / Number((item as any).disk_info.total_space) > 0.9
                                                                 ? 'bg-gradient-to-r from-rose-600 to-red-500'
                                                                 : 'bg-gradient-to-r from-[var(--accent-secondary)] to-[var(--accent-primary)]'
                                                             }`}
-                                                        style={{ width: `${(((item as any).disk_info.total_space - (item as any).disk_info.available_space) / (item as any).disk_info.total_space) * 100}%` }}
+                                                        style={{ width: `${(Number((item as any).disk_info.total_space - (item as any).disk_info.available_space) / Number((item as any).disk_info.total_space)) * 100}%` }}
                                                     />
                                                 </div>
                                                 <div className="flex justify-between items-center text-[11px] text-[var(--text-dim)] font-medium leading-none">
                                                     <span>{formatSize((item as any).disk_info.available_space)} free</span>
-                                                    <span>{Math.floor((((item as any).disk_info.total_space - (item as any).disk_info.available_space) / (item as any).disk_info.total_space) * 100)}%</span>
+                                                    <span>{Math.floor((Number((item as any).disk_info.total_space - (item as any).disk_info.available_space) / Number((item as any).disk_info.total_space)) * 100)}%</span>
                                                 </div>
                                             </div>
                                         </div>

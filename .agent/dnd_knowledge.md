@@ -339,4 +339,25 @@ A regression in v7.2 was identified where "Orphan Recovery" (cleanup logic) woul
 - **Result**: This protects the "Sticky Session" during the critical transition phase, ensuring 100% successful file copies even if the user moves the mouse rapidly during the drop.
 
 ### 21.4 Conclusion
-The combination of **Synchronous Handshaking**, **State Decoupling**, and the **Protected 500ms Window** represents the definitive solution to the Tauri/WebView2 Drag & Drop collision problem.
+The combination of **Synchronous Handshaking**, **State Decoupling**, and the **Protected 500ms Window** represents the definitive solution to the Tauri/WebView2 Drag & Drop collision problem within the app's internal logic.
+
+## 22. The Focus Ghost & The Sequential Barrier (v11.x - v12.0) (2026-02-14)
+
+This section documents the failure of all "Handshake" and "Decoupling" strategies in high-speed Release environments to solve the Z-order issue of Shell Dialogs.
+
+### 22.1 The v11.x Persistent Handshake Fiasco
+- **Mechanism**: Use re-tries and `BringWindowToTop` to ensure `GetForegroundWindow()` and `GetActiveWindow()` are synchronized before launching `IFileOperation`.
+- **Result**: ❌ FAILED in Release. Logs showed `Foreground: HWND, Active: 0x0` during the critical millisecond. Even when the loop forced `Active` to be non-zero, the OS still blocked the foreground window of the Shell, resulting in the **"Orange Flash"** in the Taskbar.
+- **Discovery**: The "Active" state reported by the Win32 API for our thread is a necessary but **insufficient** condition for Windows to grant foreground rights to a spawned Shell dialog.
+
+### 22.2 The v12.0 Out-of-Band Decoupling Failure
+- **Hypothesis**: Returning `Ok(())` immediately from the Rust command to the JS frontend would "unlock" the OLE thread and allow the Shell dialog to be born "clean".
+- **Mechanism**: Dispatched the actual `IFileOperation` to the STA thread and returned Control to WebView2 instantly.
+- **Result**: ❌ FAILED. The "Orange Flash" persisted.
+- **Analysis**: Even with decoupling, the OS likely tracks the "Chain of Command". If a dialog is born from a thread that was triggered by a Drop message, and that message's "Foreground Permission" hasn't been explicitly transferred or cleared by the OS, the block remains. In Release mode, the timing is so tight that the OS hasn't yet processed the "Drop Finished" state at the kernel level when the dialog is created.
+
+### 22.3 The "Ghost in the Machine" Diagnosis
+The failure is likely due to the **Foreground Lock Timeout** (controlled by `SPI_SETFOREGROUNDLOCKTIMEOUT`). 
+- **The Barrier**: When a user interacts with a window (Drop), that window gets "Foreground Rights". However, Windows prevents *other* windows from stealing that right for a certain duration. 
+- **The Paradox**: We are the window with the right, but we are trying to spawn a *system* window (the Shell Dialog) as a child/modal. If the OS considers the "Drop transition" incomplete (even by a microsecond), it treats the dialog as an intruder.
+- **Release vs Dev**: In Dev mode, the overhead of the debugger/logging provides the "natural" delay needed for the OS to stabilize. In Release, the 1ms completion time is our own enemy.

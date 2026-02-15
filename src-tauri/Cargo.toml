@@ -1,6 +1,6 @@
 [package]
 name = "d-speedexplorer"
-version = "0.1.13"
+version = "0.1.14"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -42,4 +42,5 @@ simplelog = "0.12"
 backtrace = "0.3"
 zip = "2"
 sevenz-rust = "0.6"
+ts-rs = { version = "8.1", features = ["chrono-impl"] }
 

@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 use std::time::SystemTime;
 // use tauri::Emitter; // Moved to drop_overlay.rs
 use tauri::Manager;
+use ts_rs::TS;
 // use window_vibrancy::apply_mica;
 use windows::core::{Interface, PCWSTR};
 
@@ -19,10 +20,16 @@ use windows::Win32::System::DataExchange::{
     EmptyClipboard, GetClipboardSequenceNumber, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetActiveWindow, GetAsyncKeyState, GetFocus, IsWindowEnabled, SetActiveWindow, VK_LBUTTON,
+};
 use windows::Win32::UI::Shell::{
-    IShellItem2, IShellItemImageFactory, SHCreateItemFromParsingName, SHFileOperationW,
-    SHQueryRecycleBinW, FOF_ALLOWUNDO, FOF_MULTIDESTFILES, FOF_NOCONFIRMATION, FO_COPY, FO_DELETE,
-    FO_MOVE, FO_RENAME, SHFILEOPSTRUCTW, SHQUERYRBINFO, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
+    IShellItem2, IShellItemImageFactory, SHCreateItemFromParsingName, SHQueryRecycleBinW,
+    SHQUERYRBINFO, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AllowSetForegroundWindow, GetAncestor, GetClassNameW, GetForegroundWindow, IsWindowVisible,
+    SetForegroundWindow, SetWindowPos, GA_ROOT, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
 
 mod commands;
@@ -30,9 +37,10 @@ mod drop_overlay;
 mod extraction;
 mod sta_worker;
 
-static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+pub static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, TS)]
+#[ts(export)]
 pub struct ClipboardInfo {
     pub has_files: bool,
     pub paths: Vec<String>,
@@ -45,25 +53,37 @@ pub struct ClipboardInfo {
 
 pub struct ClipboardCache(std::sync::Mutex<Option<(u32, ClipboardInfo)>>);
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, TS)]
+#[ts(export)]
 pub struct DiskInfo {
+    #[serde(rename = "total_space")]
+    #[ts(type = "number")]
     pub total: u64,
+    #[serde(rename = "used_space")]
+    #[ts(type = "number")]
     pub used: u64,
+    #[serde(rename = "available_space")]
+    #[ts(type = "number")]
     pub free: u64,
 }
 
-#[derive(Serialize, Default, Clone)]
+#[derive(Serialize, Default, Clone, TS)]
+#[ts(export)]
 pub struct RecycleBinStatus {
     pub is_empty: bool,
+    #[ts(type = "number")]
     pub item_count: i64,
+    #[ts(type = "number")]
     pub total_size: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    #[ts(type = "number")]
     pub size: u64,
     pub formatted_size: String,
     pub file_type: String,
@@ -71,6 +91,7 @@ pub struct FileEntry {
     pub modified_at: String,
     pub is_shortcut: bool,
     pub disk_info: Option<DiskInfo>,
+    #[ts(type = "number")]
     pub modified_timestamp: i64,
     pub dimensions: Option<String>,
 }
@@ -145,8 +166,8 @@ pub fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
 }
 
 #[tauri::command]
-fn list_files(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
-    crate::sta_worker::StaWorker::global().list_files(path.to_string(), show_hidden)
+async fn list_files(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+    crate::sta_worker::StaWorker::global().list_files(path, show_hidden)
 }
 
 #[tauri::command]
@@ -155,7 +176,7 @@ fn read_file_base64(path: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn show_item_properties(path: String) {
+async fn show_item_properties(window: tauri::Window, path: String) {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;
@@ -176,7 +197,13 @@ fn show_item_properties(path: String) {
         let mut info = SHELLEXECUTEINFOW {
             cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
             fMask: SEE_MASK_INVOKEIDLIST,
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+            hwnd: windows::Win32::Foundation::HWND(
+                window
+                    .hwnd()
+                    .ok()
+                    .map(|h| h.0)
+                    .unwrap_or(std::ptr::null_mut()),
+            ),
             lpVerb: PCWSTR(verb_wide.as_ptr()),
             lpFile: PCWSTR(path_wide.as_ptr()),
             nShow: 1,
@@ -191,8 +218,8 @@ fn show_item_properties(path: String) {
 
 #[tauri::command]
 fn open_file(
-    path: String,
     opener: tauri::State<'_, tauri_plugin_opener::Opener<tauri::Wry>>,
+    path: String,
 ) -> Result<(), String> {
     opener
         .open_path(path, None::<String>)
@@ -200,11 +227,16 @@ fn open_file(
 }
 
 #[tauri::command]
-fn create_folder(parent_path: String) -> Result<String, String> {
+async fn create_folder(window: tauri::Window, parent_path: String) -> Result<String, String> {
     use windows::Win32::UI::Shell::SHCreateDirectoryExW;
 
     let folder_name = "New Folder".to_string();
     let mut count = 1;
+
+    let root_hwnd = get_root_hwnd(&window);
+    log_window_state("BEFORE create_folder", root_hwnd);
+    harden_focus(root_hwnd);
+    std::thread::sleep(std::time::Duration::from_millis(50));
 
     loop {
         let name = if count == 1 {
@@ -221,11 +253,8 @@ fn create_folder(parent_path: String) -> Result<String, String> {
                 .collect();
 
             unsafe {
-                let result = SHCreateDirectoryExW(
-                    Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
-                    PCWSTR(path_wide.as_ptr()),
-                    None,
-                );
+                let result =
+                    SHCreateDirectoryExW(Some(root_hwnd), PCWSTR(path_wide.as_ptr()), None);
 
                 if result != 0 && result != 183 {
                     return Err(format!(
@@ -234,6 +263,7 @@ fn create_folder(parent_path: String) -> Result<String, String> {
                     ));
                 }
             }
+            log_window_state("AFTER create_folder", root_hwnd);
             return Ok(name);
         }
         count += 1;
@@ -241,7 +271,7 @@ fn create_folder(parent_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn open_with(path: String) {
+async fn open_with(window: tauri::Window, path: String) {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::ffi::OsStrExt;
@@ -262,7 +292,13 @@ fn open_with(path: String) {
         let mut info = SHELLEXECUTEINFOW {
             cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
             fMask: SEE_MASK_INVOKEIDLIST,
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+            hwnd: windows::Win32::Foundation::HWND(
+                window
+                    .hwnd()
+                    .ok()
+                    .map(|h| h.0)
+                    .unwrap_or(std::ptr::null_mut()),
+            ),
             lpVerb: PCWSTR(verb_wide.as_ptr()),
             lpFile: PCWSTR(path_wide.as_ptr()),
             nShow: 1,
@@ -275,87 +311,219 @@ fn open_with(path: String) {
     }
 }
 
-#[tauri::command]
-fn delete_item(path: String) -> Result<(), String> {
-    let from_wide: Vec<u16> = OsStr::new(&path)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .chain(std::iter::once(0))
-        .collect();
+fn get_root_hwnd(window: &tauri::Window) -> windows::Win32::Foundation::HWND {
+    let hwnd = window
+        .hwnd()
+        .ok()
+        .map(|h| h.0)
+        .unwrap_or(std::ptr::null_mut());
 
     unsafe {
-        let mut file_op = SHFILEOPSTRUCTW {
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            wFunc: FO_DELETE,
-            pFrom: PCWSTR(from_wide.as_ptr()),
-            pTo: PCWSTR(std::ptr::null()),
-            fFlags: (FOF_ALLOWUNDO.0 as u16),
-            fAnyOperationsAborted: windows_core::BOOL(0),
-            hNameMappings: std::ptr::null_mut(),
-            lpszProgressTitle: PCWSTR(std::ptr::null()),
-        };
-
-        let result = SHFileOperationW(&mut file_op);
-        if result != 0 {
-            return Err(format!("Windows Delete failed with code: {}", result));
-        }
-
-        if file_op.fAnyOperationsAborted.0 != 0 {
-            return Err("Deletion aborted by user".to_string());
+        if hwnd.is_null() {
+            windows::Win32::Foundation::HWND(std::ptr::null_mut())
+        } else {
+            GetAncestor(windows::Win32::Foundation::HWND(hwnd), GA_ROOT)
         }
     }
+}
+
+fn log_window_state(label: &str, target_hwnd: windows::Win32::Foundation::HWND) {
+    unsafe {
+        let fg = GetForegroundWindow();
+        let active = GetActiveWindow();
+        let focus = GetFocus();
+        let is_visible = IsWindowVisible(target_hwnd).as_bool();
+        let is_enabled = IsWindowEnabled(target_hwnd).as_bool();
+        let mouse_down = GetAsyncKeyState(VK_LBUTTON.0 as i32) != 0;
+
+        let mut class_name = [0u16; 256];
+        let len = GetClassNameW(fg, &mut class_name);
+        let fg_class = String::from_utf16_lossy(&class_name[..len as usize]);
+
+        // Detect if Overlay is hanging around
+        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+        let overlay_class: Vec<u16> = "SpeedExplorerDropOverlay\0".encode_utf16().collect();
+        let overlay_hwnd = FindWindowW(PCWSTR(overlay_class.as_ptr()), None)
+            .unwrap_or(windows::Win32::Foundation::HWND::default());
+        let overlay_visible = if !overlay_hwnd.0.is_null() {
+            IsWindowVisible(overlay_hwnd).as_bool()
+        } else {
+            false
+        };
+
+        log::info!(
+            "[DIAGNOSTICS] [{}] \n\
+             - Target HWND: {:?} (Visible: {}, Enabled: {})\n\
+             - Foreground: {:?} (Class: {})\n\
+             - Active: {:?}, Focus: {:?}\n\
+             - Mouse LButton Down: {}\n\
+             - DropOverlay Visible: {}",
+            label,
+            target_hwnd,
+            is_visible,
+            is_enabled,
+            fg,
+            fg_class,
+            active,
+            focus,
+            mouse_down,
+            overlay_visible
+        );
+    }
+}
+
+fn harden_focus(hwnd: windows::Win32::Foundation::HWND) {
+    if !hwnd.0.is_null() {
+        unsafe {
+            let _ = AllowSetForegroundWindow(0xFFFFFFFF);
+
+            // Re-apilar la ventana al inicio de su jerarquía (SYNC)
+            let _ = SetWindowPos(
+                hwnd,
+                Some(windows::Win32::Foundation::HWND(0 as *mut _)), // HWND_TOP (0)
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetActiveWindow(hwnd);
+        }
+    }
+}
+
+#[tauri::command]
+async fn delete_item(window: tauri::Window, path: String) -> Result<(), String> {
+    let root_hwnd = get_root_hwnd(&window);
+    harden_focus(root_hwnd);
+
+    let _ =
+        crate::sta_worker::StaWorker::global().delete_items(vec![path], Some(root_hwnd.0 as isize));
+
     Ok(())
 }
 
 #[tauri::command]
-fn rename_item(old_path: String, new_name: String) -> Result<(), String> {
-    let old_path_p = std::path::Path::new(&old_path);
-    if !old_path_p.exists() {
-        return Err("The file or folder does not exist".into());
+async fn rename_item(
+    window: tauri::Window,
+    old_path: String,
+    new_name: String,
+) -> Result<(), String> {
+    let root_hwnd = get_root_hwnd(&window);
+    harden_focus(root_hwnd);
+
+    let _ = crate::sta_worker::StaWorker::global().rename_item(
+        old_path,
+        new_name,
+        Some(root_hwnd.0 as isize),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn paste_items(window: tauri::Window, target_path: String) -> Result<(), String> {
+    let paths: Vec<String> = clipboard_win::get_clipboard(formats::FileList).unwrap_or_default();
+    if paths.is_empty() {
+        return Err("Clipboard is empty".into());
     }
 
-    let parent = old_path_p
-        .parent()
-        .ok_or("Could not find parent directory")?;
-    let new_path = parent.join(new_name);
-
-    if new_path.exists() {
-        return Err("An item with the same name already exists".into());
-    }
-
-    let from_wide: Vec<u16> = OsStr::new(&old_path)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .chain(std::iter::once(0))
-        .collect();
-    let to_wide: Vec<u16> = OsStr::new(new_path.as_os_str())
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .chain(std::iter::once(0))
-        .collect();
-
-    unsafe {
-        let mut file_op = SHFILEOPSTRUCTW {
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            wFunc: FO_RENAME,
-            pFrom: PCWSTR(from_wide.as_ptr()),
-            pTo: PCWSTR(to_wide.as_ptr()),
-            fFlags: (FOF_ALLOWUNDO.0 as u16),
-            fAnyOperationsAborted: windows_core::BOOL(0),
-            hNameMappings: std::ptr::null_mut(),
-            lpszProgressTitle: PCWSTR(std::ptr::null()),
-        };
-
-        let result = SHFileOperationW(&mut file_op);
-        if result != 0 {
-            return Err(format!("Windows Rename failed with code: {}", result));
-        }
-
-        if file_op.fAnyOperationsAborted.0 != 0 {
-            return Err("Rename aborted by user".to_string());
+    let mut is_move = false;
+    if let Some(format_id) = clipboard_win::register_format("Preferred DropEffect") {
+        if clipboard_win::is_format_avail(format_id.get()) {
+            let raw_format = formats::RawData(format_id.get());
+            if let Ok(buffer) = clipboard_win::get_clipboard::<Vec<u8>, _>(raw_format) {
+                if buffer.len() >= 4 {
+                    let val = u32::from_ne_bytes(buffer[0..4].try_into().unwrap());
+                    if val == 2 {
+                        is_move = true;
+                    }
+                }
+            }
         }
     }
 
+    let root_hwnd = get_root_hwnd(&window);
+    harden_focus(root_hwnd);
+
+    let _ = crate::sta_worker::StaWorker::global().paste_items(
+        paths,
+        target_path,
+        is_move,
+        Some(root_hwnd.0 as isize),
+    );
+
+    // Always empty the clipboard after success.
+    // Retry a few times in case check_clipboard holds the lock.
+    let _root_hwnd_clone = root_hwnd;
+    std::thread::spawn(move || {
+        let mut cleared = false;
+        for _ in 0..10 {
+            use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
+            unsafe {
+                if OpenClipboard(None).is_ok() {
+                    if EmptyClipboard().is_ok() {
+                        cleared = true;
+                        log::info!("[PASTE] Clipboard emptied successfully");
+                    }
+                    let _ = CloseClipboard();
+                }
+            }
+            if cleared {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn drop_items(
+    window: tauri::Window,
+    files: Vec<String>,
+    target_path: String,
+) -> Result<(), String> {
+    let root_hwnd = get_root_hwnd(&window);
+    harden_focus(root_hwnd);
+
+    let _ = crate::sta_worker::StaWorker::global().drop_items(
+        files,
+        target_path,
+        Some(root_hwnd.0 as isize),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn move_items(
+    window: tauri::Window,
+    paths: Vec<String>,
+    target_path: String,
+) -> Result<(), String> {
+    let root_hwnd = get_root_hwnd(&window);
+    harden_focus(root_hwnd);
+
+    let _ = crate::sta_worker::StaWorker::global().move_items(
+        paths,
+        target_path,
+        Some(root_hwnd.0 as isize),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_items(
+    window: tauri::Window,
+    paths: Vec<String>,
+    _silent: bool,
+) -> Result<(), String> {
+    let root_hwnd = get_root_hwnd(&window);
+    harden_focus(root_hwnd);
+
+    let _ = crate::sta_worker::StaWorker::global().delete_items(paths, Some(root_hwnd.0 as isize));
     Ok(())
 }
 
@@ -523,7 +691,7 @@ pub fn get_next_available_path(target_dir: &str, original_name: &str) -> std::pa
 }
 
 #[tauri::command]
-fn save_clipboard_image(target_path: String) -> Result<FileEntry, String> {
+fn save_clipboard_image(window: tauri::Window, target_path: String) -> Result<FileEntry, String> {
     if clipboard_win::is_format_avail(formats::CF_DIB.into()) {
         if let Ok(dib_bytes) =
             clipboard_win::get_clipboard::<Vec<u8>, _>(formats::RawData(formats::CF_DIB.into()))
@@ -594,9 +762,13 @@ fn save_clipboard_image(target_path: String) -> Result<FileEntry, String> {
                                 .chain(std::iter::once(0))
                                 .collect();
 
+                            let root_hwnd = get_root_hwnd(&window);
+                            harden_focus(root_hwnd);
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+
                             unsafe {
                                 let result = ShellExecuteW(
-                                    Some(windows::Win32::Foundation::HWND(std::ptr::null_mut())),
+                                    Some(root_hwnd),
                                     PCWSTR(verb_wide.as_ptr()),
                                     PCWSTR(file_wide.as_ptr()),
                                     PCWSTR(params_wide.as_ptr()),
@@ -622,148 +794,6 @@ fn save_clipboard_image(target_path: String) -> Result<FileEntry, String> {
         }
     }
     return Err("Clipboard is empty or format not supported".into());
-}
-
-#[tauri::command]
-fn paste_items(target_path: String) -> Result<Vec<String>, String> {
-    let paths: Vec<String> = clipboard_win::get_clipboard(formats::FileList).unwrap_or_default();
-
-    if paths.is_empty() {
-        return Err("Clipboard is empty".into());
-    }
-
-    let mut operation = FO_COPY;
-    if let Some(format_id) = clipboard_win::register_format("Preferred DropEffect") {
-        if clipboard_win::is_format_avail(format_id.get()) {
-            let raw_format = formats::RawData(format_id.get());
-            if let Ok(buffer) = clipboard_win::get_clipboard::<Vec<u8>, _>(raw_format) {
-                if buffer.len() >= 4 {
-                    let val = u32::from_ne_bytes(buffer[0..4].try_into().unwrap());
-                    if val == 2 {
-                        operation = FO_MOVE;
-                    }
-                }
-            }
-        }
-    }
-
-    let mut from_wide: Vec<u16> = Vec::new();
-    let mut to_wide: Vec<u16> = Vec::new();
-    let mut pasted_paths: Vec<String> = Vec::new();
-
-    for f in &paths {
-        from_wide.extend(OsStr::new(f).encode_wide());
-        from_wide.push(0);
-
-        let path_obj = std::path::Path::new(f);
-        let filename = path_obj
-            .file_name()
-            .map(|n| n.to_string_lossy())
-            .unwrap_or_else(|| "unknown".into());
-
-        // Calculate unique destination path to avoid overwrite
-        // This handles the "- Copia" suffix logic
-        let dest_path_buf = get_next_available_path(&target_path, &filename);
-        let dest_path_str = dest_path_buf.to_string_lossy().to_string();
-        pasted_paths.push(dest_path_str.clone());
-
-        to_wide.extend(dest_path_buf.as_os_str().encode_wide());
-        to_wide.push(0);
-    }
-    from_wide.push(0); // Double null termination
-    to_wide.push(0); // Double null termination
-
-    unsafe {
-        let mut file_op = SHFILEOPSTRUCTW {
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            wFunc: operation,
-            pFrom: PCWSTR(from_wide.as_ptr()),
-            pTo: PCWSTR(to_wide.as_ptr()),
-            fFlags: (FOF_ALLOWUNDO.0 as u16) | (FOF_MULTIDESTFILES.0 as u16),
-            fAnyOperationsAborted: windows_core::BOOL(0),
-            hNameMappings: std::ptr::null_mut(),
-            lpszProgressTitle: PCWSTR(std::ptr::null()),
-        };
-
-        let result = SHFileOperationW(&mut file_op);
-        if result != 0 {
-            return Err(format!("Windows Copy/Move failed with code: {}", result));
-        }
-
-        // Always empty the clipboard after success so the UI dimming is removed immediately.
-        // Retry a few times in case check_clipboard holds the lock
-        let mut cleared = false;
-        for i in 0..10 {
-            use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
-
-            if OpenClipboard(None).is_ok() {
-                if EmptyClipboard().is_ok() {
-                    cleared = true;
-                } else {
-                    println!("Failed to EmptyClipboard on attempt {}", i);
-                }
-                let _ = CloseClipboard();
-            } else {
-                println!("Failed to OpenClipboard on attempt {}", i);
-            }
-
-            if cleared {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-
-        if !cleared {
-            println!("CRITICAL: Failed to clear clipboard after 10 attempts.");
-        }
-    }
-    Ok(pasted_paths)
-}
-
-/// Handle files dropped from external applications (Windows Explorer, etc.)
-/// This bypasses clipboard and directly copies files to the target directory.
-#[tauri::command]
-fn drop_items(files: Vec<String>, target_path: String) -> Result<Vec<String>, String> {
-    crate::sta_worker::StaWorker::global().drop_items(files, target_path)
-}
-
-#[tauri::command]
-fn move_items(paths: Vec<String>, target_path: String) -> Result<(), String> {
-    crate::sta_worker::StaWorker::global().move_items(paths, target_path)
-}
-
-#[tauri::command]
-fn delete_items(paths: Vec<String>, silent: bool) -> Result<(), String> {
-    let mut from_wide: Vec<u16> = Vec::new();
-    for f in &paths {
-        from_wide.extend(OsStr::new(f).encode_wide());
-        from_wide.push(0);
-    }
-    from_wide.push(0);
-
-    unsafe {
-        let mut flags = FOF_ALLOWUNDO.0 as u16;
-        if silent {
-            flags |= FOF_NOCONFIRMATION.0 as u16;
-        }
-
-        let mut file_op = SHFILEOPSTRUCTW {
-            hwnd: windows::Win32::Foundation::HWND(std::ptr::null_mut()),
-            wFunc: FO_DELETE,
-            pFrom: PCWSTR(from_wide.as_ptr()),
-            pTo: PCWSTR(std::ptr::null()),
-            fFlags: flags,
-            fAnyOperationsAborted: windows_core::BOOL(0),
-            hNameMappings: std::ptr::null_mut(),
-            lpszProgressTitle: PCWSTR(std::ptr::null()),
-        };
-
-        let result = SHFileOperationW(&mut file_op);
-        if result != 0 {
-            return Err(format!("Windows Bulk Delete failed with code: {}", result));
-        }
-    }
-    Ok(())
 }
 
 #[derive(serde::Serialize, Clone)]

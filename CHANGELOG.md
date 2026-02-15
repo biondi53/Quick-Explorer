@@ -1,3 +1,21 @@
+# 🚀 Quick Explorer v0.1.14
+*Changelog - February 15, 2026*
+
+## ⚡ v12.0 "Out-of-Band Decoupling" & Performance
+- **Asynchronous File Operations**: Implemented a dedicated STA (Single-Threaded Apartment) worker thread. Commands now return immediately, preventing UI freezes during long-running operations.
+- **Event-Driven UI Refresh**: High-performance "refresh-on-completion" using Tauri events (`refresh-tab`), ensuring the UI stays in sync without blocking the user.
+- **IFileOperation Modernization**: Full migration to the modern Windows API for all core file operations (Copy, Move, Rename, Delete, New Folder).
+
+## 🛡️ Stability & Modality Improvements
+- **Input Synchronization**: Integrated `AttachThreadInput` to properly transfer focus from the STA worker to the main window.
+- **Smart Window Disabling**: Refined the `run_modal` mechanism to disable the app window ONLY when a system dialog is active, preventing accidental interactions.
+
+## 🛠️ Internal Optimizations
+- **Type Safety & Reliability**: Fixed OLE imports and type ambiguities in the Rust backend.
+- **STA Worker Health**: Improved thread management and error handling for background tasks.
+
+---
+
 # 🚀 Quick Explorer v0.1.13
 *Changelog - February 12, 2026*
 
@@ -117,4 +135,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Version 0.1.13*
+*Quick Explorer Project © 2026 - Version 0.1.14*

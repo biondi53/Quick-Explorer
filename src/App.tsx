@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, Fragment, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { listen } from '@tauri-apps/api/event';
 import ThisPCView from './components/ThisPCView';
 import { ask } from '@tauri-apps/plugin-dialog';
 import {
@@ -186,6 +187,20 @@ export default function App() {
     refreshCurrentTabRef.current = refreshCurrentTab;
   }, [refreshCurrentTab]);
 
+  // === Async Notification Listener (v12.0) ===
+  useEffect(() => {
+    const unlisten = listen('refresh-tab', () => {
+      console.log("[v12.0] Received 'refresh-tab' event. Refreshing...");
+      if (refreshCurrentTabRef.current) {
+        refreshCurrentTabRef.current();
+      }
+    });
+
+    return () => {
+      unlisten.then(f => f());
+    };
+  }, []);
+
   const onInternalDragEnd = useCallback((caller: string = 'unknown') => {
     // Plan v7.3: Protected Sticky Sessions.
     // Decouple the UI Lock (clears now) from Data State (clears on drop/next drag).
@@ -330,15 +345,19 @@ export default function App() {
         lastInternalDropTimeRef.current = now;
 
         if (paths.length > 0 && targetPath && targetPath !== '' && targetPath !== 'shell:RecycleBin') {
-          try {
-            await invoke('drop_items', {
-              files: paths,
-              targetPath: targetPath
-            });
-            refreshCurrentTabRef.current();
-          } catch (error) {
-            console.error('[App] Failed to drop items command (internal):', error);
-          }
+          // BATCH-RELEASE SYNC (v8.0): Wait 50ms to let the OS finish processing the mouse-up/drop
+          // before we hit the backend which will disable the window for modality.
+          setTimeout(async () => {
+            try {
+              await invoke('drop_items', {
+                files: paths,
+                targetPath: targetPath
+              });
+              refreshCurrentTabRef.current();
+            } catch (error) {
+              console.error('[App] Failed to drop items command (internal):', error);
+            }
+          }, 50);
         }
       }
     };
@@ -886,7 +905,7 @@ export default function App() {
       is_shortcut: false,
       disk_info: null,
       modified_timestamp: 0,
-      dimensions: undefined
+      dimensions: null
     };
     setContextMenu({ x: e.clientX, y: e.clientY, file: mockFile, fromSidebar: true });
 

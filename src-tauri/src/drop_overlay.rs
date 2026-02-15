@@ -7,8 +7,10 @@ use crate::APP_HANDLE;
 use std::sync::OnceLock;
 use tauri::Emitter;
 use windows::core::{implement, Ref, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINTL, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
+use windows::Win32::Foundation::{
+    COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, POINTL, WPARAM,
+};
+use windows::Win32::Graphics::Gdi::{ClientToScreen, GetStockObject, BLACK_BRUSH, HBRUSH};
 use windows::Win32::System::Com::{IDataObject, FORMATETC, STGMEDIUM, TYMED_HGLOBAL};
 use windows::Win32::System::Ole::{
     IDropTarget, IDropTarget_Impl, RegisterDragDrop, ReleaseStgMedium, DROPEFFECT, DROPEFFECT_COPY,
@@ -18,11 +20,10 @@ use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
 use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetForegroundWindow, GetWindow, KillTimer, RegisterClassW,
-    SetForegroundWindow, SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow,
-    CS_HREDRAW, CS_VREDRAW, GW_OWNER, HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOW, WM_NCHITTEST, WM_SETCURSOR, WM_TIMER, WNDCLASSW,
-    WS_EX_LAYERED, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, GetWindow, KillTimer, RegisterClassW,
+    SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, CS_HREDRAW, CS_VREDRAW,
+    GW_OWNER, LWA_ALPHA, SWP_NOACTIVATE, SW_HIDE, SW_SHOW, WM_NCHITTEST, WM_SETCURSOR, WM_TIMER,
+    WNDCLASSW, WS_EX_LAYERED, WS_POPUP,
 };
 
 /// Static storage for the overlay HWND (created once per app lifetime)
@@ -39,84 +40,29 @@ pub struct OverlayRect {
 /// Window class name for the overlay
 const OVERLAY_CLASS_NAME: &str = "SpeedExplorerDropOverlay";
 
-/// Helper to demote parent window from TOPMOST back to normal
-unsafe fn demote_parent(overlay_hwnd: HWND) {
-    if let Ok(p) = GetWindow(overlay_hwnd, GW_OWNER) {
-        if !p.0.is_null() {
-            let foreground = GetForegroundWindow();
-            if !foreground.0.is_null() && foreground != p {
-                let _ = SetWindowPos(
-                    p,
-                    Some(foreground),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
-            } else {
-                let _ = SetWindowPos(
-                    p,
-                    Some(HWND_NOTOPMOST),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
-            }
-        }
-    }
-}
-
-/// Helper to bring parent window to foreground and activate it (called on drop)
-unsafe fn bring_parent_to_foreground(overlay_hwnd: HWND) {
-    if let Ok(p) = GetWindow(overlay_hwnd, GW_OWNER) {
-        if !p.0.is_null() {
-            let _ = SetWindowPos(
-                p,
-                Some(HWND_NOTOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
-            let _ = SetForegroundWindow(p);
-        }
-    }
-}
-
 #[tauri::command]
 pub fn show_overlay(rect: OverlayRect) {
     if let Some(h) = OVERLAY_HWND.get() {
         let hwnd = HWND(*h as *mut _);
         unsafe {
-            // Log relevant parent window info
-            if let Ok(p) = GetWindow(hwnd, GW_OWNER) {
-                log::info!("[OVERLAY] Showing overlay for parent: {:?}", p);
-                // 1. Make parent TOPMOST (temporary) to ensure it stays above WebView2
-                let _ = SetWindowPos(
-                    p,
-                    Some(HWND_TOPMOST),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
+            let mut x = rect.x;
+            let mut y = rect.y;
+
+            // 1. Convert client-relative coordinates (from WebView) to screen-absolute coordinates (for WS_POPUP)
+            if let Ok(parent_hwnd) = GetWindow(hwnd, GW_OWNER) {
+                let mut pt = POINT {
+                    x: rect.x,
+                    y: rect.y,
+                };
+                if ClientToScreen(parent_hwnd, &mut pt).as_bool() {
+                    x = pt.x;
+                    y = pt.y;
+                    // log::info!("[OVERLAY] Coords converted: Client({},{}) -> Screen({},{})", rect.x, rect.y, x, y);
+                }
             }
 
             // 2. Position and show overlay exactly over the target area
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                rect.x,
-                rect.y,
-                rect.width,
-                rect.height,
-                SWP_NOACTIVATE,
-            );
+            let _ = SetWindowPos(hwnd, None, x, y, rect.width, rect.height, SWP_NOACTIVATE);
             let _ = ShowWindow(hwnd, SW_SHOW);
 
             // 3. Start movement/escape exit timer (100ms)
@@ -132,7 +78,6 @@ pub fn hide_overlay() {
         unsafe {
             let _ = KillTimer(Some(hwnd), 1);
             let _ = ShowWindow(hwnd, SW_HIDE);
-            demote_parent(hwnd);
         }
     }
 }
@@ -164,7 +109,7 @@ pub fn create_drop_overlay(parent_hwnd: HWND) {
         RegisterClassW(&wnd_class);
 
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_LAYERED,
+            WS_EX_LAYERED,
             class_name_pcwstr,
             PCWSTR::null(),
             WS_POPUP,
@@ -210,7 +155,6 @@ unsafe extern "system" fn wnd_proc_w(
                 {
                     let _ = KillTimer(Some(hwnd), 1);
                     let _ = ShowWindow(hwnd, SW_HIDE);
-                    demote_parent(hwnd);
                     log::info!("[OVERLAY] Timer Exit: Mouse released or Esc pressed");
                 }
             }
@@ -293,8 +237,6 @@ impl IDropTarget_Impl for OverlayDropTarget_Impl {
             // Cleanup overlay
             let _ = KillTimer(Some(self.hwnd), 1);
             let _ = ShowWindow(self.hwnd, SW_HIDE);
-            demote_parent(self.hwnd);
-            bring_parent_to_foreground(self.hwnd);
         }
         Ok(())
     }

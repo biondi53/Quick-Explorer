@@ -180,7 +180,9 @@ export default function ExplorerPanel({ initialPath = 'C:\\', onFileSelect }: Ex
 
                             {!file.is_dir && (
                                 <span className="text-xs text-zinc-500 font-mono w-20 text-right group-hover:text-zinc-400">
-                                    {file.size < 1024 ? `${file.size} B` : `${(file.size / 1024).toFixed(1)} KB`}
+                                    {Number(file.size) < 1024
+                                        ? `${file.size} B`
+                                        : `${(Number(file.size) / 1024).toFixed(1)} KB`}
                                 </span>
                             )}
                         </div>
