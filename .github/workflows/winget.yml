@@ -10,11 +10,20 @@ jobs:
       - name: WinGet Releaser
         uses: vedantmgoyal9/winget-releaser@v2
         with:
-          # El nombre que guardaste en Settings > Secrets
+          # Token de seguridad
           token: ${{ secrets.WINGET_TOKEN }}
           
-          # Tu identificador oficial de WinGet
+          # ID de tu paquete
           identifier: biondi53.QuickExplorer
           
-          # Para que busque solo los archivos .msi que genera Tauri
+          # Filtro para el archivo
           installers-regex: '\.msi$'
+          
+          # --- CORRECCIONES PARA EVITAR ERRORES ---
+          
+          # 1. Define que se instala en "Archivos de Programa" (requiere admin)
+          scope: machine
+          
+          # 2. Obliga a desinstalar la versión vieja antes de poner la nueva
+          # Esto evita conflictos de archivos en uso o GUIDs distintos
+          upgrade-behavior: uninstallPrevious
