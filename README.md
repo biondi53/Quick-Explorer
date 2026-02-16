@@ -1,4 +1,4 @@
-# 🚀 Quick Explorer
+# <img src="img/cuadrado2.png" width="45" align="center"> Quick Explorer
 
 **Quick Explorer** is a high-performance, modern file manager for Windows built with **Tauri**, **Rust**, and **React**. Designed for speed and stability.
 
