@@ -266,6 +266,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                                 onRenameCancel();
                             }
                         }}
+                        onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
                     />
                 ) : (

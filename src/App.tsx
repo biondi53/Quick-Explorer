@@ -526,7 +526,7 @@ export default function App() {
   }, [tabs, activeTabId, switchTab]);
 
   const cycleTheme = () => {
-    const themes = ['neon', 'emerald', 'sunset', 'cyber'];
+    const themes = ['neon', 'emerald', 'sunset', 'cyber', 'monochrome'];
     const currentIndex = themes.indexOf(theme);
     const nextIndex = (currentIndex + 1) % themes.length;
     setTheme(themes[nextIndex]);
