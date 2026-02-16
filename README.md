@@ -36,34 +36,9 @@ Developed with ❤️ using **Antigravity**.
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### Installation (Recommended)
 
-- [Node.js](https://nodejs.org/) (latest LTS)
-- [Rust](https://www.rust-lang.org/tools/install)
-- [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (Included in Windows 10/11)
+The easiest way to install **Quick Explorer** on Windows is via [Winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
 
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/biondi53/Quick-Explorer.git
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Run in development mode:
-   ```bash
-   npm run tauri dev
-   ```
-
-4. Build for production:
-   ```bash
-   npm run tauri build
-   ```
-
----
-
-*Quick Explorer Project © 2026*
+```bash
+winget install biondi53.QuickExplorer
