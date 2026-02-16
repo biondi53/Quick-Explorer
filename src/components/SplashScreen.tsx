@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Rocket } from 'lucide-react';
+
 
 interface SplashScreenProps {
     finishLoading: () => void;
@@ -27,8 +27,12 @@ export default function SplashScreen({ finishLoading }: SplashScreenProps) {
                 <div className="absolute inset-0 bg-[var(--accent-primary)]/20 blur-[60px] rounded-full animate-pulse" />
 
                 {/* Logo Container */}
-                <div className="relative z-10 p-6 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl">
-                    <Rocket size={64} className="text-[var(--accent-primary)] drop-shadow-[0_0_15px_rgba(var(--accent-rgb),0.5)] animate-bounce-subtle" />
+                <div className="relative z-10">
+                    <img
+                        src="/favicon.ico"
+                        alt="Logo"
+                        className="w-32 h-32 drop-shadow-[0_0_20px_rgba(var(--accent-rgb),0.6)] animate-bounce-subtle object-contain"
+                    />
                 </div>
             </div>
 

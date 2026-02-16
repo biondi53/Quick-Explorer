@@ -65,6 +65,20 @@
   --mica-bg: rgba(19, 10, 28, 0.6);
 }
 
+:root[data-theme='monochrome'] {
+  /* Stealth Monochrome */
+  --bg-deep: #000000;
+  --bg-surface: rgba(18, 18, 18, 0.7);
+  --bg-sidebar: rgba(10, 10, 10, 0.6);
+  --accent-primary: #e5e5e5;
+  --accent-rgb: 229, 229, 229;
+  --accent-secondary: #a3a3a3;
+  --accent-glow: rgba(255, 255, 255, 0.2);
+  --border-active: rgba(255, 255, 255, 0.4);
+  --mica-bg: rgba(5, 5, 5, 0.6);
+  --text-dim: #f3f4f6; /* Higher contrast text */
+}
+
 
 body {
   margin: 0;
