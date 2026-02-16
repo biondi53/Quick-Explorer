@@ -30,7 +30,7 @@ Developed with ❤️ using **Antigravity**.
 - **Backend**: [Rust](https://www.rust-lang.org/) + [Tauri v2](https://v2.tauri.app/)
 - **Frontend**: [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/)
 - **Styling**: Vanilla CSS with modern aesthetics.
-- **IDE**: [Antigravity IDE](https://antigravity.dev)
+- **IDE**: [Antigravity IDE](https://antigravity.google)
 
 ---
 
