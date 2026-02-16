@@ -42,3 +42,5 @@ The easiest way to install **Quick Explorer** on Windows is via [Winget](https:/
 
 ```bash
 winget install biondi53.QuickExplorer
+
+*Quick Explorer Project © 2026*
