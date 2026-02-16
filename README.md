@@ -1,9 +1,4 @@
-<table>
-  <tr>
-    <td valign="middle"><img src="img/Cuadrado2.png" width="45"></td>
-    <td valign="middle"><h1>Quick Explorer</h1></td>
-  </tr>
-</table>
+# <img src="img/Cuadrado2.png" width="40" style="vertical-align: -8px;"> Quick Explorer
 
 **Quick Explorer** is a high-performance, modern file manager for Windows built with **Tauri**, **Rust**, and **React**. Designed for speed and stability.
 
