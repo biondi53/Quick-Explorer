@@ -23,7 +23,8 @@ import {
   Files as FilesIcon,
   Scissors,
   Terminal,
-  ChevronRight
+  ChevronRight,
+  PanelRight
 } from 'lucide-react';
 
 const DEFAULT_COLUMNS: SortColumn[] = ['name', 'modified_at', 'created_at', 'file_type', 'size'];
@@ -618,6 +619,20 @@ export default function App() {
 
   const [searchBarWidth, setSearchBarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState<'info' | 'search' | null>(null);
+
+  // Info Panel visibility toggle (persisted)
+  const [infoPanelVisible, setInfoPanelVisible] = useState(() => {
+    const saved = localStorage.getItem('speedexplorer-info-panel-visible');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const toggleInfoPanel = useCallback(() => {
+    setInfoPanelVisible(prev => {
+      const next = !prev;
+      localStorage.setItem('speedexplorer-info-panel-visible', String(next));
+      return next;
+    });
+  }, []);
 
   // Removed automatic clamping effect to prevent panel size reset on window resize or maximize.
 
@@ -1567,24 +1582,38 @@ export default function App() {
             <div className="flex-1 flex min-h-0">
               <div className="flex-1 flex flex-col min-w-0" ref={centralPanelRef}>
                 {currentTab?.path === '' ? (
-                  <ThisPCView
-                    files={sortedFiles}
-                    onOpen={(file: FileEntry) => {
-                      if (file.is_dir) {
-                        navigateTo(file.path);
-                      } else {
-                        invoke('open_file', { path: file.path });
-                      }
-                    }}
-                    onOpenInNewTab={(file: FileEntry) => {
-                      if (file.is_dir) {
-                        addTab(file.path, focusNewTabOnMiddleClick);
-                      }
-                    }}
-                    onContextMenu={handleContextMenu}
-                    selectedFiles={currentTab?.selectedFiles || []}
-                    onSelectMultiple={handleSelectMultiple}
-                  />
+                  <>
+                    {/* Minimal toolbar for This PC view */}
+                    <div className="h-11 border-b border-white/10 flex items-center px-4 justify-end bg-white/[0.02]">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={toggleInfoPanel}
+                          className={`p-1.5 rounded-md transition-all ${infoPanelVisible ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : 'hover:bg-white/5 text-zinc-400'}`}
+                          title={infoPanelVisible ? 'Hide Details Panel' : 'Show Details Panel'}
+                        >
+                          <PanelRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    <ThisPCView
+                      files={sortedFiles}
+                      onOpen={(file: FileEntry) => {
+                        if (file.is_dir) {
+                          navigateTo(file.path);
+                        } else {
+                          invoke('open_file', { path: file.path });
+                        }
+                      }}
+                      onOpenInNewTab={(file: FileEntry) => {
+                        if (file.is_dir) {
+                          addTab(file.path, focusNewTabOnMiddleClick);
+                        }
+                      }}
+                      onContextMenu={handleContextMenu}
+                      selectedFiles={currentTab?.selectedFiles || []}
+                      onSelectMultiple={handleSelectMultiple}
+                    />
+                  </>
                 ) : (
                   <>
                     {/* Toolbar (Moved here) */}
@@ -1727,6 +1756,14 @@ export default function App() {
                         >
                           <Grid size={16} />
                         </button>
+                        <div className="h-3.5 w-px bg-white/5" />
+                        <button
+                          onClick={toggleInfoPanel}
+                          className={`p-1.5 rounded-md transition-all ${infoPanelVisible ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : 'hover:bg-white/5 text-zinc-400'}`}
+                          title={infoPanelVisible ? 'Hide Details Panel' : 'Show Details Panel'}
+                        >
+                          <PanelRight size={16} />
+                        </button>
                       </div>
                     </div>
                     {currentTab?.viewMode === 'grid' ? (
@@ -1844,13 +1881,16 @@ export default function App() {
                 )}
               </div>
 
-              {/* Info Panel Resizer */}
-              <div
-                className={`w-1 cursor-col-resize hover:bg-[var(--accent-primary)]/30 transition-colors z-50 flex-shrink-0 ${isResizing === 'info' ? 'bg-[var(--accent-primary)]/50' : 'bg-white/5'}`}
-                onMouseDown={() => setIsResizing('info')}
-              />
-
-              <InfoPanel selectedFiles={debouncedSelectedFiles} width={infoPanelWidth} />
+              {/* Info Panel Resizer + Panel */}
+              {infoPanelVisible && (
+                <>
+                  <div
+                    className={`w-1 cursor-col-resize hover:bg-[var(--accent-primary)]/30 transition-colors z-50 flex-shrink-0 ${isResizing === 'info' ? 'bg-[var(--accent-primary)]/50' : 'bg-white/5'}`}
+                    onMouseDown={() => setIsResizing('info')}
+                  />
+                  <InfoPanel selectedFiles={debouncedSelectedFiles} width={infoPanelWidth} />
+                </>
+              )}
             </div>
           </main>
 

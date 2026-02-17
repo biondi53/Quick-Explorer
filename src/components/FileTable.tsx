@@ -5,7 +5,7 @@ import { getIconComponent } from '../utils/fileIcons';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
-import { resolveResource } from '@tauri-apps/api/path';
+import { DRAG_ICON_BASE64 } from '../utils/dragIcon';
 
 type SortColumn = 'name' | 'modified_at' | 'created_at' | 'file_type' | 'size';
 type SortDirection = 'asc' | 'desc';
@@ -120,20 +120,6 @@ const FileTable = memo(({
     const autoFocusRef = useRef(false);
     const submittingRef = useRef(false);
     const [headerMenu, setHeaderMenu] = useState<{ x: number, y: number } | null>(null);
-    const [dragIconPath, setDragIconPath] = useState<string | null>(null);
-
-    useEffect(() => {
-        resolveResource('icons/32x32.png')
-            .then(path => {
-                console.log('[FileTable] Resolved drag icon path:', path);
-                setDragIconPath(path);
-            })
-            .catch(err => {
-                console.error('[FileTable] Failed to resolve drag icon:', err);
-                // Fallback attempt for development
-                setDragIconPath('icons/32x32.png');
-            });
-    }, []);
 
     // Native drag support
     const dragThresholdRef = useRef<{ x: number, y: number, paths: string[] } | null>(null);
@@ -147,22 +133,15 @@ const FileTable = memo(({
         if (paths.length === 0) return;
 
         console.log('[FileTable] Starting drag for paths:', paths);
-        console.log('[FileTable] Using icon path:', dragIconPath);
 
-        // If we don't have a valid image icon yet, and paths[0] is not a dir, we can try paths[0]
-        // But to be 100% safe from the crash, if dragIconPath is null, we should probably 
-        // use a string path that we KNOW exists and is an image, or just skip drag initiation
-        // until we have the icon.
         if (onInternalDragStart) {
             onInternalDragStart(paths);
         }
 
-        if (!dragIconPath) return;
-
         // @ts-ignore - 'icon' is required in types.
         startDrag({
             item: paths,
-            icon: dragIconPath,
+            icon: DRAG_ICON_BASE64,
             // @ts-ignore
             mode: 'copy'
         }).then(() => {

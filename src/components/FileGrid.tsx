@@ -9,7 +9,7 @@ import { getIconComponent } from '../utils/fileIcons';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
-import { resolveResource } from '@tauri-apps/api/path';
+import { DRAG_ICON_BASE64 } from '../utils/dragIcon';
 import GlowCard from './ui/GlowCard';
 
 interface FileGridProps {
@@ -215,6 +215,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                             <img
                                 src={thumbnail}
                                 alt={file.name}
+                                draggable={false}
                                 className="w-full h-full object-cover rounded-lg shadow-md"
                             />
                             {/* Thumbnail source indicator commented out for now */}
@@ -304,21 +305,7 @@ export default function FileGrid({
 }: FileGridProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
-    const [dragIconPath, setDragIconPath] = useState<string | null>(null);
     const selectedBeforeDownRef = useRef<boolean>(false);
-
-    useEffect(() => {
-        resolveResource('icons/32x32.png')
-            .then(path => {
-                console.log('[FileGrid] Resolved drag icon path:', path);
-                setDragIconPath(path);
-            })
-            .catch(err => {
-                console.error('[FileGrid] Failed to resolve drag icon:', err);
-                // Fallback attempt for development
-                setDragIconPath('icons/32x32.png');
-            });
-    }, []);
 
     const lastPathRef = useRef<string | null>(null);
     if (lastPathRef.current !== currentPath) {
@@ -398,18 +385,15 @@ export default function FileGrid({
         if (paths.length === 0) return;
 
         console.log('[FileGrid] Starting drag for paths:', paths);
-        console.log('[FileGrid] Using icon path:', dragIconPath);
 
         if (onInternalDragStart) {
             onInternalDragStart(paths);
         }
 
-        if (!dragIconPath) return;
-
         // @ts-ignore - 'icon' is required in types.
         startDrag({
             item: paths,
-            icon: dragIconPath,
+            icon: DRAG_ICON_BASE64,
             // @ts-ignore
             mode: 'copy'
         }).then(() => {
@@ -419,7 +403,7 @@ export default function FileGrid({
             console.error('[FileGrid] Native drag failed or cancelled:', err);
             if (onInternalDragEnd) onInternalDragEnd('promise-error');
         });
-    }, [dragIconPath, onInternalDragStart]);
+    }, [onInternalDragStart]);
 
     // Handler for mousedown on items - handles immediate selection and prepares drag
     const handleItemMouseDown = useCallback((file: FileEntry, e: React.MouseEvent) => {

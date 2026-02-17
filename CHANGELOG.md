@@ -1,3 +1,12 @@
+# 🚀 Quick Explorer v0.1.15
+*Changelog - February 17, 2026*
+
+## 🖱️ Drag & Drop Fixes
+- **Outbound DnD Stability**: Resolved a critical "race condition" (E_FAIL error) when dragging image files. The fix prevents the browser's native drag from interfering with the application's OLE drag operation.
+- **Diagnostic Cleanup**: Removed experimental troubleshooting code from the backend to ensure maximum performance and stability.
+
+---
+
 # 🚀 Quick Explorer v0.1.14
 *Changelog - February 15, 2026*
 
@@ -126,4 +135,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Version 0.1.14*
+*Quick Explorer Project © 2026 - Version 0.1.15*

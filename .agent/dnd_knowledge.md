@@ -361,3 +361,27 @@ The failure is likely due to the **Foreground Lock Timeout** (controlled by `SPI
 - **The Barrier**: When a user interacts with a window (Drop), that window gets "Foreground Rights". However, Windows prevents *other* windows from stealing that right for a certain duration. 
 - **The Paradox**: We are the window with the right, but we are trying to spawn a *system* window (the Shell Dialog) as a child/modal. If the OS considers the "Drop transition" incomplete (even by a microsecond), it treats the dialog as an intruder.
 - **Release vs Dev**: In Dev mode, the overhead of the debugger/logging provides the "natural" delay needed for the OS to stabilize. In Release, the 1ms completion time is our own enemy.
+## 23. Outbound DnD: The "Image Base64" Race Condition (2026-02-17)
+
+### 23.1 The Problem
+Outbound drag-and-drop (from app to desktop/explorer) failed intermittently with `E_FAIL` (0x80004005), specifically and almost exclusively for **images**. Non-image files worked 100% of the time using the `drag` crate.
+
+### 23.2 Diagnostic Findings
+- **Base64 Interference**: When an image with a thumbnail (data URI Base64) was dragged into a target like Firefox, the target often received the Base64 text instead of the file path.
+- **Competing Drags (Root Cause)**: 
+    1. The thumbnail is rendered as an `<img src="data:image/jpeg;base64,...">`.
+    2. WebView2 (the browser engine) has native drag-and-drop enabled for `<img>` elements by default.
+    3. When the user clicks and moves, the browser initiates its internal drag operation for the Base64 content.
+    4. Simultaneously, the app calls `startDrag()` (Tauri plugin), which attempts to start a Win32 OLE `DoDragDrop` session.
+    5. The browser's native drag captures the mouse first, causing the Rust OLE call to fail with `E_FAIL` as it cannot acquire the mouse/capture state.
+
+### 23.3 The Resolution
+The definitive fix was implemented in the frontend:
+- **`draggable={false}`**: Added this attribute to the `<img>` tags in `FileGrid.tsx`. 
+- **Impact**: This prevents WebView2 from initiating its own drag operation, leaving the mouse free for the `startDrag` plugin to successfully start the OLE session.
+
+### 23.4 Cleanup
+With the root cause resolved in the frontend, all temporary Rust workarounds were removed:
+- Removed the 500ms **Grace Period** in `QueryContinueDrag`.
+- Removed `E_FAIL` retry logic in `start_drag`.
+- Removed all `[DRAG-DIAG]` logs to maintain production-ready code.
