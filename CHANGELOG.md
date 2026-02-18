@@ -1,3 +1,11 @@
+# 🚀 Quick Explorer v0.1.16
+*Changelog - February 17, 2026*
+
+## ✨ Smooth Tab Transitions
+- **Tab Switching Animation**: Introduced a premium fade-and-scale transition when switching between tabs, making the navigation experience smoother and more visually appealing.
+
+---
+
 # 🚀 Quick Explorer v0.1.15
 *Changelog - February 17, 2026*
 
@@ -135,4 +143,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Version 0.1.15*
+*Quick Explorer Project © 2026 - Version 0.1.16*
