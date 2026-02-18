@@ -1505,9 +1505,9 @@ pub fn run() {
 
                 let hwnd = window.hwnd().unwrap();
                 let whwnd = HWND(hwnd.0 as *mut _);
-                println!("[SETUP] Main Window HWND: {:?}", whwnd);
+                log::debug!("[SETUP] Main Window HWND: {:?}", whwnd);
                 drop_overlay::create_drop_overlay(whwnd);
-                println!("[SETUP] Drop overlay creation triggered");
+                log::debug!("[SETUP] Drop overlay creation triggered");
             }
             Ok(())
         })

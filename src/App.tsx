@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, Fragment, useRef } from 'rea
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
+import { motion, AnimatePresence } from 'framer-motion';
 import ThisPCView from './components/ThisPCView';
 import { ask } from '@tauri-apps/plugin-dialog';
 import {
@@ -179,6 +180,24 @@ export default function App() {
   const lastInternalDropTimeRef = useRef(0);
   const lastInternalLockReleaseTimeRef = useRef(0);
 
+  // === Animation State ===
+  const [direction, setDirection] = useState(0);
+  const lastTabIdRef = useRef(activeTabId);
+
+  useEffect(() => {
+    if (activeTabId !== lastTabIdRef.current) {
+      const prevIndex = tabs.findIndex(t => t.id === lastTabIdRef.current);
+      const currIndex = tabs.findIndex(t => t.id === activeTabId);
+
+      if (prevIndex !== -1 && currIndex !== -1) {
+        setDirection(currIndex > prevIndex ? 1 : -1);
+      } else {
+        setDirection(0);
+      }
+      lastTabIdRef.current = activeTabId;
+    }
+  }, [activeTabId, tabs]);
+
   // Sync refs on every render (cheap operation, no side effects)
   useEffect(() => {
     currentPathRef.current = currentTab?.path;
@@ -260,7 +279,7 @@ export default function App() {
       if (!isInternalLock && isInternalDraggingRef.current) {
         const timeSinceLockRelease = now - lastInternalLockReleaseTimeRef.current;
         if (timeSinceLockRelease > 500) {
-          console.log(`[DND-LOG] [${now}] Recovering from orphan internal state (Stale: ${timeSinceLockRelease}ms).`);
+          // console.log(`[DND-LOG] [${now}] Recovering from orphan internal state (Stale: ${timeSinceLockRelease}ms).`);
           isInternalDraggingRef.current = false;
           internalDraggedPathsRef.current = [];
         } else {
@@ -272,7 +291,7 @@ export default function App() {
       const isCooldownActive = now - lastInternalDropTimeRef.current < 2500;
       const hasFiles = Array.from(e.dataTransfer?.types || []).includes('Files');
 
-      console.log(`[DND-LOG] [${now}] dragenter | Internal: ${isInternalDraggingRef.current} | Lock: ${isInternalLock} | Cooldown: ${isCooldownActive} (Last drop: ${now - lastInternalDropTimeRef.current}ms ago)`);
+      // console.log(`[DND-LOG] [${now}] dragenter | Internal: ${isInternalDraggingRef.current} | Lock: ${isInternalLock} | Cooldown: ${isCooldownActive} (Last drop: ${now - lastInternalDropTimeRef.current}ms ago)`);
 
       // STRICT GUARD (v7.2):
       if (isInternalLock || isInternalDraggingRef.current || isCooldownActive || !hasFiles) {
@@ -281,7 +300,7 @@ export default function App() {
 
       // Only show overlay on the FIRST dragenter (0 -> 1)
       if (dragCounterRef.current === 1) {
-        console.log(`[DND-LOG] [${now}] SHOW OVERLAY TRIGGERED`);
+        // console.log(`[DND-LOG] [${now}] SHOW OVERLAY TRIGGERED`);
         invoke('show_overlay', { rect: getCentralPanelRect() }).catch(() => { });
       }
     };
@@ -306,7 +325,7 @@ export default function App() {
 
         internalDragTimeoutRef.current = setTimeout(() => {
           if (isInternalDraggingRef.current) {
-            console.warn(`[DND-LOG] [${Date.now()}] Internal drag movement timeout (5s pulse) reached.`);
+            // console.warn(`[DND-LOG] [${Date.now()}] Internal drag movement timeout (5s pulse) reached.`);
             // Explicitly clear everything on timeout
             isInternalDraggingRef.current = false;
             internalDraggedPathsRef.current = [];
@@ -337,7 +356,7 @@ export default function App() {
       if (isInternalDraggingRef.current) {
         const paths = internalDraggedPathsRef.current;
         const targetPath = currentPathRef.current;
-        console.log(`[DND-LOG] [${now}] Internal drop detected. Paths:`, paths, 'to target:', targetPath);
+        // console.log(`[DND-LOG] [${now}] Internal drop detected. Paths:`, paths, 'to target:', targetPath);
 
         // DATA CLEANUP (v7.2): Clear internal state now that we've captured the paths for the drop.
         isInternalDraggingRef.current = false;
@@ -1766,107 +1785,139 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    {currentTab?.viewMode === 'grid' ? (
-                      <FileGrid
-                        files={sortedFiles}
-                        currentPath={currentTab?.path || ''}
-                        selectedFiles={currentTab?.selectedFiles || []}
-                        lastSelectedFile={currentTab?.lastSelectedFile || null}
-                        onSelectMultiple={handleSelectMultiple}
-                        onOpen={(file: FileEntry) => {
-                          if (file.is_dir) {
-                            navigateTo(file.path);
-                          } else {
-                            invoke('open_file', { path: file.path });
+                    <AnimatePresence mode="popLayout" custom={direction} initial={false}>
+                      <motion.div
+                        key={activeTabId}
+                        custom={direction}
+                        variants={{
+                          enter: {
+                            opacity: 0,
+                            scale: 0.98
+                          },
+                          center: {
+                            zIndex: 1,
+                            opacity: 1,
+                            scale: 1
+                          },
+                          exit: {
+                            zIndex: 0,
+                            opacity: 0,
+                            scale: 0.98
                           }
                         }}
-                        onOpenInNewTab={(file: FileEntry) => {
-                          if (file.is_dir) {
-                            addTab(file.path, focusNewTabOnMiddleClick);
-                          }
+                        initial="enter"
+                        animate="center"
+                        exit="exit"
+                        transition={{
+                          opacity: { duration: 0.25 },
+                          scale: { duration: 0.3 }
                         }}
-                        onContextMenu={handleContextMenu}
-                        onClearSelection={handleClearSelection}
-                        renamingPath={currentTab?.renamingPath || null}
-                        onRenameSubmit={handleRenameSubmit}
-                        onRenameCancel={handleRenameCancel}
-                        clipboardInfo={clipboardInfo}
-                        onInternalDragStart={(paths: string[]) => {
-                          const now = Date.now();
-                          console.log(`[DND-LOG] [${now}] Internal drag state -> TRUE (FileGrid)`);
+                        style={{ willChange: "transform, opacity" }}
+                        className="flex-1 flex flex-col min-h-0 min-w-0"
+                      >
+                        {currentTab?.viewMode === 'grid' ? (
+                          <FileGrid
+                            files={sortedFiles}
+                            currentPath={currentTab?.path || ''}
+                            selectedFiles={currentTab?.selectedFiles || []}
+                            lastSelectedFile={currentTab?.lastSelectedFile || null}
+                            onSelectMultiple={handleSelectMultiple}
+                            onOpen={(file: FileEntry) => {
+                              if (file.is_dir) {
+                                navigateTo(file.path);
+                              } else {
+                                invoke('open_file', { path: file.path });
+                              }
+                            }}
+                            onOpenInNewTab={(file: FileEntry) => {
+                              if (file.is_dir) {
+                                addTab(file.path, focusNewTabOnMiddleClick);
+                              }
+                            }}
+                            onContextMenu={handleContextMenu}
+                            onClearSelection={handleClearSelection}
+                            renamingPath={currentTab?.renamingPath || null}
+                            onRenameSubmit={handleRenameSubmit}
+                            onRenameCancel={handleRenameCancel}
+                            clipboardInfo={clipboardInfo}
+                            onInternalDragStart={(paths: string[]) => {
+                              const now = Date.now();
+                              // console.log(`[DND-LOG] [${now}] Internal drag state -> TRUE (FileGrid)`);
 
-                          if (internalDragTimeoutRef.current) {
-                            clearTimeout(internalDragTimeoutRef.current);
-                          }
+                              if (internalDragTimeoutRef.current) {
+                                clearTimeout(internalDragTimeoutRef.current);
+                              }
 
-                          isInternalDraggingRef.current = true;
-                          internalDragStartTimeRef.current = now;
-                          internalDraggedPathsRef.current = paths;
+                              isInternalDraggingRef.current = true;
+                              internalDragStartTimeRef.current = now;
+                              internalDraggedPathsRef.current = paths;
 
-                          // Safety Timeout (v6.0): Movement Pulse will keep this alive, 
-                          // Initial fail-safe at 30s as per Plan v6.0.
-                          internalDragTimeoutRef.current = setTimeout(() => {
-                            if (isInternalDraggingRef.current) {
-                              console.warn(`[DND-LOG] [${Date.now()}] Internal drag safety timeout (30s) reached.`);
-                              onInternalDragEnd('timeout-grid');
-                            }
-                          }, 30000);
-                        }}
-                        onInternalDragEnd={onInternalDragEnd}
-                      />
-                    ) : (
-                      <FileTable
-                        files={sortedFiles}
-                        currentPath={currentTab?.path || ''}
-                        selectedFiles={currentTab?.selectedFiles || []}
-                        lastSelectedFile={currentTab?.lastSelectedFile || null}
-                        sortConfig={currentTab?.sortConfig || defaultSortConfig}
-                        onSort={handleSort}
-                        onSelectMultiple={handleSelectMultiple}
-                        onOpen={(file: FileEntry) => {
-                          if (file.is_dir) {
-                            navigateTo(file.path);
-                          } else {
-                            invoke('open_file', { path: file.path });
-                          }
-                        }}
-                        onOpenInNewTab={(file: FileEntry) => {
-                          if (file.is_dir) {
-                            addTab(file.path, focusNewTabOnMiddleClick);
-                          }
-                        }}
-                        onContextMenu={handleContextMenu}
-                        onClearSelection={handleClearSelection}
-                        renamingPath={currentTab?.renamingPath || null}
-                        onRenameSubmit={handleRenameSubmit}
-                        onRenameCancel={handleRenameCancel}
-                        visibleColumns={visibleColumns}
-                        onToggleColumn={handleToggleColumn}
-                        columnWidths={columnWidths}
-                        onColumnsResize={handleColumnsResize}
-                        clipboardInfo={clipboardInfo}
-                        onInternalDragStart={(paths: string[]) => {
-                          const now = Date.now();
-                          console.log(`[DND-LOG] [${now}] Internal drag state -> TRUE (FileTable)`);
+                              // Safety Timeout (v6.0): Movement Pulse will keep this alive, 
+                              // Initial fail-safe at 30s as per Plan v6.0.
+                              internalDragTimeoutRef.current = setTimeout(() => {
+                                if (isInternalDraggingRef.current) {
+                                  // console.warn(`[DND-LOG] [${Date.now()}] Internal drag safety timeout (30s) reached.`);
+                                  onInternalDragEnd('timeout-grid');
+                                }
+                              }, 30000);
+                            }}
+                            onInternalDragEnd={onInternalDragEnd}
+                          />
+                        ) : (
+                          <FileTable
+                            files={sortedFiles}
+                            currentPath={currentTab?.path || ''}
+                            selectedFiles={currentTab?.selectedFiles || []}
+                            lastSelectedFile={currentTab?.lastSelectedFile || null}
+                            sortConfig={currentTab?.sortConfig || defaultSortConfig}
+                            onSort={handleSort}
+                            onSelectMultiple={handleSelectMultiple}
+                            onOpen={(file: FileEntry) => {
+                              if (file.is_dir) {
+                                navigateTo(file.path);
+                              } else {
+                                invoke('open_file', { path: file.path });
+                              }
+                            }}
+                            onOpenInNewTab={(file: FileEntry) => {
+                              if (file.is_dir) {
+                                addTab(file.path, focusNewTabOnMiddleClick);
+                              }
+                            }}
+                            onContextMenu={handleContextMenu}
+                            onClearSelection={handleClearSelection}
+                            renamingPath={currentTab?.renamingPath || null}
+                            onRenameSubmit={handleRenameSubmit}
+                            onRenameCancel={handleRenameCancel}
+                            visibleColumns={visibleColumns}
+                            onToggleColumn={handleToggleColumn}
+                            columnWidths={columnWidths}
+                            onColumnsResize={handleColumnsResize}
+                            clipboardInfo={clipboardInfo}
+                            onInternalDragStart={(paths: string[]) => {
+                              const now = Date.now();
+                              // console.log(`[DND-LOG] [${now}] Internal drag state -> TRUE (FileTable)`);
 
-                          if (internalDragTimeoutRef.current) {
-                            clearTimeout(internalDragTimeoutRef.current);
-                          }
+                              if (internalDragTimeoutRef.current) {
+                                clearTimeout(internalDragTimeoutRef.current);
+                              }
 
-                          isInternalDraggingRef.current = true;
-                          internalDragStartTimeRef.current = now;
-                          internalDraggedPathsRef.current = paths;
+                              isInternalDraggingRef.current = true;
+                              internalDragStartTimeRef.current = now;
+                              internalDraggedPathsRef.current = paths;
 
-                          internalDragTimeoutRef.current = setTimeout(() => {
-                            if (isInternalDraggingRef.current) {
-                              console.warn(`[DND-LOG] [${Date.now()}] Internal drag safety timeout (30s) reached.`);
-                              onInternalDragEnd('timeout-table');
-                            }
-                          }, 30000);
-                        }}
-                        onInternalDragEnd={onInternalDragEnd}
-                      />
-                    )}
+                              internalDragTimeoutRef.current = setTimeout(() => {
+                                if (isInternalDraggingRef.current) {
+                                  // console.warn(`[DND-LOG] [${Date.now()}] Internal drag safety timeout (30s) reached.`);
+                                  onInternalDragEnd('timeout-table');
+                                }
+                              }, 30000);
+                            }}
+                            onInternalDragEnd={onInternalDragEnd}
+                          />
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
 
                     {/* Status Bar */}
                     <footer className="h-7 border-t border-white/5 bg-white/[0.01] flex items-center px-4 shrink-0 select-none">

@@ -76,7 +76,8 @@
   --accent-glow: rgba(255, 255, 255, 0.2);
   --border-active: rgba(255, 255, 255, 0.4);
   --mica-bg: rgba(5, 5, 5, 0.6);
-  --text-dim: #f3f4f6; /* Higher contrast text */
+  --text-dim: #f3f4f6;
+  /* Higher contrast text */
 }
 
 

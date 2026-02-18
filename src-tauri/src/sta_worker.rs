@@ -1,4 +1,4 @@
-use crate::{get_file_entry, DiskInfo, FileEntry};
+use crate::{DiskInfo, FileEntry};
 use chrono::{DateTime, Local};
 use rayon::prelude::*;
 use std::ffi::OsStr;
@@ -51,7 +51,7 @@ impl ThreadInputGuard {
             unsafe {
                 if AttachThreadInput(current_thread_id, target_thread_id, true).as_bool() {
                     attached = true;
-                    log::info!(
+                    log::debug!(
                         "[STA-WORKER] Attached thread input: {} -> {}",
                         current_thread_id,
                         target_thread_id
@@ -73,7 +73,7 @@ impl Drop for ThreadInputGuard {
             let current_thread_id = unsafe { GetCurrentThreadId() };
             unsafe {
                 let _ = AttachThreadInput(current_thread_id, self.target_thread_id, false);
-                log::info!("[STA-WORKER] Detached thread input");
+                log::debug!("[STA-WORKER] Detached thread input");
             }
         }
     }
@@ -117,7 +117,7 @@ fn synchronize_handshake(hwnd: windows::Win32::Foundation::HWND) {
             // Sincronización perfecta lograda
             if fg == hwnd && act == hwnd {
                 if attempts > 0 {
-                    log::info!(
+                    log::debug!(
                         "[STA-WORKER] Handshake LOCKDOWN stabilized at attempt {}",
                         attempts
                     );
@@ -133,7 +133,7 @@ fn synchronize_handshake(hwnd: windows::Win32::Foundation::HWND) {
         // 4. Final Permission: Asegurar permiso para el Shell justo antes de PerformOperations.
         let _ = AllowSetForegroundWindow(0xFFFFFFFF);
 
-        log::info!(
+        log::debug!(
             "[STA-WORKER] Handshake SYNC v12.0 (Out-of-Band) completed in {:?}",
             start.elapsed()
         );
@@ -143,7 +143,7 @@ fn synchronize_handshake(hwnd: windows::Win32::Foundation::HWND) {
 fn notify_refresh() {
     if let Some(app) = crate::APP_HANDLE.get() {
         let _ = app.emit("refresh-tab", ());
-        log::info!("[STA-WORKER] Event 'refresh-tab' emitted.");
+        log::debug!("[STA-WORKER] Event 'refresh-tab' emitted.");
     }
 }
 
@@ -159,7 +159,7 @@ fn log_sta_diagnostic(label: &str, target_hwnd: windows::Win32::Foundation::HWND
         let len = GetClassNameW(fg, &mut class_name);
         let fg_class = String::from_utf16_lossy(&class_name[..len as usize]);
 
-        log::info!(
+        log::debug!(
             "[DIAGNOSTICS - STA] [{}] \n\
              - Target HWND: {:?} (Visible: {}, Enabled: {})\n\
              - Foreground: {:?} (Class: {})\n\
@@ -453,8 +453,6 @@ fn empty_recycle_bin_impl() -> Result<(), String> {
 // MOVED IMPLEMENTATION (Private, running on STA thread)
 // ==================================================================================
 
-// get_file_entry imported from crate
-
 fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
     let mut files = Vec::new();
     let now = SystemTime::now();
@@ -639,8 +637,65 @@ fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, Stri
                     }
                 }
 
-                if let Ok(entry) = get_file_entry(path_obj) {
-                    files.push(entry);
+                // Build FileEntry inline — avoids the redundant disk read
+                // that get_file_entry(path) would cause via path.metadata().
+                if let Ok(metadata) = path_obj.metadata() {
+                    let is_dir = metadata.is_dir();
+                    let size = if is_dir { 0 } else { metadata.len() };
+
+                    let formatted_size = if is_dir {
+                        String::new()
+                    } else if size < 1024 {
+                        format!("{} B", size)
+                    } else if size < 1024 * 1024 {
+                        format!("{:.1} KB", size as f64 / 1024.0)
+                    } else {
+                        format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+                    };
+
+                    let extension = path_obj
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let is_shortcut = extension == "lnk";
+
+                    let file_type = if is_shortcut {
+                        "Shortcut".to_string()
+                    } else if is_dir {
+                        "Folder".to_string()
+                    } else {
+                        path_obj
+                            .extension()
+                            .map(|ext| ext.to_string_lossy().to_uppercase() + " File")
+                            .unwrap_or_else(|| "File".to_string())
+                    };
+
+                    let created_at = metadata.created().unwrap_or_else(|_| SystemTime::now());
+                    let created_datetime: DateTime<Local> = created_at.into();
+                    let created_at_str = created_datetime.format("%d/%m/%Y %H:%M").to_string();
+
+                    let modified_at = metadata.modified().unwrap_or_else(|_| SystemTime::now());
+                    let modified_datetime: DateTime<Local> = modified_at.into();
+                    let modified_at_str = modified_datetime.format("%d/%m/%Y %H:%M").to_string();
+
+                    files.push(FileEntry {
+                        name,
+                        path: full_path,
+                        is_dir,
+                        size,
+                        formatted_size,
+                        file_type,
+                        created_at: created_at_str,
+                        modified_at: modified_at_str,
+                        is_shortcut,
+                        disk_info: None,
+                        modified_timestamp: modified_at
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64,
+                        dimensions: None,
+                    });
                 } else {
                     files.push(FileEntry {
                         name,
@@ -689,7 +744,7 @@ fn drop_items_impl(
     target_path: String,
     hwnd: Option<isize>,
 ) -> Result<Vec<String>, String> {
-    log::info!(
+    log::debug!(
         "[STA-WORKER] drop_items_impl (IFileOperation) called with {} files to {}",
         files.len(),
         target_path
@@ -753,7 +808,7 @@ fn move_items_impl(
     target_path: String,
     hwnd: Option<isize>,
 ) -> Result<(), String> {
-    log::info!(
+    log::debug!(
         "[STA-WORKER] move_items_impl (IFileOperation) called with {} files to {}",
         paths.len(),
         target_path
@@ -906,7 +961,7 @@ fn paste_items_impl(
     is_move: bool,
     hwnd: Option<isize>,
 ) -> Result<Vec<String>, String> {
-    log::info!(
+    log::debug!(
         "[STA-WORKER] paste_items_impl called with {} files to {} (is_move: {})",
         paths.len(),
         target_path,
