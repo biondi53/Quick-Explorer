@@ -1,3 +1,13 @@
+# 🚀 Quick Explorer v0.1.17
+*Changelog - February 18, 2026*
+
+## 🖱️ Dynamic High-Fidelity Ghost Icons
+- **Accurate Previews**: Dragging an item now shows a translucent "ghost" version of the actual thumbnail or Lucide icon, providing instant visual feedback.
+- **Counter Badge**: Dragging multiple items displays a smart "+N" badge in the ghost preview, matching the native experience of modern file explorers.
+- **Glassmorphism Aesthetic**: The ghost preview card features a dark, semi-transparent "glass" background with smooth rounded corners.
+
+---
+
 # 🚀 Quick Explorer v0.1.16
 *Changelog - February 17, 2026*
 
@@ -143,4 +153,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Version 0.1.16*
+*Quick Explorer Project © 2026 - Version 0.1.17*

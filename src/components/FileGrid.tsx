@@ -378,10 +378,10 @@ export default function FileGrid({
         return files.slice(startIndex, startIndex + columns);
     }, [files, columns]);
 
-    const dragThresholdRef = useRef<{ x: number, y: number, paths: string[] } | null>(null);
+    const dragThresholdRef = useRef<{ x: number, y: number, paths: string[], element: HTMLElement } | null>(null);
 
     // Native drag handler using manual threshold
-    const handleDragStart = useCallback((paths: string[]) => {
+    const handleDragStart = useCallback(async (paths: string[], element?: HTMLElement) => {
         if (paths.length === 0) return;
 
         console.log('[FileGrid] Starting drag for paths:', paths);
@@ -390,10 +390,28 @@ export default function FileGrid({
             onInternalDragStart(paths);
         }
 
+        // Generate dynamic ghost icon
+        const primaryFile = files.find(f => f.path === paths[0]);
+        let iconBase64 = DRAG_ICON_BASE64;
+        if (primaryFile) {
+            const { createGhostIcon } = await import('../utils/ghostIcon');
+
+            // Try to see if we have a thumbnail in DOM or state
+            // But for now, we'll pass what we have.
+            // Better: search for the thumbnail in the actual GridItem components if possible,
+            // but it's simpler to just use the Base64 if it's already in the cache or wait a bit.
+            iconBase64 = await createGhostIcon({
+                name: primaryFile.name,
+                isDir: primaryFile.is_dir,
+                element: element,
+                count: paths.length
+            });
+        }
+
         // @ts-ignore - 'icon' is required in types.
         startDrag({
             item: paths,
-            icon: DRAG_ICON_BASE64,
+            icon: iconBase64,
             // @ts-ignore
             mode: 'copy'
         }).then(() => {
@@ -403,7 +421,7 @@ export default function FileGrid({
             console.error('[FileGrid] Native drag failed or cancelled:', err);
             if (onInternalDragEnd) onInternalDragEnd('promise-error');
         });
-    }, [onInternalDragStart]);
+    }, [onInternalDragStart, files]);
 
     // Handler for mousedown on items - handles immediate selection and prepares drag
     const handleItemMouseDown = useCallback((file: FileEntry, e: React.MouseEvent) => {
@@ -430,7 +448,12 @@ export default function FileGrid({
             ? (isSelectedAtStart ? Array.from(selectedPaths) : [...Array.from(selectedPaths), file.path])
             : [file.path];
 
-        dragThresholdRef.current = { x: e.clientX, y: e.clientY, paths: pathsToDrag };
+        dragThresholdRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            paths: pathsToDrag,
+            element: e.currentTarget as HTMLElement
+        };
 
         // IMMEDIATE HANDSHAKE (v7.0): Set lock on mousedown to preempt OS race conditions
         // @ts-ignore
@@ -444,10 +467,11 @@ export default function FileGrid({
 
             if (dist > 5) { // 5px threshold
                 const finalPaths = dragThresholdRef.current.paths;
+                const element = dragThresholdRef.current.element;
                 dragThresholdRef.current = null;
                 window.removeEventListener('mousemove', onMouseMove);
                 window.removeEventListener('mouseup', onMouseUp);
-                handleDragStart(finalPaths);
+                handleDragStart(finalPaths, element);
             }
         };
 

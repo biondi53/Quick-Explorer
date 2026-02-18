@@ -122,14 +122,14 @@ const FileTable = memo(({
     const [headerMenu, setHeaderMenu] = useState<{ x: number, y: number } | null>(null);
 
     // Native drag support
-    const dragThresholdRef = useRef<{ x: number, y: number, paths: string[] } | null>(null);
+    const dragThresholdRef = useRef<{ x: number, y: number, paths: string[], element: HTMLElement } | null>(null);
     const selectedBeforeDownRef = useRef<boolean>(false);
 
     const selectedPaths = useMemo(() => {
         return new Set(selectedFiles.map(f => f.path));
     }, [selectedFiles]);
 
-    const handleDragStart = (paths: string[]) => {
+    const handleDragStart = async (paths: string[], element?: HTMLElement) => {
         if (paths.length === 0) return;
 
         console.log('[FileTable] Starting drag for paths:', paths);
@@ -138,10 +138,23 @@ const FileTable = memo(({
             onInternalDragStart(paths);
         }
 
+        // Generate dynamic ghost icon
+        const primaryFile = files.find(f => f.path === paths[0]);
+        let iconBase64 = DRAG_ICON_BASE64;
+        if (primaryFile) {
+            const { createGhostIcon } = await import('../utils/ghostIcon');
+            iconBase64 = await createGhostIcon({
+                name: primaryFile.name,
+                isDir: primaryFile.is_dir,
+                element: element,
+                count: paths.length
+            });
+        }
+
         // @ts-ignore - 'icon' is required in types.
         startDrag({
             item: paths,
-            icon: DRAG_ICON_BASE64,
+            icon: iconBase64,
             // @ts-ignore
             mode: 'copy'
         }).then(() => {
@@ -500,7 +513,12 @@ const FileTable = memo(({
                                     ? (isSelected ? Array.from(selectedPaths) : [...Array.from(selectedPaths), file.path])
                                     : [file.path];
 
-                                dragThresholdRef.current = { x: e.clientX, y: e.clientY, paths: pathsToDrag };
+                                dragThresholdRef.current = {
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                    paths: pathsToDrag,
+                                    element: e.currentTarget as HTMLElement
+                                };
 
                                 // IMMEDIATE HANDSHAKE (v7.0): Set lock on mousedown to preempt OS race conditions
                                 // @ts-ignore
@@ -514,10 +532,11 @@ const FileTable = memo(({
 
                                     if (dist > 5) { // 5px threshold
                                         const finalPaths = dragThresholdRef.current.paths;
+                                        const element = dragThresholdRef.current.element;
                                         dragThresholdRef.current = null;
                                         window.removeEventListener('mousemove', onMouseMove);
                                         window.removeEventListener('mouseup', onMouseUp);
-                                        handleDragStart(finalPaths);
+                                        handleDragStart(finalPaths, element);
                                     }
                                 };
 

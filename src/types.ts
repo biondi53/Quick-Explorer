@@ -4,7 +4,7 @@ import type { ClipboardInfo as GeneratedClipboardInfo } from './bindings/Clipboa
 import type { RecycleBinStatus as GeneratedRecycleBinStatus } from './bindings/RecycleBinStatus';
 
 export type DiskInfo = GeneratedDiskInfo;
-export type FileEntry = GeneratedFileEntry;
+export type FileEntry = GeneratedFileEntry & { thumbnail?: string | null };
 export type ClipboardInfo = GeneratedClipboardInfo;
 export type RecycleBinStatus = GeneratedRecycleBinStatus;
 
