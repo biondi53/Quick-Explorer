@@ -308,12 +308,18 @@ export default function App() {
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
       if (e.buttons === 0) return; // Ghost event
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy';
-      }
 
       // @ts-ignore
       const isInternalLock = window.__SPEED_EXPLORER_DND_LOCK === true;
+
+      if (e.dataTransfer) {
+        if (isInternalLock || isInternalDraggingRef.current) {
+          e.dataTransfer.dropEffect = 'copy';
+        } else {
+          e.dataTransfer.dropEffect = 'none';
+        }
+      }
+
       const now = Date.now();
       const isCooldownActive = now - lastInternalDropTimeRef.current < 2500;
 
@@ -796,14 +802,21 @@ export default function App() {
       // Escape key handling (global)
       if (e.key === 'Escape') {
         let handled = false;
-        if (currentTab?.searchQuery) {
-          updateTab(currentTab.id, { searchQuery: '' });
+
+        if (currentTab?.renamingPath) {
+          handleRenameCancel();
           handled = true;
+        } else {
+          if (currentTab?.searchQuery) {
+            updateTab(currentTab.id, { searchQuery: '' });
+            handled = true;
+          }
+          if (currentTab?.selectedFiles && currentTab.selectedFiles.length > 0) {
+            handleClearSelection();
+            handled = true;
+          }
         }
-        if (currentTab?.selectedFiles && currentTab.selectedFiles.length > 0) {
-          handleClearSelection();
-          handled = true;
-        }
+
         if (handled) {
           e.preventDefault();
         }
@@ -912,18 +925,27 @@ export default function App() {
     try {
       await invoke('rename_item', { oldPath: file.path, newName });
       updateTab(currentTab.id, { renamingPath: null });
+
       const lastSlash = file.path.lastIndexOf('\\');
+      let parent = "";
       if (lastSlash === -1) {
-        refreshTabsViewing(file.path);
+        parent = file.path;
       } else {
-        let parent = file.path.substring(0, lastSlash);
+        parent = file.path.substring(0, lastSlash);
         if (parent.endsWith(':')) parent += '\\';
-        refreshTabsViewing(parent);
       }
+
+      const newPath = parent.endsWith('\\') ? parent + newName : parent + '\\' + newName;
+
+      // Force refresh current tab with selection
+      await loadFilesForTab(currentTab.id, parent, undefined, [newPath]);
+
+      // Refresh other tabs viewing this parent
+      refreshTabsViewing(parent);
     } catch (err) {
       updateTab(currentTab.id, { error: String(err), renamingPath: null });
     }
-  }, [currentTab, updateTab, handleRenameCancel, refreshTabsViewing]);
+  }, [currentTab, updateTab, handleRenameCancel, refreshTabsViewing, loadFilesForTab]);
 
   const handleSidebarContextMenu = (e: React.MouseEvent, path: string, name: string) => {
     e.preventDefault();
@@ -1642,8 +1664,10 @@ export default function App() {
                           onClick={async () => {
                             if (!currentTab) return;
                             try {
-                              await invoke('create_folder', { parentPath: currentTab.path });
-                              loadFilesForTab(currentTab.id, currentTab.path);
+                              const folderName = await invoke<string>('create_folder', { parentPath: currentTab.path });
+                              const newPath = currentTab.path.endsWith('\\') ? currentTab.path + folderName : currentTab.path + '\\' + folderName;
+                              await loadFilesForTab(currentTab.id, currentTab.path, undefined, [newPath]);
+                              updateTab(currentTab.id, { renamingPath: newPath });
                             } catch (err) {
                               updateTab(currentTab.id, { error: String(err) });
                             }

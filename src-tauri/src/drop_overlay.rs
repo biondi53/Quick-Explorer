@@ -11,6 +11,7 @@ use windows::Win32::Foundation::{
     COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, POINTL, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{ClientToScreen, GetStockObject, BLACK_BRUSH, HBRUSH};
+use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::System::Com::{IDataObject, FORMATETC, STGMEDIUM, TYMED_HGLOBAL};
 use windows::Win32::System::Ole::{
     IDropTarget, IDropTarget_Impl, RegisterDragDrop, ReleaseStgMedium, DROPEFFECT, DROPEFFECT_COPY,
@@ -18,7 +19,7 @@ use windows::Win32::System::Ole::{
 };
 use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
-use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+use windows::Win32::UI::Shell::{DragQueryFileW, IDropTargetHelper, HDROP};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetWindow, KillTimer, RegisterClassW,
     SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, CS_HREDRAW, CS_VREDRAW,
@@ -126,8 +127,23 @@ pub fn create_drop_overlay(parent_hwnd: HWND) {
 
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 100, LWA_ALPHA); // ~40% opacity
 
+        // Create IDropTargetHelper
+        let drag_drop_helper_guid =
+            windows::core::GUID::from_u128(0x4657278a_411b_11d2_839a_00c04fd918d0);
+        let drop_target_helper: Option<IDropTargetHelper> =
+            CoCreateInstance(&drag_drop_helper_guid, None, CLSCTX_INPROC_SERVER).ok();
+        if drop_target_helper.is_some() {
+            log::info!("[OVERLAY] Successfully created IDropTargetHelper");
+        } else {
+            log::warn!("[OVERLAY] Failed to create IDropTargetHelper");
+        }
+
         // --- OLE REGISTRATION ---
-        let drop_target: IDropTarget = OverlayDropTarget { hwnd }.into();
+        let drop_target: IDropTarget = OverlayDropTarget {
+            hwnd,
+            helper: drop_target_helper,
+        }
+        .into();
         match RegisterDragDrop(hwnd, &drop_target) {
             Ok(_) => log::info!("[OLE] RegisterDragDrop SUCCESS for {:?}", hwnd),
             Err(e) => log::error!("[OLE] RegisterDragDrop FAILED: {:?}", e),
@@ -168,6 +184,7 @@ unsafe extern "system" fn wnd_proc_w(
 #[implement(IDropTarget)]
 struct OverlayDropTarget {
     hwnd: HWND,
+    helper: Option<IDropTargetHelper>,
 }
 
 impl IDropTarget_Impl for OverlayDropTarget_Impl {
@@ -175,7 +192,7 @@ impl IDropTarget_Impl for OverlayDropTarget_Impl {
         &self,
         pdataobj: Ref<'_, IDataObject>,
         _grfkeystate: MODIFIERKEYS_FLAGS,
-        _pt: &POINTL,
+        pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows_core::Result<()> {
         log::info!("[OLE] DragEnter");
@@ -185,6 +202,11 @@ impl IDropTarget_Impl for OverlayDropTarget_Impl {
                     *pdweffect = DROPEFFECT_COPY;
                 } else {
                     *pdweffect = DROPEFFECT_NONE;
+                }
+
+                if let Some(helper) = &self.helper {
+                    let point = POINT { x: pt.x, y: pt.y };
+                    let _ = helper.DragEnter(self.hwnd, data_obj, &point, pdweffect.read());
                 }
             } else {
                 *pdweffect = DROPEFFECT_NONE;
@@ -196,17 +218,26 @@ impl IDropTarget_Impl for OverlayDropTarget_Impl {
     fn DragOver(
         &self,
         _grfkeystate: MODIFIERKEYS_FLAGS,
-        _pt: &POINTL,
+        pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows_core::Result<()> {
         unsafe {
             *pdweffect = DROPEFFECT_COPY;
+            if let Some(helper) = &self.helper {
+                let point = POINT { x: pt.x, y: pt.y };
+                let _ = helper.DragOver(&point, pdweffect.read());
+            }
         }
         Ok(())
     }
 
     fn DragLeave(&self) -> windows_core::Result<()> {
         log::info!("[OLE] DragLeave");
+        unsafe {
+            if let Some(helper) = &self.helper {
+                let _ = helper.DragLeave();
+            }
+        }
         Ok(())
     }
 
@@ -214,13 +245,18 @@ impl IDropTarget_Impl for OverlayDropTarget_Impl {
         &self,
         pdataobj: Ref<'_, IDataObject>,
         _grfkeystate: MODIFIERKEYS_FLAGS,
-        _pt: &POINTL,
+        pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows_core::Result<()> {
         log::info!("[OLE] Drop");
         unsafe {
             *pdweffect = DROPEFFECT_NONE;
             if let Ok(data_obj) = pdataobj.ok() {
+                if let Some(helper) = &self.helper {
+                    let point = POINT { x: pt.x, y: pt.y };
+                    let _ = helper.Drop(data_obj, &point, pdweffect.read());
+                }
+
                 let paths = extract_paths(data_obj);
                 if !paths.is_empty() {
                     *pdweffect = DROPEFFECT_COPY;

@@ -259,6 +259,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                             onRenameSubmit(file, editValue);
                         }}
                         onKeyDown={(e) => {
+                            e.stopPropagation(); // Prevent grid navigation
                             if (e.key === 'Enter') {
                                 if (submittingRef.current) return;
                                 submittingRef.current = true;
@@ -351,13 +352,21 @@ export default function FileGrid({
     }, [selectedFiles]);
 
     // Auto-scroll to last selected file
+    const lastScrolledFileRef = useRef<string | null>(null);
     useEffect(() => {
-        if (lastSelectedFile) {
+        if (lastSelectedFile && lastSelectedFile.path !== lastScrolledFileRef.current) {
             const index = files.findIndex(f => f.path === lastSelectedFile.path);
             if (index !== -1) {
                 const rowIndex = Math.floor(index / columns);
-                rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
+                try {
+                    rowVirtualizer.scrollToIndex(rowIndex, { align: 'auto' });
+                    lastScrolledFileRef.current = lastSelectedFile.path;
+                } catch (e) {
+                    // Ignore initialization errors
+                }
             }
+        } else if (!lastSelectedFile) {
+            lastScrolledFileRef.current = null;
         }
     }, [lastSelectedFile, files, columns, rowVirtualizer]);
 

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronUp, ChevronDown, Check } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
+import { invoke } from '@tauri-apps/api/core';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
@@ -129,6 +130,9 @@ const FileTable = memo(({
         return new Set(selectedFiles.map(f => f.path));
     }, [selectedFiles]);
 
+    const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
+    const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
+
     const handleDragStart = async (paths: string[], element?: HTMLElement) => {
         if (paths.length === 0) return;
 
@@ -143,11 +147,38 @@ const FileTable = memo(({
         let iconBase64 = DRAG_ICON_BASE64;
         if (primaryFile) {
             const { createGhostIcon } = await import('../utils/ghostIcon');
+
+            // JIT Thumbnail: Try to fetch a real thumbnail within 150ms for images/videos
+            let thumbnailBase64: string | undefined;
+            if (!primaryFile.is_dir) {
+                const ext = primaryFile.name.split('.').pop()?.toLowerCase() || '';
+                const isImage = IMAGE_EXTS.includes(ext);
+                const isVideo = VIDEO_EXTS.includes(ext);
+                if (isImage || isVideo) {
+                    try {
+                        const command = isVideo ? 'get_video_thumbnail' : 'get_thumbnail';
+                        const timeoutPromise = new Promise<null>((resolve) =>
+                            setTimeout(() => resolve(null), 150)
+                        );
+                        const fetchPromise = invoke<{ data: string }>(command, {
+                            path: primaryFile.path,
+                            size: 256,
+                            modified: primaryFile.modified_timestamp
+                        });
+                        const result = await Promise.race([fetchPromise, timeoutPromise]);
+                        if (result) thumbnailBase64 = result.data;
+                    } catch {
+                        // Timeout or error: fall through to element/SVG fallback
+                    }
+                }
+            }
+
             iconBase64 = await createGhostIcon({
                 name: primaryFile.name,
                 isDir: primaryFile.is_dir,
                 element: element,
-                count: paths.length
+                count: paths.length,
+                thumbnailBase64,
             });
         }
 
@@ -165,6 +196,7 @@ const FileTable = memo(({
             if (onInternalDragEnd) onInternalDragEnd('promise-error');
         });
     };
+
 
     // useVirtualizer for row virtualization
     const rowVirtualizer = useVirtualizer({
@@ -287,11 +319,20 @@ const FileTable = memo(({
     }, [files]);
 
     // RESET SCROLL ON PATH CHANGE
+    const lastScrollPathRef = useRef<string | null>(null);
     useEffect(() => {
-        if (containerRef.current) {
-            containerRef.current.scrollTop = 0;
+        if (currentPath !== lastScrollPathRef.current) {
+            if (containerRef.current) {
+                containerRef.current.scrollTop = 0;
+            }
+            // Add try-catch since rowVirtualizer might not be fully ready
+            try {
+                rowVirtualizer.scrollToOffset(0);
+            } catch (e) {
+                // Ignore initialization errors
+            }
+            lastScrollPathRef.current = currentPath;
         }
-        rowVirtualizer.scrollToOffset(0);
         submittingRef.current = false;
     }, [currentPath, rowVirtualizer]);
 
@@ -596,6 +637,7 @@ const FileTable = memo(({
                                                         onRenameSubmit(file, editValue);
                                                     }}
                                                     onKeyDown={(e) => {
+                                                        e.stopPropagation(); // Prevent grid navigation
                                                         if (e.key === 'Enter') {
                                                             if (submittingRef.current) return;
                                                             submittingRef.current = true;

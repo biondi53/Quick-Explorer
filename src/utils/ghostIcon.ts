@@ -9,13 +9,15 @@ export interface GhostIconOptions {
     count: number;
     // We can pass the actual element to clone its look exactly
     element?: HTMLElement | null;
+    // Optional: explicit Base64 thumbnail data (bypasses DOM traversal)
+    thumbnailBase64?: string;
 }
 
 /**
  * Creates a translucent ghost icon and returns it as a Base64 PNG string.
  */
 export async function createGhostIcon(options: GhostIconOptions): Promise<string> {
-    const { name, isDir, count, element } = options;
+    const { name, isDir, count, element, thumbnailBase64 } = options;
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return '';
@@ -51,7 +53,15 @@ export async function createGhostIcon(options: GhostIconOptions): Promise<string
     // 2. Draw the Icon or Thumbnail from the provided element
     let sourceImg: CanvasImageSource | null = null;
 
-    if (element) {
+    if (thumbnailBase64) {
+        // Explicit Base64 thumbnail takes priority (e.g. JIT fetch from backend)
+        sourceImg = await new Promise<HTMLImageElement | null>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(null);
+            img.src = thumbnailBase64;
+        });
+    } else if (element) {
         // Find <img> or <svg> inside the element
         const img = element.querySelector('img');
         const svg = element.querySelector('svg');
