@@ -29,7 +29,7 @@ export default function SplashScreen({ finishLoading }: SplashScreenProps) {
                 {/* Logo Container */}
                 <div className="relative z-10">
                     <img
-                        src="/favicon.ico"
+                        src="/logo.png"
                         alt="Logo"
                         className="w-32 h-32 drop-shadow-[0_0_20px_rgba(var(--accent-rgb),0.6)] animate-bounce-subtle object-contain"
                     />
