@@ -10,20 +10,11 @@ jobs:
       - name: WinGet Releaser
         uses: vedantmgoyal9/winget-releaser@v2
         with:
-          # Token de seguridad
+          # Token de seguridad guardado en tus Secrets
           token: ${{ secrets.WINGET_TOKEN }}
           
-          # ID de tu paquete
+          # ID oficial de tu paquete
           identifier: biondi53.QuickExplorer
           
-          # Filtro para el archivo
+          # Filtro para detectar solo los archivos .msi
           installers-regex: '\.msi$'
-          
-          # --- CORRECCIONES PARA EVITAR ERRORES ---
-          
-          # 1. Define que se instala en "Archivos de Programa" (requiere admin)
-          scope: machine
-          
-          # 2. Obliga a desinstalar la versión vieja antes de poner la nueva
-          # Esto evita conflictos de archivos en uso o GUIDs distintos
-          upgrade-behavior: uninstallPrevious
