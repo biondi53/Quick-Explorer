@@ -49,8 +49,9 @@ Subir **AMBOS** archivos al release:
 Primero, extraer solo el changelog de la versión actual para las notas del release:
 
 ```powershell
-# Extraer la primera sección (hasta el primer '---') del CHANGELOG.md
-(Get-Content CHANGELOG.md -Raw) -split '---' | Select-Object -First 1 | Out-File -FilePath LATEST_CHANGELOG.md -Encoding utf8
+# Extraer la primera sección del CHANGELOG.md y eliminar las primeras 3 líneas (título y fecha redundantes)
+$content = (Get-Content CHANGELOG.md -Raw) -split '---' | Select-Object -First 1
+$content -replace '(?s)^#.*?\n\*.*?\n\s*\n', '' | Out-File -FilePath LATEST_CHANGELOG.md -Encoding utf8
 ```
 
 Comando para crear el release:
