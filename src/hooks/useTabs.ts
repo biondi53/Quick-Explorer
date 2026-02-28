@@ -22,6 +22,7 @@ const createTab = (path: string = '', defaultSort?: SortConfig): Tab => ({
     sortConfig: defaultSort || { column: 'name', direction: 'asc' },
     renamingPath: null,
     generationId: 0,
+    scrollIndex: 0,
 });
 
 export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean, quickAccessConfig: QuickAccessConfig) => {
@@ -32,7 +33,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                 return JSON.parse(saved).map((t: any) => ({
                     ...t,
                     sortConfig: t.sortConfig || initialSortConfig,
-                    generationId: t.generationId || 0
+                    generationId: t.generationId || 0,
+                    scrollIndex: t.scrollIndex || 0
                 }));
             }
         } catch (e) { }
@@ -174,7 +176,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             path: path, // Optimistic update
             generationId: nextGenId,
             selectedFiles: [], // Clear selection immediately on nav
-            lastSelectedFile: null
+            lastSelectedFile: null,
+            scrollIndex: 0
         });
 
         loadFilesForTab(currentTab.id, path, undefined, undefined, nextGenId);
@@ -194,7 +197,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             path: newPath, // Optimistic
             generationId: nextGenId,
             selectedFiles: [],
-            lastSelectedFile: null
+            lastSelectedFile: null,
+            scrollIndex: 0
         });
 
         loadFilesForTab(currentTab.id, newPath, undefined, undefined, nextGenId);
@@ -214,7 +218,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             path: newPath,
             generationId: nextGenId,
             selectedFiles: [],
-            lastSelectedFile: null
+            lastSelectedFile: null,
+            scrollIndex: 0
         });
         loadFilesForTab(currentTab.id, newPath, undefined, undefined, nextGenId);
     }, [currentTab, updateTab, loadFilesForTab]);

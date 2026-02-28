@@ -33,6 +33,7 @@ export interface Tab {
     sortConfig: SortConfig;
     renamingPath: string | null;
     generationId: number;
+    scrollIndex?: number;
 }
 
 

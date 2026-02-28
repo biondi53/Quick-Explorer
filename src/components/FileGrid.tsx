@@ -28,6 +28,10 @@ interface FileGridProps {
     clipboardInfo: ClipboardInfo | null;
     onInternalDragStart?: (paths: string[]) => void;
     onInternalDragEnd?: (caller: string) => void;
+    forceScrollToSelected?: number;
+    initialScrollIndex: number;
+    onScrollChange: (index: number) => void;
+    activeTabId: string;
 }
 
 const ITEM_SIZE = 160;
@@ -302,7 +306,11 @@ export default function FileGrid({
     onRenameCancel,
     clipboardInfo,
     onInternalDragStart,
-    onInternalDragEnd
+    onInternalDragEnd,
+    forceScrollToSelected,
+    initialScrollIndex,
+    onScrollChange,
+    activeTabId
 }: FileGridProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
@@ -319,6 +327,25 @@ export default function FileGrid({
         return () => cancelAllPending();
     }, []);
 
+    // Smart Reset: Only reset to top when navigating within the SAME tab
+    const lastResetTabIdRef = useRef(activeTabId);
+    const lastResetPathRef = useRef(currentPath);
+
+    useEffect(() => {
+        const tabChanged = lastResetTabIdRef.current !== activeTabId;
+        const pathChanged = lastResetPathRef.current !== currentPath;
+
+        if (pathChanged && !tabChanged) {
+            if (containerRef.current) {
+                containerRef.current.scrollTop = 0;
+            }
+        }
+
+        lastResetTabIdRef.current = activeTabId;
+        lastResetPathRef.current = currentPath;
+    }, [currentPath, activeTabId]);
+
+
     const columns = useMemo(() => {
         return Math.max(1, Math.floor((containerWidth + GAP) / (ITEM_SIZE + GAP)));
     }, [containerWidth]);
@@ -333,6 +360,50 @@ export default function FileGrid({
         estimateSize: () => ITEM_SIZE + GAP,
         overscan: 2,
     });
+
+    // Tracking exact columns count async for timeout closures
+    const columnsRef = useRef(columns);
+    useEffect(() => {
+        columnsRef.current = columns;
+    }, [columns]);
+
+    // Robust Scroll Restoration using Index
+    const initialScrollIndexRef = useRef(initialScrollIndex);
+    const restoredTabIdRef = useRef<string | null>(null);
+    const [isReadyToRender, setIsReadyToRender] = useState(false);
+
+    useEffect(() => {
+        initialScrollIndexRef.current = initialScrollIndex;
+    }, [initialScrollIndex]);
+
+    useEffect(() => {
+        if (restoredTabIdRef.current !== activeTabId) {
+            restoredTabIdRef.current = null;
+            setIsReadyToRender(false);
+        }
+
+        if (restoredTabIdRef.current === null && files.length > 0 && containerWidth > 0) {
+            const t = setTimeout(() => {
+                if (initialScrollIndexRef.current > 0) {
+                    try {
+                        const targetRow = Math.floor(initialScrollIndexRef.current / columnsRef.current);
+                        rowVirtualizer.scrollToIndex(targetRow, { align: 'start' });
+                    } catch (e) {
+                        // ignore
+                    }
+                } else {
+                    if (containerRef.current) {
+                        containerRef.current.scrollTop = 0;
+                    }
+                }
+                restoredTabIdRef.current = activeTabId;
+                setIsReadyToRender(true);
+            }, 50);
+            return () => clearTimeout(t);
+        } else if (files.length === 0) {
+            setIsReadyToRender(true);
+        }
+    }, [activeTabId, files.length, columns, rowVirtualizer, containerWidth]);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -352,9 +423,26 @@ export default function FileGrid({
     }, [selectedFiles]);
 
     // Auto-scroll to last selected file
-    const lastScrolledFileRef = useRef<string | null>(null);
+    const lastScrolledFileRef = useRef<string | null>(lastSelectedFile?.path || null);
+    const lastScrolledTabIdRef = useRef<string>(activeTabId);
+    const prevForceScrollRef = useRef(forceScrollToSelected);
+
     useEffect(() => {
-        if (lastSelectedFile && lastSelectedFile.path !== lastScrolledFileRef.current) {
+        // DETECT TAB SWITCH: If we switched tabs, we don't want to auto-scroll to selection
+        // because we want to prioritize the restored scroll position.
+        const tabChanged = lastScrolledTabIdRef.current !== activeTabId;
+        if (tabChanged) {
+            lastScrolledFileRef.current = lastSelectedFile?.path || null;
+            lastScrolledTabIdRef.current = activeTabId;
+            // No return here, just proceed with updated refs so we don't scroll
+        }
+
+        const forceTriggered = forceScrollToSelected !== undefined && forceScrollToSelected !== prevForceScrollRef.current;
+        if (forceTriggered) {
+            prevForceScrollRef.current = forceScrollToSelected;
+        }
+
+        if (lastSelectedFile && (lastSelectedFile.path !== lastScrolledFileRef.current || forceTriggered)) {
             const index = files.findIndex(f => f.path === lastSelectedFile.path);
             if (index !== -1) {
                 const rowIndex = Math.floor(index / columns);
@@ -368,7 +456,7 @@ export default function FileGrid({
         } else if (!lastSelectedFile) {
             lastScrolledFileRef.current = null;
         }
-    }, [lastSelectedFile, files, columns, rowVirtualizer]);
+    }, [lastSelectedFile, files, columns, rowVirtualizer, forceScrollToSelected, activeTabId]);
 
     const handleContainerClick = useCallback((e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
@@ -515,16 +603,31 @@ export default function FileGrid({
                 onSelectMultiple([file], file);
             }
         }
-        // For unselected items, selection was already handled in onMouseDown
     }, [selectedPaths, selectedFiles, lastSelectedFile, onSelectMultiple]);
+
+    const scrollTimeoutRef = useRef<any>(null);
 
     return (
         <div
             ref={containerRef}
-            className="flex-1 overflow-auto p-4 outline-none focus:ring-0"
+            className={`flex-1 overflow-auto p-4 outline-none focus:ring-0 transition-opacity duration-150 ${isReadyToRender ? 'opacity-100' : 'opacity-0'}`}
             tabIndex={0}
             onClick={handleContainerClick}
             onContextMenu={handleContainerContextMenu}
+            onScroll={(e) => {
+                const scrollTop = e.currentTarget.scrollTop;
+                if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+                scrollTimeoutRef.current = setTimeout(() => {
+                    const virtualItems = rowVirtualizer.getVirtualItems();
+                    // Ignore overscan and sub-pixel rounding: find the first item where its vertical center is below the scroll top
+                    const firstVisible = virtualItems.find(item => (item.start + (item.size / 2)) > scrollTop);
+                    if (firstVisible) {
+                        onScrollChange(firstVisible.index * columns);
+                    } else {
+                        onScrollChange(0);
+                    }
+                }, 150);
+            }}
             onKeyDown={(e) => {
                 if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                     e.preventDefault();

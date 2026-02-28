@@ -39,6 +39,7 @@ import InfoPanel from './components/InfoPanel';
 import ContextMenu from './components/ContextMenu';
 import SettingsPanel from './components/SettingsPanel';
 import TabBar from './components/TabBar';
+import QuickPreview from './components/QuickPreview';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
 import './App.css';
 
@@ -614,6 +615,8 @@ export default function App() {
   const [clipboardInfo, setClipboardInfo] = useState<ClipboardInfo | null>(null);
   const [clipboardPopup, setClipboardPopup] = useState<{ x: number, y: number } | null>(null);
   const [lastCutPaths, setLastCutPaths] = useState<string[]>([]);
+  const [showQuickPreview, setShowQuickPreview] = useState(false);
+  const [forceScrollToSelected, setForceScrollToSelected] = useState(0);
 
   // Window Size Tracker for Responsive Panels
   const [windowWidth, setWindowWidth] = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1200);
@@ -803,7 +806,11 @@ export default function App() {
       if (e.key === 'Escape') {
         let handled = false;
 
-        if (currentTab?.renamingPath) {
+        if (showQuickPreview) {
+          setShowQuickPreview(false);
+          setForceScrollToSelected(p => p + 1);
+          handled = true;
+        } else if (currentTab?.renamingPath) {
           handleRenameCancel();
           handled = true;
         } else {
@@ -819,6 +826,18 @@ export default function App() {
 
         if (handled) {
           e.preventDefault();
+        }
+        return;
+      }
+
+      // Quick Preview on Space
+      if (e.key === ' ' && !currentTab?.renamingPath && !isEditingPath && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault(); // Prevent scrolling
+        if (showQuickPreview) {
+          setShowQuickPreview(false);
+          setForceScrollToSelected(p => p + 1);
+        } else if (currentTab?.selectedFiles.length === 1) {
+          setShowQuickPreview(true);
         }
         return;
       }
@@ -875,7 +894,7 @@ export default function App() {
       }
 
       // Auto-search on key
-      if (autoSearchOnKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1 && !currentTab?.renamingPath && !isEditingPath) {
+      if (autoSearchOnKey && !e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1 && e.key !== ' ' && !currentTab?.renamingPath && !isEditingPath) {
         if (currentTab) {
           searchInputRef.current?.focus();
         }
@@ -884,7 +903,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo]);
+  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo, showQuickPreview, isEditingPath]);
 
   const handleContextMenu = (e: React.MouseEvent, file: FileEntry | null) => {
     e.preventDefault();
@@ -1424,6 +1443,28 @@ export default function App() {
     });
   }, [activeTabId, updateTab]);
 
+  const handleQuickPreviewNavigate = useCallback((direction: 'next' | 'prev') => {
+    if (!currentTab || currentTab.selectedFiles.length !== 1) return;
+
+    const currentIndex = sortedFiles.findIndex(f => f.path === currentTab.selectedFiles[0].path);
+    if (currentIndex === -1) return;
+
+    let newIndex = currentIndex;
+    if (direction === 'next') {
+      newIndex = (currentIndex + 1) % sortedFiles.length;
+    } else {
+      newIndex = (currentIndex - 1 + sortedFiles.length) % sortedFiles.length;
+    }
+
+    const nextFile = sortedFiles[newIndex];
+    if (nextFile) {
+      updateTab(currentTab.id, {
+        selectedFiles: [nextFile],
+        lastSelectedFile: nextFile
+      });
+    }
+  }, [currentTab, sortedFiles, updateTab]);
+
   const debouncedSelectedFiles = useDebouncedValue(currentTab?.selectedFiles || [], 100);
 
   useEffect(() => {
@@ -1886,6 +1927,14 @@ export default function App() {
                               }, 30000);
                             }}
                             onInternalDragEnd={onInternalDragEnd}
+                            forceScrollToSelected={forceScrollToSelected}
+                            initialScrollIndex={currentTab?.scrollIndex || 0}
+                            onScrollChange={(index) => {
+                              if (currentTab) {
+                                updateTab(currentTab.id, { scrollIndex: index });
+                              }
+                            }}
+                            activeTabId={activeTabId}
                           />
                         ) : (
                           <FileTable
@@ -1938,6 +1987,14 @@ export default function App() {
                               }, 30000);
                             }}
                             onInternalDragEnd={onInternalDragEnd}
+                            forceScrollToSelected={forceScrollToSelected}
+                            initialScrollIndex={currentTab?.scrollIndex || 0}
+                            onScrollChange={(index) => {
+                              if (currentTab) {
+                                updateTab(currentTab.id, { scrollIndex: index });
+                              }
+                            }}
+                            activeTabId={activeTabId}
                           />
                         )}
                       </motion.div>
@@ -2050,6 +2107,14 @@ export default function App() {
             )
           )}
         </>
+      )}
+
+      {showQuickPreview && currentTab?.selectedFiles.length === 1 && (
+        <QuickPreview
+          file={currentTab.selectedFiles[0]}
+          onClose={() => setShowQuickPreview(false)}
+          onNavigate={handleQuickPreviewNavigate}
+        />
       )}
     </div>
   );

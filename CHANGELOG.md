@@ -1,3 +1,15 @@
+# 🚀 Quick Explorer v0.1.19
+*Changelog - February 28, 2026*
+
+## ✨ Scroll & Layout Stabilization
+- **Index-Based Scroll Tracking**: Replaced pixel-based scroll positions with index-based tracking, enabling perfect scroll synchronization even when switching between Grid and List views with different item heights.
+- **🛡️ Anti-Flicker Technology**: Implemented "Strategic Hiding" during layout transitions. The file list remains invisible for a few milliseconds until it has correctly calculated its column count and target scroll position, eliminating jarring layout shifts.
+- **⚡ Sub-Pixel Precision**: Added a mathematical tolerance (+50% height center) to scroll detection, preventing the scroll position from "creeping" upward due to browser sub-pixel rounding errors.
+- **Race Condition Guard**: Fixed a critical bug where the grid would jump exponentially downwards on mount by preventing scroll restoration until the container width is fully measured.
+- **Smooth Tab Restoration**: Refined the tab-switching logic to ensure that restored scroll positions are rock-solid and never interrupted by automatic selection scroll.
+
+---
+
 # 🚀 Quick Explorer v0.1.18
 *Changelog - February 20, 2026*
 
@@ -162,4 +174,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Version 0.1.18*
+*Quick Explorer Project © 2026 - Versión 0.1.19*

@@ -38,6 +38,10 @@ interface FileTableProps {
     clipboardInfo: ClipboardInfo | null;
     onInternalDragStart?: (paths: string[]) => void;
     onInternalDragEnd?: (caller: string) => void;
+    forceScrollToSelected?: number;
+    initialScrollIndex: number;
+    onScrollChange: (index: number) => void;
+    activeTabId: string;
 }
 
 const ITEM_HEIGHT = 42;
@@ -113,7 +117,11 @@ const FileTable = memo(({
     onColumnsResize,
     clipboardInfo,
     onInternalDragStart,
-    onInternalDragEnd
+    onInternalDragEnd,
+    forceScrollToSelected,
+    initialScrollIndex,
+    onScrollChange,
+    activeTabId
 }: FileTableProps) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [editValue, setEditValue] = useState("");
@@ -205,6 +213,43 @@ const FileTable = memo(({
         estimateSize: () => ITEM_HEIGHT,
         overscan: 20,
     });
+
+    // Robust Scroll Restoration using Index
+    const initialScrollIndexRef = useRef(initialScrollIndex);
+    const restoredTabIdRef = useRef<string | null>(null);
+    const [isReadyToRender, setIsReadyToRender] = useState(false);
+
+    useEffect(() => {
+        initialScrollIndexRef.current = initialScrollIndex;
+    }, [initialScrollIndex]);
+
+    useEffect(() => {
+        if (restoredTabIdRef.current !== activeTabId) {
+            restoredTabIdRef.current = null;
+            setIsReadyToRender(false);
+        }
+
+        if (restoredTabIdRef.current === null && files.length > 0) {
+            const t = setTimeout(() => {
+                if (initialScrollIndexRef.current > 0) {
+                    try {
+                        rowVirtualizer.scrollToIndex(initialScrollIndexRef.current, { align: 'start' });
+                    } catch (e) {
+                        // ignore
+                    }
+                } else {
+                    if (containerRef.current) {
+                        containerRef.current.scrollTop = 0;
+                    }
+                }
+                restoredTabIdRef.current = activeTabId;
+                setIsReadyToRender(true);
+            }, 0);
+            return () => clearTimeout(t);
+        } else if (files.length === 0) {
+            setIsReadyToRender(true);
+        }
+    }, [activeTabId, files.length, rowVirtualizer]);
 
     // Calculate grid template
     const gridTemplate = useMemo(() => {
@@ -318,23 +363,63 @@ const FileTable = memo(({
         }
     }, [files]);
 
-    // RESET SCROLL ON PATH CHANGE
-    const lastScrollPathRef = useRef<string | null>(null);
+    // Auto-scroll to last selected file
+    const lastScrolledFileRef = useRef<string | null>(lastSelectedFile?.path || null);
+    const lastScrolledTabIdRef = useRef<string>(activeTabId);
+    const prevForceScrollRef = useRef(forceScrollToSelected);
+
     useEffect(() => {
-        if (currentPath !== lastScrollPathRef.current) {
+        // DETECT TAB SWITCH: If we switched tabs, we don't want to auto-scroll to selection
+        // because we want to prioritize the restored scroll position.
+        const tabChanged = lastScrolledTabIdRef.current !== activeTabId;
+        if (tabChanged) {
+            lastScrolledFileRef.current = lastSelectedFile?.path || null;
+            lastScrolledTabIdRef.current = activeTabId;
+            // No return here, just proceed with updated refs so we don't scroll
+        }
+
+        const forceTriggered = forceScrollToSelected !== undefined && forceScrollToSelected !== prevForceScrollRef.current;
+        if (forceTriggered) {
+            prevForceScrollRef.current = forceScrollToSelected;
+        }
+
+        if (lastSelectedFile && (lastSelectedFile.path !== lastScrolledFileRef.current || forceTriggered)) {
+            const index = files.findIndex(f => f.path === lastSelectedFile.path);
+            if (index !== -1) {
+                try {
+                    rowVirtualizer.scrollToIndex(index, { align: 'auto' });
+                    lastScrolledFileRef.current = lastSelectedFile.path;
+                } catch (e) {
+                    // Ignore initialization errors
+                }
+            }
+        } else if (!lastSelectedFile) {
+            lastScrolledFileRef.current = null;
+        }
+    }, [lastSelectedFile, files, rowVirtualizer, forceScrollToSelected, activeTabId]);
+
+    // Smart Reset: Only reset to top when navigating within the SAME tab
+    const lastResetTabIdRef = useRef(activeTabId);
+    const lastResetPathRef = useRef(currentPath);
+
+    useEffect(() => {
+        const tabChanged = lastResetTabIdRef.current !== activeTabId;
+        const pathChanged = lastResetPathRef.current !== currentPath;
+
+        if (pathChanged && !tabChanged) {
             if (containerRef.current) {
                 containerRef.current.scrollTop = 0;
             }
-            // Add try-catch since rowVirtualizer might not be fully ready
             try {
                 rowVirtualizer.scrollToOffset(0);
             } catch (e) {
-                // Ignore initialization errors
+                // Ignore
             }
-            lastScrollPathRef.current = currentPath;
         }
-        submittingRef.current = false;
-    }, [currentPath, rowVirtualizer]);
+
+        lastResetTabIdRef.current = activeTabId;
+        lastResetPathRef.current = currentPath;
+    }, [currentPath, activeTabId, rowVirtualizer]);
 
     // Reset submitting ref when renaming path changes
     useEffect(() => {
@@ -363,6 +448,8 @@ const FileTable = memo(({
         setHeaderMenu({ x: e.clientX, y: e.clientY });
     };
 
+    const scrollTimeoutRef = useRef<any>(null);
+
     if (files.length === 0) {
         return (
             <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]" onContextMenu={(e) => onContextMenu(e, null)}>
@@ -383,7 +470,21 @@ const FileTable = memo(({
                     onClearSelection();
                 }
             }}
-            className="flex-1 overflow-y-auto overflow-x-hidden bg-transparent select-none relative outline-none focus:ring-0"
+            onScroll={(e) => {
+                const scrollTop = e.currentTarget.scrollTop;
+                if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+                scrollTimeoutRef.current = setTimeout(() => {
+                    const virtualItems = rowVirtualizer.getVirtualItems();
+                    // Ignore overscan and sub-pixel rounding: find the first item where its vertical center is below the scroll top
+                    const firstVisible = virtualItems.find(item => (item.start + (item.size / 2)) > scrollTop);
+                    if (firstVisible) {
+                        onScrollChange(firstVisible.index);
+                    } else {
+                        onScrollChange(0);
+                    }
+                }, 150);
+            }}
+            className={`flex-1 overflow-y-auto overflow-x-hidden bg-transparent select-none relative outline-none focus:ring-0 transition-opacity duration-150 ${isReadyToRender ? 'opacity-100' : 'opacity-0'}`}
             tabIndex={0}
             onKeyDown={(e) => {
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

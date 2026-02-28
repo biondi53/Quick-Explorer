@@ -175,6 +175,39 @@ fn read_file_base64(path: &str) -> Result<String, String> {
     Ok(BASE64_STANDARD.encode(fs::read(path).map_err(|e| e.to_string())?))
 }
 
+#[derive(Serialize)]
+pub struct PreviewTextResult {
+    pub content: String,
+    pub is_truncated: bool,
+}
+
+#[tauri::command]
+fn read_preview_text(path: String) -> Result<PreviewTextResult, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(&path).map_err(|e| format!("Failed to open file: {}", e))?;
+
+    // Read up to 50KB for preview to avoid hanging on massive logs/binaries
+    let max_bytes = 50 * 1024;
+    let mut buffer = vec![0; max_bytes];
+
+    let bytes_read = file
+        .read(&mut buffer)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    buffer.truncate(bytes_read);
+
+    let content =
+        String::from_utf8(buffer.clone()).map_err(|_| "Not a valid UTF-8 text file".to_string())?;
+
+    // Check if there's more data the file
+    let mut extra_byte = [0; 1];
+    let is_truncated = file.read(&mut extra_byte).unwrap_or(0) > 0;
+
+    Ok(PreviewTextResult {
+        content,
+        is_truncated,
+    })
+}
+
 #[tauri::command]
 async fn show_item_properties(window: tauri::Window, path: String) {
     #[cfg(target_os = "windows")]
@@ -1541,7 +1574,8 @@ pub fn run() {
             resolve_shortcut,
             drop_overlay::show_overlay,
             drop_overlay::hide_overlay,
-            extraction::extract_archive
+            extraction::extract_archive,
+            read_preview_text
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
