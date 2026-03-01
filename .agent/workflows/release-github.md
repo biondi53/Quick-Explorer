@@ -13,6 +13,15 @@ Este workflow documenta el proceso completo para crear un nuevo release de Quick
 
 ## Pasos
 
+### 0. Revisar commits recientes
+
+Antes de empezar, verificar qué cambios se han hecho desde el último release para no olvidar nada en el changelog:
+
+```bash
+# Ver lista de commits desde el último tag
+git log $(git describe --tags --abbrev=0)..HEAD --oneline
+```
+
 ### 1. Actualizar versiones en archivos de configuración
 
 Actualizar la versión en los siguientes archivos (ejemplo: de 0.1.6 a 0.1.7):

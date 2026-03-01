@@ -7,6 +7,7 @@
 - **⚡ Sub-Pixel Precision**: Added a mathematical tolerance (+50% height center) to scroll detection, preventing the scroll position from "creeping" upward due to browser sub-pixel rounding errors.
 - **Race Condition Guard**: Fixed a critical bug where the grid would jump exponentially downwards on mount by preventing scroll restoration until the container width is fully measured.
 - **Smooth Tab Restoration**: Refined the tab-switching logic to ensure that restored scroll positions are rock-solid and never interrupted by automatic selection scroll.
+- **🔍 Quick Preview**: Added support for instant file previews using the `Spacebar`. Pressing space on a selected file opens a high-fidelity preview overlay.
 
 ---
 

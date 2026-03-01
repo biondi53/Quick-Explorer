@@ -89,14 +89,10 @@ const processNext = () => {
 
     Promise.race([thumbnailPromise, timeoutPromise])
         .then(res => {
-            if (request.sessionId === currentSessionId) {
-                request.callback(res);
-            }
+            request.callback(res);
         })
         .catch(() => {
-            if (request.sessionId === currentSessionId) {
-                request.callback(null);
-            }
+            request.callback(null);
         })
         .finally(() => {
             activeRequests = Math.max(0, activeRequests - 1);
@@ -109,11 +105,20 @@ const requestThumbnail = (path: string, is_video: boolean, modified: number, cal
     processNext();
 };
 
-const cancelAllPending = () => {
+const startNewThumbnailSession = () => {
     currentSessionId++;
     pendingQueue.length = 0;
-    // Note: activeRequests is NOT reset to 0 here because pending promises
-    // will decrement it correctly as they finish.
+    return currentSessionId;
+};
+
+const cancelThumbnailSession = (sessionId: number) => {
+    // Only cancel if this session is still the active one
+    if (currentSessionId === sessionId) {
+        pendingQueue.length = 0;
+        // We don't increment currentSessionId here to allow activeRequests 
+        // from this session to complete if they are already in progress,
+        // but we prevent new ones from being shifted out of the queue.
+    }
 };
 // ===== END THUMBNAIL MANAGER =====
 
@@ -129,9 +134,10 @@ interface GridItemProps {
     onRenameSubmit: (file: FileEntry, newName: string) => void;
     onRenameCancel: () => void;
     isClipboardItem: boolean;
+    sessionId: number;
 }
 
-const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem }: GridItemProps) => {
+const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem, sessionId }: GridItemProps) => {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [editValue, setEditValue] = useState("");
@@ -146,6 +152,15 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
         setThumbnail(null);
         setLoading(false);
     }, [file.path, file.modified_timestamp]);
+
+    useEffect(() => {
+        // Reset request flag on session change ONLY if we don't have a thumbnail yet.
+        // This handles cases where items were cleared from the global queue during a fast tab switch
+        // but the component itself was reused by React.
+        if (!thumbnail) {
+            requestedRef.current = false;
+        }
+    }, [sessionId]);
 
     useEffect(() => {
         if (isRenaming && editInputRef.current) {
@@ -178,7 +193,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
             }
             setLoading(false);
         });
-    }, [file.path, file.modified_timestamp, thumbnail]);
+    }, [file.path, file.modified_timestamp, thumbnail, sessionId]);
 
     const Icon = getIconComponent(file);
 
@@ -316,15 +331,17 @@ export default function FileGrid({
     const [containerWidth, setContainerWidth] = useState(800);
     const selectedBeforeDownRef = useRef<boolean>(false);
 
+    const sessionIdRef = useRef<number>(currentSessionId);
     const lastPathRef = useRef<string | null>(null);
+
     if (lastPathRef.current !== currentPath) {
-        cancelAllPending();
+        sessionIdRef.current = startNewThumbnailSession();
         lastPathRef.current = currentPath;
     }
 
-    // Still keep this for completeness/unmount
+    // cleanup on unmount - only cancels if this grid still owns the session
     useEffect(() => {
-        return () => cancelAllPending();
+        return () => cancelThumbnailSession(sessionIdRef.current);
     }, []);
 
     // Smart Reset: Only reset to top when navigating within the SAME tab
@@ -737,6 +754,7 @@ export default function FileGrid({
                                     onRenameSubmit={onRenameSubmit}
                                     onRenameCancel={onRenameCancel}
                                     isClipboardItem={clipboardInfo?.paths.includes(file.path) || false}
+                                    sessionId={sessionIdRef.current}
                                 />
                             ))}
                         </div>
