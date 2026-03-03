@@ -1,3 +1,13 @@
+# 🚀 Quick Explorer v0.1.20
+*Changelog - March 3, 2026*
+
+## ✨ Icon Refresh & Production Stability
+- **New Visual Identity**: Updated the application icon to the final high-fidelity version (`FINAL8.PNG`), providing a more polished and professional look.
+- **🛡️ Thumbnail Session Safety**: Implemented a robust session-aware thumbnail queuing system. Thumbnails now load reliably even when switching tabs rapidly or during drag-and-drop operations in production builds.
+- **⚡ Performance Polish**: Optimized icon generation and splash screen assets for faster startup and better visual consistency.
+
+---
+
 # 🚀 Quick Explorer v0.1.19
 *Changelog - February 28, 2026*
 
@@ -175,4 +185,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.19*
+*Quick Explorer Project © 2026 - Versión 0.1.20*
