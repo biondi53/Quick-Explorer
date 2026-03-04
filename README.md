@@ -17,7 +17,6 @@ Developed with ❤️ using **Antigravity**.
 - **Native Inbound Drag & Drop**: Intercepts files directly from the OS using a custom Rust-based overlay, bypassing browser limitations.
 - **High-Fidelity Feedback**: Supports native Windows drag images with real thumbnails and smart "+N" count badges for multi-file operations.
 - **Instant Shell Previews**: High-speed thumbnail generation and metadata fetching for images and videos.
-- **Native Drive Labels**: Correctly identifies and displays real Volume Labels (e.g., "Main SSD") for your internal and external drives.
 
 ### 📦 Native Archive Support
 - **Integrated Extraction**: Built-in, high-performance extraction for **ZIP** and **7Z** archives without external dependencies.
@@ -34,7 +33,6 @@ Developed with ❤️ using **Antigravity**.
 
 ### 🎨 Modern Adaptive UI
 - **Smart Toolbar**: The interface intelligently compacts itself (hiding labels) when space is limited, ensuring a clean look on any window size.
-- **Glassmorphism Aesthetic**: A premium design featuring fluid animations, glow effects, and translucent materials for a state-of-the-art feel.
 
 ### ⚡ Performance First
 - **Async Architecture**: Non-blocking folder listing and asset loading.
