@@ -46,9 +46,11 @@ import './App.css';
 import { useTabs } from './hooks/useTabs';
 import { /* Tab, */ SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus } from './types';
 import SplashScreen from './components/SplashScreen';
+import { useTranslation } from './i18n/useTranslation';
 // getCurrentWindow moved to top imports
 
 export default function App() {
+  const { t } = useTranslation();
   const [isLoadingApp, setIsLoadingApp] = useState(true);
   const finishLoading = useCallback(() => setIsLoadingApp(false), []);
 
@@ -142,6 +144,8 @@ export default function App() {
     return false; // Default to opening in background
   });
 
+  const [isToolbarCompact, setIsToolbarCompact] = useState(false);
+
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const centralPanelRef = useRef<HTMLDivElement>(null);
@@ -198,6 +202,30 @@ export default function App() {
       lastTabIdRef.current = activeTabId;
     }
   }, [activeTabId, tabs]);
+
+  useEffect(() => {
+    if (isLoadingApp || !centralPanelRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        // We consider compact if width is below 1050px
+        const width = entry.contentRect.width;
+        if (width > 0) {
+          setIsToolbarCompact(width < 1050);
+        }
+      }
+    });
+
+    observer.observe(centralPanelRef.current);
+
+    // Initial check
+    const initialWidth = centralPanelRef.current.offsetWidth;
+    if (initialWidth > 0) {
+      setIsToolbarCompact(initialWidth < 1050);
+    }
+
+    return () => observer.disconnect();
+  }, [isLoadingApp, t, showSettings]);
 
   // Sync refs on every render (cheap operation, no side effects)
   useEffect(() => {
@@ -992,7 +1020,7 @@ export default function App() {
     }
   };
 
-  const saveConfig = (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, newShowHidden?: boolean, newAutoSearch?: boolean, newFocusNewTab?: boolean) => {
+  const saveConfig = (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, newShowHidden?: boolean, newAutoSearch?: boolean, newFocusNewTab?: boolean, closePanel = true) => {
     setQuickAccessConfig(newConfig);
     localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
     if (newSortConfig) {
@@ -1013,12 +1041,14 @@ export default function App() {
       setFocusNewTabOnMiddleClick(newFocusNewTab);
       localStorage.setItem('speedexplorer-focus-new-tab', JSON.stringify(newFocusNewTab));
     }
-    setShowSettings(false);
+    if (closePanel) {
+      setShowSettings(false);
+    }
   };
 
   const handleResetSettings = async () => {
     const confirmed = await ask('¿Estás seguro de que deseas restaurar todos los ajustes a sus valores por defecto? Esta acción borrará todas tus personalizaciones.', {
-      title: 'SpeedExplorer',
+      title: 'Quick Explorer',
       kind: 'warning',
     });
 
@@ -1046,12 +1076,12 @@ export default function App() {
   const breadcrumbs = useMemo(() => {
     if (!currentTab) return [];
     if (currentTab.path === 'shell:RecycleBin') return [
-      { label: 'This PC', path: '' },
-      { label: 'Recycle Bin', path: 'shell:RecycleBin' }
+      { label: t('sidebar.this_pc'), path: '' },
+      { label: t('sidebar.recycle_bin'), path: 'shell:RecycleBin' }
     ];
 
     const parts = currentTab.path.split('\\').filter(Boolean);
-    const crumbs = [{ label: 'This PC', path: '' }];
+    const crumbs = [{ label: t('sidebar.this_pc'), path: '' }];
 
     let currentBuildPath = '';
     parts.forEach((part, index) => {
@@ -1333,11 +1363,11 @@ export default function App() {
     let confirmed = silent;
     if (!silent) {
       const message = files.length === 1
-        ? `Are you sure you want to delete "${files[0].name}"?`
-        : `Are you sure you want to delete ${files.length} items?`;
+        ? t('preview.delete_conf_msg').replace('{name}', files[0].name)
+        : t('preview.delete_conf_msg').replace('{name}', `${files.length} ${t('files.items')}`);
 
       confirmed = await ask(message, {
-        title: 'SpeedExplorer',
+        title: t('preview.delete_conf_title'),
         kind: 'warning',
       });
     }
@@ -1376,8 +1406,8 @@ export default function App() {
   };
 
   const handleEmptyRecycleBin = async () => {
-    const confirmed = await ask('Are you sure you want to empty the Recycle Bin?', {
-      title: 'SpeedExplorer',
+    const confirmed = await ask(t('context_menu.empty_recycle_bin') + '?', {
+      title: t('preview.delete_conf_title'),
       kind: 'warning',
     });
 
@@ -1446,17 +1476,28 @@ export default function App() {
   const handleQuickPreviewNavigate = useCallback((direction: 'next' | 'prev') => {
     if (!currentTab || currentTab.selectedFiles.length !== 1) return;
 
-    const currentIndex = sortedFiles.findIndex(f => f.path === currentTab.selectedFiles[0].path);
-    if (currentIndex === -1) return;
+    const fileOnlyList = sortedFiles.filter(f => !f.is_dir);
+    if (fileOnlyList.length === 0) return;
 
-    let newIndex = currentIndex;
-    if (direction === 'next') {
-      newIndex = (currentIndex + 1) % sortedFiles.length;
+    const currentFile = currentTab.selectedFiles[0];
+    const currentIndex = fileOnlyList.findIndex(f => f.path === currentFile.path);
+
+    let nextFile;
+    if (currentIndex === -1) {
+      // If current is a folder, find the next/prev file in the full list or wrap around
+      const currentIndexInFull = sortedFiles.findIndex(f => f.path === currentFile.path);
+      if (direction === 'next') {
+        nextFile = sortedFiles.slice(currentIndexInFull + 1).find(f => !f.is_dir) || fileOnlyList[0];
+      } else {
+        nextFile = [...sortedFiles.slice(0, currentIndexInFull)].reverse().find(f => !f.is_dir) || fileOnlyList[fileOnlyList.length - 1];
+      }
     } else {
-      newIndex = (currentIndex - 1 + sortedFiles.length) % sortedFiles.length;
+      const newIndex = direction === 'next'
+        ? (currentIndex + 1) % fileOnlyList.length
+        : (currentIndex - 1 + fileOnlyList.length) % fileOnlyList.length;
+      nextFile = fileOnlyList[newIndex];
     }
 
-    const nextFile = sortedFiles[newIndex];
     if (nextFile) {
       updateTab(currentTab.id, {
         selectedFiles: [nextFile],
@@ -1464,6 +1505,51 @@ export default function App() {
       });
     }
   }, [currentTab, sortedFiles, updateTab]);
+
+  const handleQuickPreviewDelete = async (): Promise<boolean> => {
+    if (!currentTab || currentTab.selectedFiles.length !== 1) return false;
+    const currentFile = currentTab.selectedFiles[0];
+
+    const confirmed = await ask(t('preview.delete_conf_msg').replace('{name}', currentFile.name), {
+      title: t('preview.delete_conf_title'),
+      kind: 'warning',
+    });
+
+    if (confirmed) {
+      try {
+        await invoke('delete_items', { paths: [currentFile.path], silent: false });
+
+        const currentIndex = sortedFiles.findIndex(f => f.path === currentFile.path);
+        let nextFile = null;
+        if (currentIndex !== -1 && sortedFiles.length > 1) {
+          nextFile = currentIndex < sortedFiles.length - 1 ? sortedFiles[currentIndex + 1] : sortedFiles[currentIndex - 1];
+        }
+
+        const lastSlash = currentFile.path.lastIndexOf('\\');
+        let parent = currentFile.path;
+        if (lastSlash !== -1) {
+          parent = currentFile.path.substring(0, lastSlash);
+          if (parent.endsWith(':')) parent += '\\';
+        }
+        refreshTabsViewing([parent]);
+        fetchRecycleBinStatus();
+
+        if (nextFile) {
+          updateTab(currentTab.id, {
+            selectedFiles: [nextFile],
+            lastSelectedFile: nextFile
+          });
+        } else {
+          setShowQuickPreview(false);
+        }
+        return true;
+      } catch (err) {
+        updateTab(currentTab.id, { error: String(err) });
+        return false;
+      }
+    }
+    return false;
+  };
 
   const debouncedSelectedFiles = useDebouncedValue(currentTab?.selectedFiles || [], 100);
 
@@ -1525,7 +1611,7 @@ export default function App() {
                 <button
                   onClick={() => setShowSettings(true)}
                   className="p-1 rounded-lg hover:bg-white/10 text-zinc-300 hover:text-white transition-all active:scale-95"
-                  title="Settings"
+                  title={t('toolbar.settings')}
                 >
                   <SettingsIcon size={18} />
                 </button>
@@ -1533,7 +1619,7 @@ export default function App() {
                 <button
                   onClick={cycleTheme}
                   className="p-1 rounded-lg hover:bg-white/10 text-zinc-300 hover:text-white transition-all active:scale-95 group relative"
-                  title="Change Theme"
+                  title={t('toolbar.change_theme')}
                 >
                   <Paintbrush size={18} className="group-hover:rotate-12 transition-transform" />
                   <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[var(--accent-primary)] shadow-[0_0_8px_var(--accent-primary)]" />
@@ -1558,14 +1644,14 @@ export default function App() {
                 <button
                   onClick={goUp}
                   className="p-2 rounded-lg hover:bg-white/10 text-zinc-300 transition-all ml-1"
-                  title="Up"
+                  title={t('toolbar.up')}
                 >
                   <ArrowUp size={18} />
                 </button>
                 <button
                   onClick={() => refreshCurrentTab(false)}
                   className="p-2 rounded-lg hover:bg-white/10 text-zinc-300 transition-all"
-                  title="Refresh"
+                  title={t('toolbar.refresh')}
                 >
                   <RotateCw size={18} className={currentTab?.loading ? 'animate-spin' : ''} />
                 </button>
@@ -1625,7 +1711,7 @@ export default function App() {
                 <input
                   ref={searchInputRef}
                   className="bg-transparent text-sm text-white outline-none w-full placeholder:text-zinc-600"
-                  placeholder={`Search ${currentTab?.files.length || 0} items...`}
+                  placeholder={t('toolbar.search_placeholder', { count: String(currentTab?.files.length || 0) })}
                   value={currentTab?.searchQuery || ''}
                   onChange={(e) => updateTab(currentTab.id, { searchQuery: e.target.value })}
                   onKeyDown={(e) => {
@@ -1664,38 +1750,24 @@ export default function App() {
             <div className="flex-1 flex min-h-0">
               <div className="flex-1 flex flex-col min-w-0" ref={centralPanelRef}>
                 {currentTab?.path === '' ? (
-                  <>
-                    {/* Minimal toolbar for This PC view */}
-                    <div className="h-11 border-b border-white/10 flex items-center px-4 justify-end bg-white/[0.02]">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={toggleInfoPanel}
-                          className={`p-1.5 rounded-md transition-all ${infoPanelVisible ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : 'hover:bg-white/5 text-zinc-400'}`}
-                          title={infoPanelVisible ? 'Hide Details Panel' : 'Show Details Panel'}
-                        >
-                          <PanelRight size={16} />
-                        </button>
-                      </div>
-                    </div>
-                    <ThisPCView
-                      files={sortedFiles}
-                      onOpen={(file: FileEntry) => {
-                        if (file.is_dir) {
-                          navigateTo(file.path);
-                        } else {
-                          invoke('open_file', { path: file.path });
-                        }
-                      }}
-                      onOpenInNewTab={(file: FileEntry) => {
-                        if (file.is_dir) {
-                          addTab(file.path, focusNewTabOnMiddleClick);
-                        }
-                      }}
-                      onContextMenu={handleContextMenu}
-                      selectedFiles={currentTab?.selectedFiles || []}
-                      onSelectMultiple={handleSelectMultiple}
-                    />
-                  </>
+                  <ThisPCView
+                    files={sortedFiles}
+                    onOpen={(file: FileEntry) => {
+                      if (file.is_dir) {
+                        navigateTo(file.path);
+                      } else {
+                        invoke('open_file', { path: file.path });
+                      }
+                    }}
+                    onOpenInNewTab={(file: FileEntry) => {
+                      if (file.is_dir) {
+                        addTab(file.path, focusNewTabOnMiddleClick);
+                      }
+                    }}
+                    onContextMenu={handleContextMenu}
+                    selectedFiles={currentTab?.selectedFiles || []}
+                    onSelectMultiple={handleSelectMultiple}
+                  />
                 ) : (
                   <>
                     {/* Toolbar (Moved here) */}
@@ -1713,69 +1785,122 @@ export default function App() {
                               updateTab(currentTab.id, { error: String(err) });
                             }
                           }}
-                          className="flex items-center gap-2 text-sm font-bold text-zinc-100 hover:text-white transition-colors group px-2 py-1.5 rounded-md toolbar-btn"
+                          className="flex items-center text-sm font-bold text-zinc-100 hover:text-white transition-all duration-300 group px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden"
+                          title={t('toolbar.new_folder')}
                         >
-                          <svg viewBox="0 0 24 24" fill="var(--accent-primary-20, rgba(var(--accent-rgb), 0.2))" stroke="var(--accent-primary)" strokeWidth="2" className="w-[18px] h-[18px] group-hover:drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)] transition-all">
+                          <svg viewBox="0 0 24 24" fill="var(--accent-primary-20, rgba(var(--accent-rgb), 0.2))" stroke="var(--accent-primary)" strokeWidth="2" className="w-[18px] h-[18px] group-hover:drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)] transition-all shrink-0">
                             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                          </svg> New Folder
+                          </svg>
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="overflow-hidden"
+                              >
+                                {t('toolbar.new_folder')}
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
                         </button>
                         <div className="h-3.5 w-px bg-white/5" />
                         <button
                           onClick={handleSelectAll}
                           disabled={!currentTab || sortedFiles.length === 0}
-                          className={`flex items-center gap-2 text-sm transition-colors px-2 py-1.5 rounded-md toolbar-btn 
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
                                     ${currentTab && sortedFiles.length > 0
                               ? 'text-zinc-100 hover:text-white'
                               : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('context_menu.select_all')}
                         >
-                          <CheckSquare size={18} className={currentTab && sortedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"} />
-                          <span className="grid shrink-0">
-                            <span className={`col-start-1 row-start-1 ${currentTab && sortedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>Select all</span>
-                            <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">Select all</span>
-                          </span>
+                          <CheckSquare size={18} className={`shrink-0 ${currentTab && sortedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"}`} />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && sortedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('context_menu.select_all')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('context_menu.select_all')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
                         </button>
                         <button
                           onClick={() => currentTab?.selectedFiles.length > 0 && handleCopy(currentTab.selectedFiles)}
                           disabled={!currentTab || currentTab.selectedFiles.length === 0}
-                          className={`flex items-center gap-2 text-sm transition-colors px-2 py-1.5 rounded-md toolbar-btn 
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
                                     ${currentTab && currentTab.selectedFiles.length > 0
                               ? 'text-zinc-100 hover:text-white'
                               : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('toolbar.copy')}
                         >
-                          <Copy size={18} className={currentTab && currentTab.selectedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"} />
-                          <span className="grid shrink-0">
-                            <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>Copy</span>
-                            <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">Copy</span>
-                          </span>
+                          <Copy size={18} className={`shrink-0 ${currentTab && currentTab.selectedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"}`} />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('toolbar.copy')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.copy')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
                         </button>
                         <button
                           onClick={() => currentTab?.selectedFiles.length > 0 && handleCut(currentTab.selectedFiles)}
                           disabled={!currentTab || currentTab.selectedFiles.length === 0}
-                          className={`flex items-center gap-2 text-sm transition-colors px-2 py-1.5 rounded-md toolbar-btn 
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
                                     ${currentTab && currentTab.selectedFiles.length > 0
                               ? 'text-zinc-300 hover:text-white'
                               : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('toolbar.cut')}
                         >
-                          <Scissors size={18} />
-                          <span className="grid shrink-0">
-                            <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>Cut</span>
-                            <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">Cut</span>
-                          </span>
+                          <Scissors size={18} className="shrink-0" />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('toolbar.cut')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.cut')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
                         </button>
                         <button
                           onClick={() => handlePaste()}
                           onContextMenu={handlePasteContextMenu}
                           disabled={!canPaste}
-                          className={`flex items-center gap-2.5 text-sm pl-3 pr-2 py-1.5 rounded-md transition-all duration-300 group/paste toolbar-btn
+                          className={`flex items-center text-sm pl-3 pr-2 py-1.5 rounded-md transition-all duration-300 group/paste toolbar-btn whitespace-nowrap overflow-hidden
                                     ${canPaste
                               ? 'text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/10 hover:shadow-[0_0_15px_rgba(var(--accent-rgb),0.3)]'
                               : 'text-zinc-500 cursor-not-allowed opacity-50'}`}
+                          title={t('toolbar.paste')}
                         >
-                          <PasteIcon size={18} className={canPaste ? 'animate-pulse' : ''} />
-                          <span className="grid shrink-0 text-zinc-100 group-hover/paste:text-[var(--accent-primary)] transition-colors">
-                            <span className={`col-start-1 row-start-1 ${canPaste ? 'font-bold' : 'font-medium'}`}>Paste</span>
-                            <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">Paste</span>
-                          </span>
+                          <PasteIcon size={18} className={`shrink-0 ${canPaste ? 'animate-pulse' : ''}`} />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 10 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 text-zinc-100 group-hover/paste:text-[var(--accent-primary)] transition-colors overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${canPaste ? 'font-bold' : 'font-medium'}`}>{t('toolbar.paste')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.paste')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
 
                           {/* Content Indicator Chip */}
                           {canPaste && clipboardInfo && (
@@ -1796,16 +1921,26 @@ export default function App() {
                         <button
                           onClick={() => currentTab && currentTab.selectedFiles.length > 0 && handleDelete(currentTab.selectedFiles, false)}
                           disabled={!currentTab || currentTab.selectedFiles.length === 0}
-                          className={`flex items-center gap-2 text-sm transition-colors px-2 py-1.5 rounded-md toolbar-btn 
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
                                     ${currentTab && currentTab.selectedFiles.length > 0
                               ? 'text-red-400 hover:text-red-300'
                               : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('toolbar.delete')}
                         >
-                          <Trash size={18} className={currentTab && currentTab.selectedFiles.length > 0 ? "text-red-500" : "text-zinc-500"} />
-                          <span className="grid shrink-0">
-                            <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>Delete</span>
-                            <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">Delete</span>
-                          </span>
+                          <Trash size={18} className={`shrink-0 ${currentTab && currentTab.selectedFiles.length > 0 ? "text-red-500" : "text-zinc-500"}`} />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('toolbar.delete')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.delete')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
                         </button>
                         <div className="h-3.5 w-px bg-white/5" />
                         <button
@@ -1818,10 +1953,22 @@ export default function App() {
                               }
                             }
                           }}
-                          className="flex items-center gap-2 text-sm font-bold text-zinc-100 hover:text-white transition-colors group px-2 py-1.5 rounded-md hover:bg-white/5"
+                          className="flex items-center text-sm font-bold text-zinc-100 hover:text-white transition-all duration-300 group px-2 py-1.5 rounded-md hover:bg-white/5 whitespace-nowrap overflow-hidden"
+                          title={t('toolbar.terminal')}
                         >
-                          <Terminal size={18} className="text-[var(--accent-primary)] group-hover:drop-shadow-[0_0_8px_var(--accent-primary)] transition-all" />
-                          Terminal
+                          <Terminal size={18} className="shrink-0 text-[var(--accent-primary)] group-hover:drop-shadow-[0_0_8px_var(--accent-primary)] transition-all" />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="overflow-hidden"
+                              >
+                                {t('toolbar.terminal')}
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
                         </button>
                       </div>
 
@@ -1829,14 +1976,14 @@ export default function App() {
                         <button
                           onClick={() => currentTab && updateTab(currentTab.id, { viewMode: 'list' })}
                           className={`p-1.5 rounded-md transition-all ${currentTab?.viewMode === 'list' ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : 'hover:bg-white/5 text-zinc-400'}`}
-                          title="List View"
+                          title={t('toolbar.list_view')}
                         >
                           <List size={16} />
                         </button>
                         <button
                           onClick={() => currentTab && updateTab(currentTab.id, { viewMode: 'grid' })}
                           className={`p-1.5 rounded-md transition-all ${currentTab?.viewMode === 'grid' ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : 'hover:bg-white/5 text-zinc-400'}`}
-                          title="Grid View"
+                          title={t('toolbar.grid_view')}
                         >
                           <Grid size={16} />
                         </button>
@@ -1844,7 +1991,7 @@ export default function App() {
                         <button
                           onClick={toggleInfoPanel}
                           className={`p-1.5 rounded-md transition-all ${infoPanelVisible ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : 'hover:bg-white/5 text-zinc-400'}`}
-                          title={infoPanelVisible ? 'Hide Details Panel' : 'Show Details Panel'}
+                          title={infoPanelVisible ? t('toolbar.hide_details') : t('toolbar.show_details')}
                         >
                           <PanelRight size={16} />
                         </button>
@@ -2004,8 +2151,8 @@ export default function App() {
                     <footer className="h-7 border-t border-white/5 bg-white/[0.01] flex items-center px-4 shrink-0 select-none">
                       <span className="text-[11px] text-zinc-500 font-medium">
                         {currentTab && currentTab.selectedFiles.length > 0
-                          ? `${currentTab.selectedFiles.length} selected`
-                          : `${sortedFiles.length} ${sortedFiles.length === 1 ? 'item' : 'items'}`
+                          ? `${currentTab.selectedFiles.length} ${t('footer.selected')}`
+                          : `${sortedFiles.length} ${sortedFiles.length === 1 ? t('footer.item') : t('footer.items')}`
                         }
                       </span>
                     </footer>
@@ -2014,7 +2161,7 @@ export default function App() {
               </div>
 
               {/* Info Panel Resizer + Panel */}
-              {infoPanelVisible && (
+              {infoPanelVisible && currentTab?.path !== '' && (
                 <>
                   <div
                     className={`w-1 cursor-col-resize hover:bg-[var(--accent-primary)]/30 transition-colors z-50 flex-shrink-0 ${isResizing === 'info' ? 'bg-[var(--accent-primary)]/50' : 'bg-white/5'}`}
@@ -2086,7 +2233,7 @@ export default function App() {
                 }}
               >
                 <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <PasteIcon size={10} /> Clipboard Content
+                  <PasteIcon size={10} /> {t('toolbar.paste')}
                 </div>
 
                 {clipboardInfo.has_files ? (
@@ -2114,6 +2261,7 @@ export default function App() {
           file={currentTab.selectedFiles[0]}
           onClose={() => setShowQuickPreview(false)}
           onNavigate={handleQuickPreviewNavigate}
+          onDelete={handleQuickPreviewDelete}
         />
       )}
     </div>

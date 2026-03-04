@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { ExternalLink, Copy, Trash, FileSearch, Scissors, Clipboard, Pin, PinOff, Pencil, FolderOpen, ArrowRight, Archive } from 'lucide-react';
+import { useTranslation } from '../i18n/useTranslation';
 import { RecycleBinStatus, Tab } from '../types';
 
 interface ContextMenuProps {
@@ -28,6 +29,7 @@ interface MenuItem {
 }
 
 export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClose, onAction, allowRename, fromSidebar, recycleBinStatus, tabs, activeTabId }: ContextMenuProps & { fromSidebar?: boolean }) {
+    const { t } = useTranslation();
     const menuRef = useRef<HTMLDivElement>(null);
     const [canPaste, setCanPaste] = useState(false);
     const [pos, setPos] = useState({ left: x, top: y, opacity: 0 });
@@ -104,40 +106,40 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
     }, [onClose]);
 
     const getTabName = (path: string) => {
-        if (!path) return 'This PC';
-        if (path === 'shell:RecycleBin') return 'Recycle Bin';
+        if (!path) return t('sidebar.this_pc');
+        if (path === 'shell:RecycleBin') return t('sidebar.recycle_bin');
         const parts = path.split('\\').filter(Boolean);
         return parts[parts.length - 1] || path;
     };
 
     const items: MenuItem[] = isMultiple ? [
-        { id: 'copy', label: 'Copy', icon: <Copy size={20} />, hidden: fromSidebar && isSystemFolder },
-        { id: 'cut', label: 'Cut', icon: <Scissors size={20} />, hidden: fromSidebar && isSystemFolder },
-        { id: 'move-to', label: 'Move to', icon: <ArrowRight size={20} />, disabled: otherTabs.length === 0, hasSubmenu: true, hidden: fromSidebar && isSystemFolder },
+        { id: 'copy', label: t('context_menu.copy'), icon: <Copy size={20} />, hidden: fromSidebar && isSystemFolder },
+        { id: 'cut', label: t('context_menu.cut'), icon: <Scissors size={20} />, hidden: fromSidebar && isSystemFolder },
+        { id: 'move-to', label: t('context_menu.move_to'), icon: <ArrowRight size={20} />, disabled: otherTabs.length === 0, hasSubmenu: true, hidden: fromSidebar && isSystemFolder },
         { id: 'separator-1', type: 'separator', hidden: fromSidebar && isSystemFolder },
-        { id: 'delete', label: 'Delete', icon: <Trash size={20} className="text-red-400" />, textColor: 'text-red-400', hidden: fromSidebar || (!fromSidebar && file?.is_dir && pinnedFolders.some(f => f.path === file.path && ['desktop', 'recycle-bin', 'downloads', 'documents', 'pictures'].includes(f.id))) },
+        { id: 'delete', label: t('common.delete'), icon: <Trash size={20} className="text-red-400" />, textColor: 'text-red-400', hidden: fromSidebar || (!fromSidebar && file?.is_dir && pinnedFolders.some(f => f.path === file.path && ['desktop', 'recycle-bin', 'downloads', 'documents', 'pictures'].includes(f.id))) },
     ] : (file ? [
-        { id: 'open', label: 'Open', icon: <ExternalLink size={20} />, hidden: fromSidebar && isSystemFolder },
-        { id: 'open-with', label: 'Open with...', icon: <ExternalLink size={20} />, hidden: (fromSidebar && isSystemFolder) || file.is_dir || isDrive },
-        { id: 'open-location', label: 'Open file location', icon: <FolderOpen size={20} />, hidden: (fromSidebar && isSystemFolder) || !file.is_shortcut || isDrive },
-        { id: 'rename', label: 'Rename (F2)', icon: <Pencil size={20} />, hidden: (fromSidebar && isSystemFolder) || !allowRename },
+        { id: 'open', label: t('context_menu.open'), icon: <ExternalLink size={20} />, hidden: fromSidebar && isSystemFolder },
+        { id: 'open-with', label: t('context_menu.open_with'), icon: <ExternalLink size={20} />, hidden: (fromSidebar && isSystemFolder) || file.is_dir || isDrive },
+        { id: 'open-location', label: t('context_menu.open_location'), icon: <FolderOpen size={20} />, hidden: (fromSidebar && isSystemFolder) || !file.is_shortcut || isDrive },
+        { id: 'rename', label: `${t('context_menu.rename')} (F2)`, icon: <Pencil size={20} />, hidden: (fromSidebar && isSystemFolder) || !allowRename },
         { id: 'separator-0', type: 'separator', hidden: (fromSidebar && isSystemFolder) || isDrive },
-        { id: 'copy', label: 'Copy', icon: <Copy size={20} />, hidden: (fromSidebar && isSystemFolder) || isDrive },
-        { id: 'cut', label: 'Cut', icon: <Scissors size={20} />, hidden: (fromSidebar && isSystemFolder) || isDrive },
-        { id: 'paste', label: 'Paste', icon: <Clipboard size={20} />, disabled: !canPaste, hidden: (fromSidebar && isSystemFolder) || isDrive },
-        { id: 'move-to', label: 'Move to', icon: <ArrowRight size={20} />, disabled: otherTabs.length === 0, hidden: (fromSidebar && isSystemFolder) || isDrive, hasSubmenu: true },
-        { id: 'extract-here', label: 'Extract Here', icon: <Archive size={20} />, hidden: !isArchive || (fromSidebar && isSystemFolder) || isDrive },
+        { id: 'copy', label: t('context_menu.copy'), icon: <Copy size={20} />, hidden: (fromSidebar && isSystemFolder) || isDrive },
+        { id: 'cut', label: t('context_menu.cut'), icon: <Scissors size={20} />, hidden: (fromSidebar && isSystemFolder) || isDrive },
+        { id: 'paste', label: t('context_menu.paste'), icon: <Clipboard size={20} />, disabled: !canPaste, hidden: (fromSidebar && isSystemFolder) || isDrive },
+        { id: 'move-to', label: t('context_menu.move_to'), icon: <ArrowRight size={20} />, disabled: otherTabs.length === 0, hidden: (fromSidebar && isSystemFolder) || isDrive, hasSubmenu: true },
+        { id: 'extract-here', label: t('context_menu.extract_here'), icon: <Archive size={20} />, hidden: !isArchive || (fromSidebar && isSystemFolder) || isDrive },
         { id: 'separator-1', type: 'separator', hidden: (fromSidebar && isSystemFolder) || isDrive },
         {
             id: 'delete',
-            label: 'Delete',
+            label: t('common.delete'),
             icon: <Trash size={20} className="text-red-400" />,
             textColor: 'text-red-400',
             hidden: fromSidebar || isDrive || (!fromSidebar && file.is_dir && pinnedFolders.some(f => f.path === file.path && ['desktop', 'recycle-bin', 'downloads', 'documents', 'pictures'].includes(f.id)))
         },
         {
             id: 'empty-recycle-bin',
-            label: 'Empty Recycle Bin',
+            label: t('context_menu.empty_recycle_bin'),
             icon: <Trash size={20} />,
             disabled: recycleBinStatus.is_empty,
             hidden: !fromSidebar || pinnedFolders.find(f => f.path === file.path)?.id !== 'recycle-bin' || isDrive
@@ -156,7 +158,7 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
                 if (fromSidebar && isDefault) return 'unpin';
                 return isDefault ? 'none' : 'unpin';
             })(),
-            label: pinnedFolders.some(f => f.path === file.path) ? 'Unpin from Quick access' : 'Pin to Quick access',
+            label: pinnedFolders.some(f => f.path === file.path) ? t('context_menu.unpin') : t('context_menu.pin'),
             icon: pinnedFolders.some(f => f.path === file.path) ? <PinOff size={20} /> : <Pin size={20} />,
             hidden: !file.is_dir || isDrive || (!fromSidebar && (() => {
                 const pinned = pinnedFolders.find(f => f.path === file.path);
@@ -164,11 +166,11 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
             })())
         },
         { id: 'separator-2', type: 'separator', hidden: fromSidebar && isSystemFolder },
-        { id: 'properties', label: 'Properties', icon: <FileSearch size={20} />, hidden: fromSidebar && isSystemFolder },
+        { id: 'properties', label: t('context_menu.properties'), icon: <FileSearch size={20} />, hidden: fromSidebar && isSystemFolder },
     ] : [
-        { id: 'paste', label: 'Paste', icon: <Clipboard size={20} />, disabled: !canPaste },
+        { id: 'paste', label: t('context_menu.paste'), icon: <Clipboard size={20} />, disabled: !canPaste },
         { id: 'separator-2', type: 'separator' },
-        { id: 'properties', label: 'Properties', icon: <FileSearch size={20} /> },
+        { id: 'properties', label: t('context_menu.properties'), icon: <FileSearch size={20} /> },
     ]);
 
     return (

@@ -561,8 +561,34 @@ fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, Stri
                     }
                 };
 
+                // Get Custom Volume Label
+                let mut volume_name_buffer: [u16; windows::Win32::Foundation::MAX_PATH as usize
+                    + 1] = [0; windows::Win32::Foundation::MAX_PATH as usize + 1];
+                let mut display_name = format!("Local Disk ({}:)", drive_letter);
+
+                unsafe {
+                    if windows::Win32::Storage::FileSystem::GetVolumeInformationW(
+                        PCWSTR(path_wide.as_ptr()),
+                        Some(&mut volume_name_buffer),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .is_ok()
+                    {
+                        let vol_name = String::from_utf16_lossy(&volume_name_buffer)
+                            .trim_matches(char::from(0))
+                            .to_string();
+
+                        if !vol_name.is_empty() {
+                            display_name = format!("{} ({}:)", vol_name, drive_letter);
+                        }
+                    }
+                }
+
                 drives.push(FileEntry {
-                    name: format!("Local Disk ({}:)", drive_letter),
+                    name: display_name,
                     path: drive_path,
                     is_dir: true,
                     size: 0,

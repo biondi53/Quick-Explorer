@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { HardDrive } from 'lucide-react';
 import { FileEntry } from '../types';
 import GlowCard from './ui/GlowCard';
+import { useTranslation } from '../i18n/useTranslation';
 
 interface ThisPCViewProps {
     files: FileEntry[];
@@ -37,6 +38,7 @@ export default function ThisPCView({
     selectedFiles,
     onSelectMultiple
 }: ThisPCViewProps) {
+    const { t } = useTranslation();
     const drives = useMemo(() => {
         return files.filter(f => f.file_type === 'Drive');
     }, [files]);
@@ -51,7 +53,7 @@ export default function ThisPCView({
                 <section>
                     <div className="flex items-center gap-2 mb-4 px-2">
                         <div className="i-lucide-chevron-down size-4 text-[var(--text-muted)]" />
-                        <h2 className="text-sm font-semibold text-[var(--text-muted)]">Devices and drives ({drives.length})</h2>
+                        <h2 className="text-sm font-semibold text-[var(--text-muted)]">{t('sidebar.devices_and_drives')} ({drives.length})</h2>
                     </div>
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
                         {drives.map(drive => {
@@ -100,7 +102,9 @@ export default function ThisPCView({
                                         </div>
                                         <div className="relative z-10 flex-1 min-w-0 space-y-1.5">
                                             <div className={`text-sm truncate font-bold ${selected ? 'text-white' : 'text-zinc-100'}`}>
-                                                {drive.name}
+                                                {drive.name.includes('Local Disk')
+                                                    ? drive.name.replace('Local Disk', t('sidebar.local_disk'))
+                                                    : drive.name}
                                             </div>
                                             {info && (
                                                 <>
@@ -112,7 +116,7 @@ export default function ThisPCView({
                                                         />
                                                     </div>
                                                     <div className="flex justify-between items-center text-xs text-[var(--text-muted)] font-medium">
-                                                        <span>{formatSize(info.available_space)} free of {formatSize(info.total_space)}</span>
+                                                        <span>{formatSize(info.available_space)} {t('files.free_of')} {formatSize(info.total_space)}</span>
                                                         <span>{Math.floor(usagePercent)}%</span>
                                                     </div>
                                                 </>

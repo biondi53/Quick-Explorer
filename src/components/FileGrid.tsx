@@ -6,6 +6,7 @@ import {
     Play
 } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
+import { useTranslation } from '../i18n/useTranslation';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
@@ -327,6 +328,7 @@ export default function FileGrid({
     onScrollChange,
     activeTabId
 }: FileGridProps) {
+    const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
     const selectedBeforeDownRef = useRef<boolean>(false);
@@ -717,50 +719,60 @@ export default function FileGrid({
                 }
             }}
         >
-            <div
-                style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: '100%',
-                    position: 'relative',
-                }}
-            >
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const rowItems = getRowItems(virtualRow.index);
+            {files.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-[var(--text-muted)] opacity-50 space-y-4">
+                    {(() => {
+                        const FolderIcon = getIconComponent({ name: '', is_dir: true, is_shortcut: false });
+                        return <FolderIcon size={64} />;
+                    })()}
+                    <p className="text-sm font-medium">{t('files.empty_folder')}</p>
+                </div>
+            ) : (
+                <div
+                    style={{
+                        height: `${rowVirtualizer.getTotalSize()}px`,
+                        width: '100%',
+                        position: 'relative',
+                    }}
+                >
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const rowItems = getRowItems(virtualRow.index);
 
-                    return (
-                        <div
-                            key={virtualRow.key}
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: `${virtualRow.size}px`,
-                                transform: `translateY(${virtualRow.start}px)`,
-                            }}
-                            className="flex gap-2"
-                        >
-                            {rowItems.map((file) => (
-                                <GridItem
-                                    key={file.path}
-                                    file={file}
-                                    isSelected={selectedPaths.has(file.path)}
-                                    onMouseDown={handleItemMouseDown}
-                                    onClick={handleItemClick}
-                                    onOpen={onOpen}
-                                    onOpenInNewTab={onOpenInNewTab}
-                                    onContextMenu={onContextMenu}
-                                    isRenaming={renamingPath === file.path}
-                                    onRenameSubmit={onRenameSubmit}
-                                    onRenameCancel={onRenameCancel}
-                                    isClipboardItem={clipboardInfo?.paths.includes(file.path) || false}
-                                    sessionId={sessionIdRef.current}
-                                />
-                            ))}
-                        </div>
-                    );
-                })}
-            </div>
+                        return (
+                            <div
+                                key={virtualRow.key}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: `${virtualRow.size}px`,
+                                    transform: `translateY(${virtualRow.start}px)`,
+                                }}
+                                className="flex gap-2"
+                            >
+                                {rowItems.map((file) => (
+                                    <GridItem
+                                        key={file.path}
+                                        file={file}
+                                        isSelected={selectedPaths.has(file.path)}
+                                        onMouseDown={handleItemMouseDown}
+                                        onClick={handleItemClick}
+                                        onOpen={onOpen}
+                                        onOpenInNewTab={onOpenInNewTab}
+                                        onContextMenu={onContextMenu}
+                                        isRenaming={renamingPath === file.path}
+                                        onRenameSubmit={onRenameSubmit}
+                                        onRenameCancel={onRenameCancel}
+                                        isClipboardItem={clipboardInfo?.paths.includes(file.path) || false}
+                                        sessionId={sessionIdRef.current}
+                                    />
+                                ))}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 }

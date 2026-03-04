@@ -5,7 +5,7 @@ import WindowControls from './WindowControls';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tab } from '../types';
 import { useTabDragHover } from '../hooks/useTabDragHover';
-
+import { useTranslation } from '../i18n/useTranslation';
 
 
 interface TabBarProps {
@@ -20,6 +20,7 @@ interface TabBarProps {
 export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab /*, onReorder */ }: TabBarProps) {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const { handleDragOver, handleDragLeave } = useTabDragHover(onTabClick);
+    const { t } = useTranslation();
 
     // Auto-scroll active tab into view
     useEffect(() => {
@@ -40,8 +41,8 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
         return () => clearTimeout(timeoutId);
     }, [activeTabId]);
     const getTabName = (path: string) => {
-        if (!path) return 'This PC';
-        if (path === 'shell:RecycleBin') return 'Recycle Bin';
+        if (!path) return t('sidebar.this_pc');
+        if (path === 'shell:RecycleBin') return t('sidebar.recycle_bin');
         const parts = path.split('\\').filter(Boolean);
         return parts[parts.length - 1] || path;
     };

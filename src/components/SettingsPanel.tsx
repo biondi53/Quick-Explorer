@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Settings, Folder, Check, X, ChevronRight, SlidersHorizontal, Monitor, Download, FileText, Image, Trash2 } from 'lucide-react';
+import { Settings, Folder, Check, X, ChevronRight, SlidersHorizontal, Monitor, Download, FileText, Image, Trash2, Languages } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from '../i18n/useTranslation';
+import { Language } from '../i18n/types';
 
 interface PinnedFolder {
     id: string;
@@ -27,27 +29,15 @@ interface SettingsPanelProps {
     showHiddenFiles: boolean;
     autoSearchOnKey: boolean;
     focusNewTabOnMiddleClick: boolean;
-    onSave: (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, showHiddenFiles?: boolean, autoSearchOnKey?: boolean, focusNewTabOnMiddleClick?: boolean) => void;
+    onSave: (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, showHiddenFiles?: boolean, autoSearchOnKey?: boolean, focusNewTabOnMiddleClick?: boolean, closePanel?: boolean) => void;
     onReset: () => void;
     onCancel: () => void;
 }
 
-const SORT_COLUMNS: { value: SortColumn; label: string }[] = [
-    { value: 'name', label: 'Name' },
-    { value: 'modified_at', label: 'Date modified' },
-    { value: 'created_at', label: 'Date created' },
-    { value: 'file_type', label: 'Type' },
-    { value: 'size', label: 'Size' },
-];
-
-const SORT_DIRECTIONS: { value: SortDirection; label: string }[] = [
-    { value: 'asc', label: 'Ascending' },
-    { value: 'desc', label: 'Descending' },
-];
-
 const SYSTEM_FOLDER_IDS = ['desktop', 'downloads', 'documents', 'pictures', 'recycle-bin', 'home'];
 
 export default function SettingsPanel({ config, sortConfig, showHiddenFiles, autoSearchOnKey, focusNewTabOnMiddleClick, onSave, onReset, onCancel }: SettingsPanelProps) {
+    const { t, language, setLanguage } = useTranslation();
     const [localConfig, setLocalConfig] = useState<QuickAccessConfig>(() => ({
         pinnedFolders: config?.pinnedFolders || []
     }));
@@ -59,9 +49,11 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
     const [localAutoSearch, setLocalAutoSearch] = useState(!!autoSearchOnKey);
     const [localFocusNewTab, setLocalFocusNewTab] = useState(!!focusNewTabOnMiddleClick);
     const [activeSection, setActiveSection] = useState('general');
+    const [localLanguage, setLocalLanguage] = useState<Language>(language);
 
-    const handleSave = () => {
-        onSave(localConfig, localSortConfig, localShowHidden, localAutoSearch, localFocusNewTab);
+    const handleSave = (closePanel = true) => {
+        setLanguage(localLanguage);
+        onSave(localConfig, localSortConfig, localShowHidden, localAutoSearch, localFocusNewTab, closePanel);
     };
 
     const toggleFolder = (id: string) => {
@@ -81,6 +73,12 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
     const systemFolders = localConfig.pinnedFolders.filter(f => SYSTEM_FOLDER_IDS.includes(f.id));
     const customFolders = localConfig.pinnedFolders.filter(f => !SYSTEM_FOLDER_IDS.includes(f.id));
 
+    const getSystemLabel = (id: string, fallback: string) => {
+        const key = id === 'recycle-bin' ? 'recycle_bin' : id === 'home' ? 'this_pc' : id;
+        const translated = t(`sidebar.${key}`);
+        return translated === `sidebar.${key}` ? fallback : translated;
+    };
+
     const getIcon = (id: string) => {
         switch (id) {
             case 'desktop': return <Monitor size={16} />;
@@ -99,7 +97,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
             <aside className="w-64 border-r border-white/5 bg-[#141414]/50 backdrop-blur-3xl flex flex-col p-4 z-10">
                 <div className="flex items-center gap-3 px-3 py-4 mb-6">
                     <Settings size={20} className="text-[var(--text-dim)]" />
-                    <h2 className="text-lg font-bold text-white tracking-tight">Settings</h2>
+                    <h2 className="text-lg font-bold text-white tracking-tight">{t('settings.title')}</h2>
                 </div>
 
                 <nav className="space-y-1 relative">
@@ -112,7 +110,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                     >
                         <div className="flex items-center gap-3">
                             <SlidersHorizontal size={18} />
-                            General
+                            {t('settings.behavior')}
                         </div>
                         <ChevronRight size={14} className="opacity-30" />
                         {activeSection === 'general' && (
@@ -132,7 +130,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                     >
                         <div className="flex items-center gap-3">
                             <Folder size={18} />
-                            Quick access
+                            {t('sidebar.pinned')}
                         </div>
                         <ChevronRight size={14} className="opacity-30" />
                         {activeSection === 'quick-access' && (
@@ -159,39 +157,51 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                             className="flex-1 overflow-y-auto min-w-0 h-full min-h-0"
                         >
                             <header className="px-10 pt-10 pb-6">
-                                <h1 className="text-3xl font-bold text-white mb-2">General</h1>
-                                <p className="text-sm text-[var(--text-muted)]">Configure the default behavior of the explorer.</p>
+                                <h1 className="text-3xl font-bold text-white mb-2">{t('settings.behavior')}</h1>
+                                <p className="text-sm text-[var(--text-muted)]">{t('settings.behavior_desc')}</p>
                             </header>
 
                             <div className="px-10 space-y-8 max-w-2xl pb-10">
                                 <div className="space-y-6">
                                     <div className="grid gap-2">
-                                        <label className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-widest pl-1">Default Sort Column</label>
+                                        <label className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-widest pl-1">{t('settings.language')}</label>
+                                        <div className="flex items-center gap-3">
+                                            <Languages size={18} className="text-[var(--text-dim)]" />
+                                            <select
+                                                value={localLanguage}
+                                                onChange={(e) => setLocalLanguage(e.target.value as Language)}
+                                                className="flex-1 bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/30 transition-all cursor-pointer"
+                                            >
+                                                <option value="auto" className="bg-zinc-900">{t('settings.auto')}</option>
+                                                <option value="es" className="bg-zinc-900">{t('settings.spanish')}</option>
+                                                <option value="en" className="bg-zinc-900">{t('settings.english')}</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <label className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-widest pl-1">{t('context_menu.sort_by')}</label>
                                         <select
                                             value={localSortConfig.column}
                                             onChange={(e) => setLocalSortConfig({ ...localSortConfig, column: e.target.value as SortColumn })}
                                             className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/30 transition-all cursor-pointer"
                                         >
-                                            {SORT_COLUMNS.map((col) => (
-                                                <option key={col.value} value={col.value} className="bg-zinc-900">
-                                                    {col.label}
-                                                </option>
-                                            ))}
+                                            <option value="name" className="bg-zinc-900">{t('files.name')}</option>
+                                            <option value="modified_at" className="bg-zinc-900">{t('files.date_modified')}</option>
+                                            <option value="created_at" className="bg-zinc-900">{t('files.date_created')}</option>
+                                            <option value="file_type" className="bg-zinc-900">{t('files.type')}</option>
+                                            <option value="size" className="bg-zinc-900">{t('files.size')}</option>
                                         </select>
                                     </div>
 
                                     <div className="grid gap-2">
-                                        <label className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-widest pl-1">Default Sort Direction</label>
                                         <select
                                             value={localSortConfig.direction}
                                             onChange={(e) => setLocalSortConfig({ ...localSortConfig, direction: e.target.value as SortDirection })}
                                             className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/30 transition-all cursor-pointer"
                                         >
-                                            {SORT_DIRECTIONS.map((dir) => (
-                                                <option key={dir.value} value={dir.value} className="bg-zinc-900">
-                                                    {dir.label}
-                                                </option>
-                                            ))}
+                                            <option value="asc" className="bg-zinc-900">{t('settings.ascending')}</option>
+                                            <option value="desc" className="bg-zinc-900">{t('settings.descending')}</option>
                                         </select>
                                     </div>
 
@@ -205,7 +215,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                             className="w-5 h-5 rounded-md bg-white/[0.03] border border-white/10 cursor-pointer"
                                         />
                                         <label htmlFor="showHidden" className="text-sm text-zinc-300 cursor-pointer">
-                                            Show hidden files and folders
+                                            {t('settings.show_hidden')}
                                         </label>
                                     </div>
 
@@ -219,7 +229,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                             className="w-5 h-5 rounded-md bg-white/[0.03] border border-white/10 cursor-pointer"
                                         />
                                         <label htmlFor="autoSearch" className="text-sm text-zinc-300 cursor-pointer">
-                                            Type to search automatically
+                                            {t('settings.auto_search')}
                                         </label>
                                     </div>
 
@@ -233,20 +243,20 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                             className="w-5 h-5 rounded-md bg-white/[0.03] border border-white/10 cursor-pointer"
                                         />
                                         <label htmlFor="focusNewTab" className="text-sm text-zinc-300 cursor-pointer">
-                                            Focus new tabs opened with middle click
+                                            {t('settings.focus_new_tab')}
                                         </label>
                                     </div>
 
                                     <div className="pt-8 border-t border-white/5 space-y-4">
                                         <div className="space-y-1">
-                                            <h3 className="text-sm font-bold text-white">Maintenance</h3>
-                                            <p className="text-xs text-[var(--text-muted)]">Restore the application to its original configuration.</p>
+                                            <h3 className="text-sm font-bold text-white">{t('settings.maintenance')}</h3>
+                                            <p className="text-xs text-[var(--text-muted)]">{t('settings.maintenance_desc')}</p>
                                         </div>
                                         <button
                                             onClick={onReset}
                                             className="px-4 py-2 bg-zinc-900 border border-white/10 hover:border-red-500/50 hover:bg-red-500/10 text-[var(--text-dim)] hover:text-red-400 text-xs font-bold rounded-lg transition-all active:scale-95"
                                         >
-                                            Reset to Defaults
+                                            {t('settings.reset_to_default')}
                                         </button>
                                     </div>
                                 </div>
@@ -262,16 +272,16 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                             className="flex-1 overflow-y-auto min-w-0 h-full min-h-0"
                         >
                             <header className="px-10 pt-10 pb-6">
-                                <h1 className="text-3xl font-bold text-white mb-2">Quick access</h1>
-                                <p className="text-sm text-[var(--text-muted)]">Manage system and custom folders in your sidebar.</p>
+                                <h1 className="text-3xl font-bold text-white mb-2">{t('sidebar.pinned')}</h1>
+                                <p className="text-sm text-[var(--text-muted)]">{t('settings.pinned_desc')}</p>
                             </header>
 
                             <div className="px-10 space-y-10 max-w-3xl pb-10">
                                 {/* System Folders Section */}
                                 <section className="space-y-4">
                                     <div className="space-y-1">
-                                        <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest pl-1">Fixed Quick Access Items</h3>
-                                        <p className="text-xs text-[var(--text-muted)] pl-1 border-l-2 border-[var(--accent-primary)]/30">Enable or disable core system locations in your sidebar.</p>
+                                        <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest pl-1">{t('settings.fixed_items')}</h3>
+                                        <p className="text-xs text-[var(--text-muted)] pl-1 border-l-2 border-[var(--accent-primary)]/30">{t('settings.fixed_items_desc')}</p>
                                     </div>
                                     <div className="grid gap-3 bg-white/[0.02] border border-white/5 rounded-2xl p-4 shadow-inner">
                                         {systemFolders.map((folder) => (
@@ -281,7 +291,11 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                                 </div>
                                                 <div className="flex-1 space-y-1.5">
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-xs font-bold text-zinc-200">{folder.name}</span>
+                                                        <div className="flex-1 min-w-0">
+                                                            <h4 className="text-sm font-semibold text-white mb-0.5 truncate">
+                                                                {getSystemLabel(folder.id, folder.name)}
+                                                            </h4>
+                                                        </div>
                                                         <div className="flex items-center gap-2">
                                                             <button
                                                                 onClick={() => toggleFolder(folder.id)}
@@ -312,8 +326,8 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                 {/* Custom Folders Section */}
                                 <section className="space-y-4">
                                     <div className="space-y-1">
-                                        <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest pl-1">Custom Folders</h3>
-                                        <p className="text-xs text-[var(--text-muted)] pl-1 border-l-2 border-[var(--accent-primary)]/30">Configure paths for your manually pinned folders.</p>
+                                        <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest pl-1">{t('settings.custom_folders')}</h3>
+                                        <p className="text-xs text-[var(--text-muted)] pl-1 border-l-2 border-[var(--accent-primary)]/30">{t('settings.custom_folders_desc')}</p>
                                     </div>
                                     <div className="space-y-3">
                                         {customFolders.length > 0 ? customFolders.map((folder) => (
@@ -330,7 +344,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                         )) : (
                                             <div className="flex flex-col items-center justify-center py-10 border-2 border-dashed border-white/5 rounded-2xl">
                                                 <Folder className="text-zinc-700 mb-2 opacity-20" size={32} />
-                                                <p className="text-xs text-zinc-600 font-medium">No custom folders pinned yet.</p>
+                                                <p className="text-xs text-zinc-600 font-medium">{t('settings.no_custom_folders')}</p>
                                             </div>
                                         )}
                                     </div>
@@ -341,18 +355,24 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                 </AnimatePresence>
 
                 {/* Action Footer */}
-                <footer className="p-10 flex items-center gap-4 bg-[#0b0b0b]/40 backdrop-blur-md border-t border-white/5 mt-auto z-20">
+                <footer className="p-10 flex items-center justify-start gap-3 bg-[#0b0b0b]/40 backdrop-blur-md border-t border-white/5 mt-auto z-20">
                     <button
-                        onClick={handleSave}
+                        onClick={() => handleSave(true)}
                         className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[var(--accent-primary)] hover:opacity-90 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-[rgba(var(--accent-rgb),0.2)] active:scale-95"
                     >
-                        <Check size={18} /> Accept
+                        <Check size={18} /> {t('common.confirm')}
+                    </button>
+                    <button
+                        onClick={() => handleSave(false)}
+                        className="flex items-center justify-center gap-2 px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white text-sm font-bold rounded-xl transition-all border border-white/5 active:scale-95"
+                    >
+                        <Check size={18} /> {t('common.apply')}
                     </button>
                     <button
                         onClick={onCancel}
-                        className="flex items-center justify-center gap-2 px-6 py-2.5 bg-white/5 hover:bg-white/10 text-zinc-300 text-sm font-semibold rounded-xl transition-all active:scale-95"
+                        className="flex items-center justify-center gap-2 px-6 py-2.5 bg-white/5 hover:bg-white/10 text-zinc-300 text-sm font-semibold rounded-xl transition-all active:scale-95 border border-transparent"
                     >
-                        <X size={18} /> Cancel
+                        <X size={18} /> {t('common.cancel')}
                     </button>
                 </footer>
             </main>

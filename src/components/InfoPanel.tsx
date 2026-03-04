@@ -1,5 +1,6 @@
 import { useMemo, memo, useState, useCallback } from 'react';
 import { File, Folder, Info, Eye, PlayCircle, Loader2, Copy, Check } from 'lucide-react';
+import { useTranslation } from '../i18n/useTranslation';
 
 import { useFilePreview } from '../hooks/useFilePreview';
 
@@ -11,6 +12,7 @@ interface InfoPanelProps {
 }
 
 const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
+    const { t } = useTranslation();
     const [copied, setCopied] = useState(false);
 
     // Memoize to prevent recalculation on every render
@@ -55,7 +57,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                 onContextMenu={(e) => e.preventDefault()}
             >
                 <Info size={48} className="opacity-10 mb-4" />
-                <p className="text-sm font-bold tracking-tight">Select a file or folder to view its properties</p>
+                <p className="text-sm font-bold tracking-tight">{t('preview.select_prompt')}</p>
             </aside>
         );
     }
@@ -83,10 +85,10 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                         </div>
                     </div>
                     <h3 className="text-4xl font-bold text-white tracking-tight mb-2">
-                        {selectedFiles.length}<span className="text-[var(--accent-primary)]">.</span> items
+                        {selectedFiles.length}<span className="text-[var(--accent-primary)]">.</span> {t('files.items')}
                     </h3>
                     <p className="text-[var(--accent-secondary)] text-[10px] font-black uppercase tracking-[0.3em] mt-4 opacity-80">
-                        Global weight: {formatSize(totalSize)}
+                        {t('preview.global_weight')}: {formatSize(totalSize)}
                     </p>
                 </div>
             </aside>
@@ -108,16 +110,16 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                 {/* Details Section */}
                 <div className="w-full space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
                     <div className="space-y-1">
-                        <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Name</label>
+                        <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.name')}</label>
                         <div className="text-sm font-bold text-zinc-100 break-all">{selectedFile.name}</div>
                     </div>
                     <div className="space-y-1 group/path">
                         <div className="flex items-center gap-2">
-                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Path</label>
+                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.path')}</label>
                             <button
                                 onClick={copyToClipboard}
                                 className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-[var(--accent-primary)] transition-all duration-200"
-                                title="Copy path"
+                                title={t('common.copy' as any)}
                             >
                                 {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                             </button>
@@ -133,18 +135,25 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                         {/* Left Column */}
                         <div className="space-y-6">
                             <div className="space-y-1">
-                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Type</label>
+                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.type')}</label>
                                 <div className="text-xs text-zinc-100 font-bold flex items-center gap-2">
                                     <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" />
-                                    {selectedFile.file_type}
+                                    {selectedFile.is_dir
+                                        ? t('files.folder')
+                                        : selectedFile.is_shortcut
+                                            ? t('preview.shortcut')
+                                            : selectedFile.file_type.endsWith(' File')
+                                                ? `${selectedFile.file_type.replace(' File', '')} ${t('files.file').toLowerCase()}`
+                                                : selectedFile.file_type === 'File' ? t('files.file') : selectedFile.file_type
+                                    }
                                 </div>
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Created</label>
+                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.created')}</label>
                                 <div className="text-xs text-zinc-100 font-bold">{selectedFile.created_at}</div>
                             </div>
                             <div className="space-y-1">
-                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Modified</label>
+                                <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.modified')}</label>
                                 <div className="text-xs text-zinc-100 font-bold">{selectedFile.modified_at}</div>
                             </div>
                         </div>
@@ -153,12 +162,12 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                         <div className="space-y-6">
                             <div className="space-y-4">
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Size</label>
+                                    <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.size')}</label>
                                     <div className="text-xs text-white font-mono font-black">{selectedFile.formatted_size || '-'}</div>
                                 </div>
                                 {displayDimensions && (
                                     <div className="space-y-1">
-                                        <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">Dimensions</label>
+                                        <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.dimensions')}</label>
                                         <div className="text-xs text-zinc-100 font-medium">{displayDimensions}</div>
                                     </div>
                                 )}
@@ -207,7 +216,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                                         <div className="p-6 rounded-2xl bg-white/[0.04] mb-3 border border-white/5">
                                             {fileType === 'video' ? <PlayCircle size={32} className="opacity-20" /> : <Eye size={32} className="opacity-20" />}
                                         </div>
-                                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-50">Preview unavailable</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-50">{t('preview.no_preview')}</p>
                                     </div>
                                 )}
                             </div>
@@ -233,7 +242,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                                     </div>
                                 </div>
                                 <h3 className="text-2xl font-black text-white tracking-[0.2em] mb-1 uppercase opacity-80">
-                                    {selectedFile.is_dir ? 'Folder' : selectedFile.is_shortcut ? 'Shortcut' : selectedFile.name.split('.').pop()}
+                                    {selectedFile.is_dir ? t('files.folder') : selectedFile.is_shortcut ? t('preview.shortcut') : selectedFile.name.split('.').pop()}
                                 </h3>
                             </div>
                         )}

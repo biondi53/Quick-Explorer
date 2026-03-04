@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronUp, ChevronDown, Check } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
+import { useTranslation } from '../i18n/useTranslation';
 import { invoke } from '@tauri-apps/api/core';
 
 import { FileEntry, ClipboardInfo } from '../types';
@@ -46,12 +47,12 @@ interface FileTableProps {
 
 const ITEM_HEIGHT = 42;
 
-const COLUMN_CONFIG: Record<SortColumn, { label: string, width: string, minWidth?: string, align?: 'left' | 'right' }> = {
-    name: { label: 'Name', width: '1fr' },
-    modified_at: { label: 'Date modified', width: '110px' },
-    created_at: { label: 'Date created', width: '110px' },
-    file_type: { label: 'Type', width: '80px' },
-    size: { label: 'Size', width: '60px', align: 'right' }
+const COLUMN_CONFIG: Record<SortColumn, { key: string, width: string, minWidth?: string, align?: 'left' | 'right' }> = {
+    name: { key: 'files.name', width: '1fr' },
+    modified_at: { key: 'files.date_modified', width: '110px' },
+    created_at: { key: 'files.date_created', width: '110px' },
+    file_type: { key: 'files.type', width: '80px' },
+    size: { key: 'files.size', width: '60px', align: 'right' }
 };
 
 interface ColumnMenuProps {
@@ -63,6 +64,7 @@ interface ColumnMenuProps {
 }
 
 const ColumnMenu = ({ x, y, visibleColumns, onToggle, onClose }: ColumnMenuProps) => {
+    const { t } = useTranslation();
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -81,14 +83,14 @@ const ColumnMenu = ({ x, y, visibleColumns, onToggle, onClose }: ColumnMenuProps
             className="fixed z-[100] w-64 bg-[#0f111a]/95 backdrop-blur-3xl border border-white/10 rounded-xl py-2 shadow-[0_10px_35px_rgba(0,0,0,0.7)] animate-in fade-in zoom-in-95 duration-100"
             style={{ left: x, top: y }}
         >
-            <div className="px-3 mb-2 text-[11px] font-black text-[var(--text-muted)] uppercase tracking-widest">Visible Columns</div>
+            <div className="px-3 mb-2 text-[11px] font-black text-[var(--text-muted)] uppercase tracking-widest">{t('settings.visible_columns')}</div>
             {(Object.keys(COLUMN_CONFIG) as SortColumn[]).map(col => (
                 <button
                     key={col}
                     onClick={() => onToggle(col)}
                     className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-[var(--text-dim)] hover:bg-[var(--accent-primary)]/20 hover:text-white transition-all group"
                 >
-                    <span>{COLUMN_CONFIG[col].label}</span>
+                    <span>{t(COLUMN_CONFIG[col].key as any)}</span>
                     {visibleColumns.includes(col) && <Check size={20} className="text-[var(--accent-primary)]" />}
                 </button>
             ))}
@@ -123,6 +125,7 @@ const FileTable = memo(({
     onScrollChange,
     activeTabId
 }: FileTableProps) => {
+    const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const [editValue, setEditValue] = useState("");
     const editInputRef = useRef<HTMLInputElement>(null);
@@ -457,7 +460,7 @@ const FileTable = memo(({
                     const FolderIcon = getIconComponent({ name: '', is_dir: true, is_shortcut: false });
                     return <FolderIcon size={48} className="opacity-10 mb-4" />;
                 })()}
-                <p className="text-sm">This folder is empty</p>
+                <p className="text-sm">{t('files.empty_folder')}</p>
             </div>
         );
     }
@@ -582,7 +585,7 @@ const FileTable = memo(({
                             className={`flex-1 text-[11px] font-bold text-[var(--text-muted)] hover:text-white cursor-pointer flex items-center gap-1.5 truncate h-full ${COLUMN_CONFIG[col].align === 'right' ? 'justify-end' : ''}`}
                             onClick={() => onSort(col)}
                         >
-                            {COLUMN_CONFIG[col].label}
+                            {t(COLUMN_CONFIG[col].key as any)}
                             {sortConfig.column === col && (
                                 sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-[var(--accent-primary)]" /> : <ChevronDown size={12} className="text-[var(--accent-primary)]" />
                             )}
@@ -759,7 +762,15 @@ const FileTable = memo(({
                                         <span className={`text-xs ${col === 'size' ? 'text-[var(--text-muted)] font-mono' : 'text-[var(--text-muted)] font-light'}`}>
                                             {col === 'modified_at' && file.modified_at}
                                             {col === 'created_at' && file.created_at}
-                                            {col === 'file_type' && file.file_type}
+                                            {col === 'file_type' && (
+                                                file.is_dir
+                                                    ? t('files.folder')
+                                                    : file.is_shortcut
+                                                        ? t('preview.shortcut')
+                                                        : file.file_type.endsWith(' File')
+                                                            ? `${file.file_type.replace(' File', '')} ${t('files.file').toLowerCase()}`
+                                                            : file.file_type === 'File' ? t('files.file') : file.file_type
+                                            )}
                                             {col === 'size' && file.formatted_size}
                                         </span>
                                     )}

@@ -1,12 +1,14 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { Trash } from 'lucide-react';
 import { FileEntry } from '../types';
+import { useTranslation } from '../i18n/useTranslation';
 
 interface QuickPreviewProps {
     file: FileEntry;
     onClose: () => void;
     onNavigate: (direction: 'next' | 'prev') => void;
+    onDelete: () => Promise<boolean>;
 }
 
 interface PreviewTextResult {
@@ -14,14 +16,26 @@ interface PreviewTextResult {
     is_truncated: boolean;
 }
 
-const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }) => {
+const MIN_SCALE = 0.2;
+const MAX_SCALE = 5.0;
+const ZOOM_STEP = 0.1;
+
+const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, onDelete }) => {
+    const { t } = useTranslation();
     const [textContent, setTextContent] = useState<string | null>(null);
     const [isTruncated, setIsTruncated] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [scale, setScale] = useState(1.0);
+    const [showZoomIndicator, setShowZoomIndicator] = useState(false);
+    const [translate, setTranslate] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const lastScrollTime = useRef<number>(0);
+    const zoomIndicatorTimer = useRef<number | undefined>(undefined);
+    const videoSettings = useRef({ muted: true, volume: 1.0 });
+    const dragStart = useRef({ x: 0, y: 0 });
 
     const ext = file.path.split('.').pop()?.toLowerCase() || '';
 
@@ -29,15 +43,20 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
     const isVideo = ['mp4', 'webm', 'ogg'].includes(ext);
     const isAudio = ['mp3', 'wav', 'ogg'].includes(ext);
     const isText = ['txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'json', 'css', 'html', 'rs', 'py', 'log', 'ini', 'cfg', 'csv'].includes(ext);
+    const isZoomable = isImage || isVideo;
 
+    // Reset state when file changes
     useEffect(() => {
         let isMounted = true;
 
-        // Reset state when file changes
         setIsLoading(true);
         setTextContent(null);
         setError(null);
         setIsTruncated(false);
+        setScale(1.0);
+        setShowZoomIndicator(false);
+        setTranslate({ x: 0, y: 0 });
+        setIsDragging(false);
 
         const loadContent = async () => {
             if (isText) {
@@ -53,7 +72,6 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
                     if (isMounted) setIsLoading(false);
                 }
             } else {
-                // Images and Media don't need explicit loading through rust for base V1, browser handles it via asset/src
                 setIsLoading(false);
             }
         };
@@ -69,24 +87,82 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
         };
     }, [file.path, isText, file.is_dir]);
 
+    const triggerZoomIndicator = useCallback(() => {
+        setShowZoomIndicator(true);
+        if (zoomIndicatorTimer.current) window.clearTimeout(zoomIndicatorTimer.current);
+        zoomIndicatorTimer.current = window.setTimeout(() => {
+            setShowZoomIndicator(false);
+        }, 1200);
+    }, []);
+
     // Handle click outside to close
     const handleBackdropClick = (e: React.MouseEvent) => {
+        // Prevent closing if we are currently dragging a zoomed image
+        if (isDragging) return;
+
         if (e.target === e.currentTarget || e.target === containerRef.current) {
             onClose();
         }
     };
+
+    // Helper to calculate delta instead of absolute position for smooth panning
+    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+        if (!isDragging || scale <= 1) return;
+
+        const dx = e.clientX - dragStart.current.x;
+        const dy = e.clientY - dragStart.current.y;
+
+        setTranslate({ x: dx, y: dy });
+    }, [isDragging, scale]);
+
+    const handleMouseUp = useCallback(() => {
+        if (isDragging) setIsDragging(false);
+    }, [isDragging]);
+
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        // Only start drag if clicking on the media itself, and we are zoomed
+        if (scale > 1 && isZoomable) {
+            if (e.target instanceof HTMLImageElement || e.target instanceof HTMLVideoElement) {
+                e.preventDefault(); // Prevent default image drag
+                setIsDragging(true);
+                dragStart.current = {
+                    x: e.clientX - translate.x,
+                    y: e.clientY - translate.y
+                };
+            }
+        }
+    }, [scale, isZoomable, translate]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 e.preventDefault();
                 e.stopPropagation();
-                onClose();
+                if (scale !== 1.0) {
+                    setScale(1.0);
+                    setTranslate({ x: 0, y: 0 });
+                    triggerZoomIndicator();
+                } else {
+                    onClose();
+                }
+            } else if (e.key === 'Delete') {
+                e.preventDefault();
+                e.stopPropagation();
+                handleDelete(e as any);
             }
         };
         window.addEventListener('keydown', handleKeyDown, { capture: true });
         return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-    }, [onClose]);
+    }, [onClose, scale, triggerZoomIndicator, file.path]);
+
+    const handleDelete = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await onDelete();
+        } catch (error) {
+            console.error("Error deleting file:", error);
+        }
+    };
 
     const getFileIcon = (fileName: string, isDir: boolean) => {
         if (isDir) return '📁';
@@ -100,7 +176,20 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
     };
 
     const handleWheel = (e: React.WheelEvent) => {
-        if (isText) return; // Allow normal scrolling for text
+        // Ctrl+Scroll: zoom for images and videos
+        if (e.ctrlKey && isZoomable) {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
+            setScale(prev => {
+                const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, parseFloat((prev + delta).toFixed(1))));
+                if (next === 1.0) {
+                    setTranslate({ x: 0, y: 0 });
+                }
+                return next;
+            });
+            triggerZoomIndicator();
+            return;
+        }
 
         const now = Date.now();
         if (now - lastScrollTime.current < 150) return; // Throttle to prevent skipping multiple files
@@ -120,13 +209,13 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
         }
 
         if (isLoading) {
-            return <div className="text-white/50 text-xl animate-pulse">Loading preview...</div>;
+            return <div className="text-white/50 text-xl animate-pulse">{t('preview.loading')}</div>;
         }
 
         if (error) {
             return (
                 <div className="text-red-400 bg-red-400/10 p-6 rounded-lg border border-red-400/20">
-                    <h3 className="text-lg font-bold mb-2">Preview Error</h3>
+                    <h3 className="text-lg font-bold mb-2">{t('preview.error_title')}</h3>
                     <p>{error}</p>
                 </div>
             );
@@ -138,7 +227,18 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
                 <img
                     src={src}
                     alt={file.name}
-                    className="max-w-full max-h-full object-contain rounded drop-shadow-2xl"
+                    className="rounded drop-shadow-2xl"
+                    style={{
+                        transform: `scale(${scale}) translate(${translate.x / scale}px, ${translate.y / scale}px)`,
+                        transformOrigin: 'center center',
+                        transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain',
+                        outline: 'none',
+                        cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
+                    }}
+                    draggable={false}
                 />
             );
         }
@@ -150,7 +250,27 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
                     src={src}
                     controls
                     autoPlay
-                    className="max-w-full max-h-[85vh] rounded drop-shadow-2xl bg-black/50"
+                    loop
+                    onVolumeChange={(e) => {
+                        videoSettings.current.muted = e.currentTarget.muted;
+                        videoSettings.current.volume = e.currentTarget.volume;
+                    }}
+                    ref={(el) => {
+                        if (el) {
+                            el.muted = videoSettings.current.muted;
+                            el.volume = videoSettings.current.volume;
+                        }
+                    }}
+                    className="rounded drop-shadow-2xl bg-black/50"
+                    style={{
+                        transform: `scale(${scale}) translate(${translate.x / scale}px, ${translate.y / scale}px)`,
+                        transformOrigin: 'center center',
+                        transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                        maxWidth: '100%',
+                        maxHeight: '85vh',
+                        outline: 'none',
+                        cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
+                    }}
                 />
             );
         }
@@ -161,20 +281,20 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
                 <div className="bg-white/5 p-8 rounded-xl border border-white/10 backdrop-blur-md flex flex-col items-center gap-6 min-w-[300px]">
                     <div className="text-6xl">🎵</div>
                     <p className="text-white font-medium text-lg leading-tight text-center break-all">{file.name}</p>
-                    <audio src={src} controls autoPlay className="w-full" />
+                    <audio src={src} controls autoPlay loop className="w-full" />
                 </div>
             );
         }
 
         if (isText && textContent !== null) {
             return (
-                <div className="w-full max-w-5xl h-full max-h-[85vh] flex flex-col bg-[#1e1e1e] rounded-xl border border-white/10 shadow-2xl overflow-hidden cursor-default" onClick={(e) => e.stopPropagation()}>
+                <div className="w-full max-w-5xl h-full max-h-[85vh] flex flex-col bg-[#1e1e1e] rounded-xl border border-white/10 shadow-2xl overflow-hidden cursor-default" onClick={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
                     <div className="bg-black/40 border-b border-white/5 px-4 py-3 flex justify-between items-center text-sm font-mono text-white/70">
                         <span className="truncate">{file.name}</span>
-                        {isTruncated && <span className="text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded text-xs">Preview Truncated</span>}
+                        {isTruncated && <span className="text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded text-xs">{t('preview.truncated')}</span>}
                     </div>
                     <div className="flex-1 overflow-auto p-4 text-white/90 font-mono text-sm leading-relaxed whitespace-pre-wrap">
-                        {textContent || <span className="text-white/30 italic">Empty file</span>}
+                        {textContent || <span className="text-white/30 italic">{t('preview.empty_file')}</span>}
                     </div>
                 </div>
             );
@@ -191,17 +311,24 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
 
             <div className="w-full space-y-3 mt-4 text-sm text-white/70">
                 <div className="flex justify-between border-b border-white/5 pb-2">
-                    <span className="text-white/50">Type</span>
-                    <span>{f.file_type}</span>
+                    <span className="text-white/50">{t('preview.type')}</span>
+                    <span>{file.is_dir
+                        ? t('files.folder')
+                        : file.is_shortcut
+                            ? t('preview.shortcut')
+                            : file.file_type.endsWith(' File')
+                                ? `${file.file_type.replace(' File', '')} ${t('files.file').toLowerCase()}`
+                                : file.file_type === 'File' ? t('files.file') : file.file_type
+                    }</span>
                 </div>
                 {!f.is_dir && (
                     <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-white/50">Size</span>
+                        <span className="text-white/50">{t('preview.size')}</span>
                         <span>{f.formatted_size}</span>
                     </div>
                 )}
                 <div className="flex justify-between pb-2">
-                    <span className="text-white/50">Modified</span>
+                    <span className="text-white/50">{t('preview.modified')}</span>
                     <span>{f.modified_at}</span>
                 </div>
             </div>
@@ -211,17 +338,43 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate }
     return (
         <div
             className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-8 animate-in fade-in duration-200"
-            onMouseDown={handleBackdropClick}
+            onMouseDown={(e) => {
+                handleMouseDown(e);
+                handleBackdropClick(e);
+            }}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
             onWheel={handleWheel}
         >
             <div
                 ref={containerRef}
-                className="relative flex items-center justify-center w-full h-full animate-in zoom-in-95 duration-200"
-                onMouseDown={handleBackdropClick}
+                className="relative flex items-center justify-center w-full h-full animate-in zoom-in-95 duration-200 overflow-hidden"
             >
-                <div className="absolute top-0 left-0 text-white/90 font-medium text-lg drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] pointer-events-none select-none z-10 px-4 py-2 bg-black/20 rounded-lg backdrop-blur-md border border-white/10">
-                    {file.name}
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/40 rounded-xl backdrop-blur-md border border-white/10 shadow-xl">
+                    <span className="text-white/90 font-medium text-lg pointer-events-none select-none drop-shadow-md">
+                        {file.name}
+                    </span>
+                    <button
+                        onClick={handleDelete}
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/80 text-white/70 hover:text-white transition-all duration-200 border border-white/5 hover:border-red-400/50 backdrop-blur-sm outline-none"
+                        title={t('preview.move_to_trash')}
+                    >
+                        <Trash size={18} />
+                    </button>
                 </div>
+
+                {/* Zoom indicator */}
+                {isZoomable && (
+                    <div
+                        className="absolute bottom-4 right-4 z-10 px-3 py-1.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg text-white/90 text-sm font-mono select-none pointer-events-none transition-opacity duration-300"
+                        style={{ opacity: showZoomIndicator ? 1 : 0 }}
+                    >
+                        {Math.round(scale * 100)}%
+                        {scale !== 1 && <span className="text-white/40 ml-2 text-xs">{t('preview.esc_to_reset')}</span>}
+                    </div>
+                )}
+
                 {renderContent()}
             </div>
         </div>

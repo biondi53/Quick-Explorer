@@ -1,6 +1,7 @@
 import { useState, useEffect, memo } from 'react';
 import { Download, FileText, Image, HardDrive, ChevronRight, Monitor, Trash2, Trash } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTranslation } from '../i18n/useTranslation';
 
 import { RecycleBinStatus } from '../types';
 
@@ -37,6 +38,7 @@ const formatSize = (bytes: number | bigint) => {
 };
 
 const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, quickAccess, width, onClearSelection, recycleBinStatus, onRefreshRecycleBin }: SidebarProps) => {
+    const { t } = useTranslation();
     const [drives, setDrives] = useState<FileEntry[]>([]);
 
     const refreshDrives = () => {
@@ -74,10 +76,16 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
     const pinnedFolders = quickAccess?.pinnedFolders || [];
 
     // Sort and filter system folders
+    const getSystemLabel = (id: string, fallback: string) => {
+        const key = id === 'recycle-bin' ? 'recycle_bin' : id === 'home' ? 'this_pc' : id;
+        const translated = t(`sidebar.${key}`);
+        return translated === `sidebar.${key}` ? fallback : translated; // Return translated or original if not found
+    };
+
     const systemItems = SYSTEM_ORDER
         .map(id => pinnedFolders.find(f => f.id === id))
         .filter((f): f is NonNullable<typeof f> => !!f && f.enabled !== false)
-        .map(f => getSidebarItem(f.id, f.name, getIcon(f.id), f.path));
+        .map(f => getSidebarItem(f.id, getSystemLabel(f.id, f.name), getIcon(f.id), f.path));
 
     // Get custom folders
     const customItems = pinnedFolders
@@ -86,14 +94,16 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
 
     const sections = [
         {
-            label: 'Quick access',
+            label: t('sidebar.pinned'),
             items: [...systemItems, ...customItems]
         },
         {
-            label: 'Devices and drives',
+            label: t('sidebar.drives'),
             items: drives.map(drive => ({
                 id: drive.path,
-                label: drive.name,
+                label: drive.name.includes('Local Disk')
+                    ? drive.name.replace('Local Disk', t('sidebar.local_disk'))
+                    : drive.name,
                 icon: <HardDrive size={18} />,
                 path: drive.path,
                 disk_info: drive.disk_info
@@ -178,7 +188,7 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
                                                     />
                                                 </div>
                                                 <div className="flex justify-between items-center text-[11px] text-[var(--text-dim)] font-medium leading-none">
-                                                    <span>{formatSize((item as any).disk_info.available_space)} free</span>
+                                                    <span>{formatSize((item as any).disk_info.available_space)} {t('files.free')}</span>
                                                     <span>{Math.floor((Number((item as any).disk_info.total_space - (item as any).disk_info.available_space) / Number((item as any).disk_info.total_space)) * 100)}%</span>
                                                 </div>
                                             </div>

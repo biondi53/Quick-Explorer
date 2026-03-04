@@ -1,3 +1,15 @@
+# 🚀 Quick Explorer v0.1.21
+*Changelog - March 3, 2026*
+
+## ✨ Adaptive UI & Complete Localization
+- **Adaptive Compact Toolbar**: Implemented a smart toolbar that automatically hides labels in small windows, ensuring a clean and usable interface even on narrow screens.
+- **Robust Language Switching**: Solidified the transition between English, Spanish, and "Automatic" modes. Fixed a critical bug where the adaptive logic would desync after switching to Automatic.
+- **🌍 Full Localized Types**: All file types (Folder, File, Shortcut) and drive labels (Local Disk) are now fully translated in every panel, providing a seamless native experience in both languages.
+- **Seamless QuickPreview**: The Spacebar viewer now automatically skips folders, allowing you to browse through actual files with zero interruptions.
+- **🎨 Visual Polish**: Refined toolbar animations and cleaned up legacy browser borders for a more premium, high-end feel.
+
+---
+
 # 🚀 Quick Explorer v0.1.20
 *Changelog - March 3, 2026*
 
@@ -185,4 +197,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.20*
+*Quick Explorer Project © 2026 - Versión 0.1.21*
