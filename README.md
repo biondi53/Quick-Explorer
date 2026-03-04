@@ -15,7 +15,26 @@ Developed with ❤️ using **Antigravity**.
 ### 🛡️ Rock-Solid Windows Integration
 - **Enhanced Windows Integration**: Optimized for stability during heavy Windows Shell operations.
 - **Native Inbound Drag & Drop**: Intercepts files directly from the OS using a custom Rust-based overlay, bypassing browser limitations.
+- **High-Fidelity Feedback**: Supports native Windows drag images with real thumbnails and smart "+N" count badges for multi-file operations.
 - **Instant Shell Previews**: High-speed thumbnail generation and metadata fetching for images and videos.
+- **Native Drive Labels**: Correctly identifies and displays real Volume Labels (e.g., "Main SSD") for your internal and external drives.
+
+### 📦 Native Archive Support
+- **Integrated Extraction**: Built-in, high-performance extraction for **ZIP** and **7Z** archives without external dependencies.
+- **Taskbar Progress**: Visual real-time extraction progress directly on the native Windows Taskbar.
+- **Smart Flattening**: Automatically detects single-root archives to prevent unnecessary folder nesting.
+
+### 🌐 Intelligent Localization (i18n)
+- **Seamless Languages**: Full support for English, Spanish, and **Automatic** detection based on system settings.
+- **Deep Translation**: Every UI element, including file types (Folder, Shortcut) and drive labels, adapts instantly to your language.
+
+### 🔍 QuickPreview Overlay
+- **One-Key Discovery**: Press `Spacebar` to instantly preview media and documents without opening external apps.
+- **Smart Navigation Filter**: Effortlessly scroll through your files while the viewer automatically skips folders.
+
+### 🎨 Modern Adaptive UI
+- **Smart Toolbar**: The interface intelligently compacts itself (hiding labels) when space is limited, ensuring a clean look on any window size.
+- **Glassmorphism Aesthetic**: A premium design featuring fluid animations, glow effects, and translucent materials for a state-of-the-art feel.
 
 ### ⚡ Performance First
 - **Async Architecture**: Non-blocking folder listing and asset loading.
