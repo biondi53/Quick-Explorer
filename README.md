@@ -10,7 +10,6 @@ Developed with ❤️ using **Antigravity**.
 
 ### 📂 Advanced Tab System
 - **Dynamic Multi-tabbing**: Open and manage multiple locations with ease.
-- **Drag & Drop Reordering**: Organize your workspace with fluid, animated tab reordering.
 - **Auto-Scroll Intelligence**: Smart tab visibility management for complex workflows.
 
 ### 🛡️ Rock-Solid Windows Integration
