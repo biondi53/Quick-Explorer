@@ -63,6 +63,8 @@ export interface Translations {
         open_terminal: string;
         open_with: string;
         empty_recycle_bin: string;
+        move_to: string;
+        paste_and_go: string;
     };
     toolbar: {
         new_folder: string;
@@ -101,6 +103,7 @@ export interface Translations {
         select_prompt: string;
         name: string;
         type: string;
+        size: string;
         loading: string;
         error_title: string;
         truncated: string;
@@ -108,6 +111,7 @@ export interface Translations {
         move_to_trash: string;
         esc_to_reset: string;
         shortcut: string;
+        rotate: string;
     };
     settings: {
         title: string;
@@ -117,8 +121,8 @@ export interface Translations {
         auto: string;
         spanish: string;
         english: string;
-        behavior: string;
-        behavior_desc: string;
+        general: string;
+        general_desc: string;
         show_hidden: string;
         auto_search: string;
         focus_new_tab: string;

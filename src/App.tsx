@@ -40,6 +40,7 @@ import ContextMenu from './components/ContextMenu';
 import SettingsPanel from './components/SettingsPanel';
 import TabBar from './components/TabBar';
 import QuickPreview from './components/QuickPreview';
+import InputContextMenu from './components/InputContextMenu';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
 import './App.css';
 
@@ -637,6 +638,7 @@ export default function App() {
   }, [fetchRecycleBinStatus, refreshCurrentTab]);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, file: FileEntry | null, fromSidebar?: boolean } | null>(null);
+  const [inputContextMenu, setInputContextMenu] = useState<{ x: number, y: number, target: HTMLInputElement | HTMLTextAreaElement } | null>(null);
   const [isEditingPath, setIsEditingPath] = useState(false);
   const [pathInput, setPathInput] = useState('');
   const [canPaste, setCanPaste] = useState(false);
@@ -1112,10 +1114,9 @@ export default function App() {
   const handlePathSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (pathInput.trim()) {
-      navigateTo(pathInput.trim());
-    } else {
-      setIsEditingPath(false);
+      navigateTo(pathInput.trim(), true);
     }
+    setIsEditingPath(false);
   };
 
   const handlePinFolder = useCallback((folder: FileEntry) => {
@@ -1555,11 +1556,67 @@ export default function App() {
 
   useEffect(() => {
     const handleDefaultContextMenu = (e: MouseEvent) => {
+      // If we clicked on an input, show our custom context menu instead of native chromium menu
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        e.preventDefault();
+        setInputContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          target: e.target
+        });
+        return;
+      }
       e.preventDefault();
     };
     window.addEventListener('contextmenu', handleDefaultContextMenu);
     return () => window.removeEventListener('contextmenu', handleDefaultContextMenu);
   }, []);
+
+  const handleInputContextMenuAction = async (action: 'cut' | 'copy' | 'paste' | 'select-all' | 'paste-and-go') => {
+    if (!inputContextMenu) return;
+    const { target } = inputContextMenu;
+
+    // We must focus the input first so execCommand works on its selection
+    target.focus();
+
+    if (action === 'select-all') {
+      target.select();
+    } else if (action === 'copy') {
+      document.execCommand('copy');
+    } else if (action === 'cut') {
+      document.execCommand('cut');
+    } else if (action === 'paste') {
+      try {
+        const text = await invoke<string>('get_clipboard_text');
+        const start = target.selectionStart || 0;
+        const end = target.selectionEnd || 0;
+        const value = target.value;
+        const newValue = value.substring(0, start) + text + value.substring(end);
+
+        // Use native value setter for React onChange to fire
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        nativeInputValueSetter?.call(target, newValue);
+
+        const event = new Event('input', { bubbles: true });
+        target.dispatchEvent(event);
+
+        // Restore cursor position
+        setTimeout(() => {
+          target.setSelectionRange(start + text.length, start + text.length);
+        }, 0);
+      } catch (err) {
+        console.error("Failed to paste from clipboard", err);
+      }
+    } else if (action === 'paste-and-go') {
+      try {
+        const text = await invoke<string>('get_clipboard_text');
+        navigateTo(text, true);
+        setIsEditingPath(false);
+      } catch (err) {
+        console.error("Failed to paste and go", err);
+      }
+    }
+  };
 
   return (
     <div className="flex h-screen w-screen bg-[var(--bg-deep)] text-[var(--text-main)] overflow-hidden select-none mica-container">
@@ -1662,11 +1719,13 @@ export default function App() {
                 {isEditingPath ? (
                   <form onSubmit={handlePathSubmit} className="flex-1 h-full">
                     <input
+                      id="address-bar-input"
                       autoFocus
                       className="w-full h-full bg-transparent text-sm text-white outline-none font-mono"
                       value={pathInput}
                       onChange={(e) => setPathInput(e.target.value)}
                       onBlur={() => setIsEditingPath(false)}
+                      onFocus={(e) => e.currentTarget.select()}
                     />
                   </form>
                 ) : (
@@ -2262,6 +2321,17 @@ export default function App() {
           onClose={() => setShowQuickPreview(false)}
           onNavigate={handleQuickPreviewNavigate}
           onDelete={handleQuickPreviewDelete}
+        />
+      )}
+
+      {/* Custom Input Context Menu */}
+      {inputContextMenu && (
+        <InputContextMenu
+          x={inputContextMenu.x}
+          y={inputContextMenu.y}
+          onClose={() => setInputContextMenu(null)}
+          onAction={handleInputContextMenuAction}
+          showPasteAndGo={inputContextMenu.target.id === 'address-bar-input'}
         />
       )}
     </div>

@@ -1,3 +1,17 @@
+# 🚀 Quick Explorer v0.1.22
+*Changelog - March 4, 2026*
+
+## ✨ Navigation Stability & Input Refinement
+- **🛡️ Smart History Jump**: Enhanced Back/Forward navigation to automatically skip deleted folders. It now also skips redundant paths (duplicates in history), ensuring you always land on a different location.
+- **✨ Flicker-Free Address Bar**: The address bar now waits for a successful folder load before updating its text, providing a cleaner and more professional UI during rapid navigation.
+- **🖱️ Native Input Context Menus**: Implemented a bespoke context menu (Cut, Copy, Paste, Select All) for all input fields. 
+- **⚡ Paste and Go**: Added a specialized "Paste and Go" option to the address bar for instant navigation from the clipboard.
+- **🛡️ Silent Revert**: Invalid manual path entries now silently revert to the previous valid location instead of showing technical errors.
+- **⌨️ Auto-Selection**: Clicking the address bar now automatically selects all text for immediate replacement.
+- **🔄 Race Condition Guards**: Implemented synchronous ref updates and safety timeouts to eliminate "infinite loading" hangs during fast history jumps.
+
+---
+
 # 🚀 Quick Explorer v0.1.21
 *Changelog - March 3, 2026*
 
@@ -197,4 +211,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.21*
+*Quick Explorer Project © 2026 - Versión 0.1.22*

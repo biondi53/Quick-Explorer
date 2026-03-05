@@ -1,5 +1,5 @@
-import { useMemo, memo, useState, useCallback } from 'react';
-import { File, Folder, Info, Eye, PlayCircle, Loader2, Copy, Check } from 'lucide-react';
+import { useMemo, memo } from 'react';
+import { File, Folder, Info, Eye, PlayCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 
 import { useFilePreview } from '../hooks/useFilePreview';
@@ -13,21 +13,10 @@ interface InfoPanelProps {
 
 const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
     const { t } = useTranslation();
-    const [copied, setCopied] = useState(false);
-
-    // Memoize to prevent recalculation on every render
     const firstSelected = useMemo(() =>
         selectedFiles.length === 1 ? selectedFiles[0] : null,
         [selectedFiles]
     );
-
-    const copyToClipboard = useCallback(() => {
-        if (firstSelected?.path) {
-            navigator.clipboard.writeText(firstSelected.path);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        }
-    }, [firstSelected?.path]);
 
     // ... (rest of useMemos and hooks)
 
@@ -112,24 +101,6 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                     <div className="space-y-1">
                         <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.name')}</label>
                         <div className="text-sm font-bold text-zinc-100 break-all">{selectedFile.name}</div>
-                    </div>
-                    <div className="space-y-1 group/path">
-                        <div className="flex items-center gap-2">
-                            <label className="text-[10px] font-black text-[var(--accent-secondary)] uppercase tracking-[0.2em]">{t('preview.path')}</label>
-                            <button
-                                onClick={copyToClipboard}
-                                className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-[var(--accent-primary)] transition-all duration-200"
-                                title={t('common.copy' as any)}
-                            >
-                                {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                            </button>
-                        </div>
-                        <div
-                            onClick={copyToClipboard}
-                            className="text-[10px] font-mono text-zinc-400 break-all p-3 bg-black/40 rounded-xl border border-white/10 shadow-inner leading-relaxed cursor-pointer hover:border-[var(--accent-primary)]/30 transition-colors group-hover/path:text-zinc-300"
-                        >
-                            {selectedFile.path}
-                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-x-8 gap-y-6">
                         {/* Left Column */}

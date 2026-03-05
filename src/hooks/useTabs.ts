@@ -23,10 +23,11 @@ const createTab = (path: string = '', defaultSort?: SortConfig): Tab => ({
     renamingPath: null,
     generationId: 0,
     scrollIndex: 0,
+    lastLoadTime: 0,
 });
 
 export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean, quickAccessConfig: QuickAccessConfig) => {
-    const [tabs, setTabs] = useState<Tab[]>(() => {
+    const [tabs, setTabsState] = useState<Tab[]>(() => {
         const saved = localStorage.getItem('speedexplorer-tabs');
         try {
             if (saved) {
@@ -41,15 +42,30 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         return [createTab('', initialSortConfig)];
     });
 
-    const [activeTabId, setActiveTabId] = useState<string>(() => {
+    const [activeTabId, setActiveTabIdState] = useState<string>(() => {
         return localStorage.getItem('speedexplorer-active-tab') || tabs[0]?.id || '';
     });
 
+    const tabsRef = useRef<Tab[]>(tabs);
+    const activeTabIdRef = useRef<string>(activeTabId);
     const lastNavigationTimeRef = useRef(0);
-    const tabsRef = useRef(tabs);
-    const activeTabIdRef = useRef(activeTabId);
 
-    // Keep refs in sync with state for event listeners / async callbacks
+    const setTabs = useCallback((update: Tab[] | ((prev: Tab[]) => Tab[])) => {
+        setTabsState(prev => {
+            const next = typeof update === 'function' ? update(prev) : update;
+            tabsRef.current = next;
+            return next;
+        });
+    }, []);
+
+    const setActiveTabId = useCallback((update: string | ((prev: string) => string)) => {
+        setActiveTabIdState(prev => {
+            const next = typeof update === 'function' ? update(prev) : update;
+            activeTabIdRef.current = next;
+            return next;
+        });
+    }, []);
+
     useEffect(() => {
         tabsRef.current = tabs;
     }, [tabs]);
@@ -80,7 +96,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         setTabs(prev => prev.map(t => t.id === tabId ? { ...t, ...updates } : t));
     }, []);
 
-    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[], expectedGenerationId?: number) => {
+    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[], expectedGenerationId?: number, revertState?: Partial<Tab>, retryDirection?: 'back' | 'forward' | null, jumpOriginPath?: string) => {
         // If expectedGenerationId is provided, we only want to proceed if it matches the current tab's ID.
         // However, we can't easily check the *current* state inside this callback before the async call without refs or functional updates.
         // But the robust check MUST happen AFTER the async call.
@@ -92,21 +108,34 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         const targetTab = tabsRef.current.find(t => t.id === tabId);
         const currentGenId = expectedGenerationId !== undefined ? expectedGenerationId : (targetTab?.generationId ?? 0);
 
-        updateTab(tabId, { loading: true, error: null });
+        updateTab(tabId, { loading: true, error: null, lastLoadTime: Date.now() });
+
+        // Safety Timeout: If loading takes more than 15 seconds, force clear it.
+        const safetyTimeout = setTimeout(() => {
+            setTabs(prev => prev.map(t => {
+                if (t.id === tabId && t.loading && t.generationId === currentGenId) {
+                    console.warn(`[Navigation] Safety timeout reached for ${path}. Forcing loading to false.`);
+                    return { ...t, loading: false };
+                }
+                return t;
+            }));
+        }, 15000);
 
         try {
             const result = await invoke<FileEntry[]>('list_files', { path, showHidden: showHidden ?? showHiddenFiles });
+            clearTimeout(safetyTimeout);
 
-            // ROBUSTNESS CHECK: Capture the LATEST version of the tab to check generationId
             setTabs(prev => {
                 const currentTabState = prev.find(t => t.id === tabId);
-                // If tab is gone, or generationId has changed (user navigated again), DISCARD result.
-                if (!currentTabState || currentTabState.generationId !== currentGenId) {
-                    console.log(`[Navigation] Discarding stale response for ${path} (Gen: ${currentGenId} vs Current: ${currentTabState?.generationId})`);
+                if (!currentTabState) return prev;
+
+                // ROBUSTNESS CHECK: If a NEWER request is already active, discard this response.
+                if (currentTabState.generationId > currentGenId) {
+                    console.log(`[Navigation] Discarding stale success for ${path} (Pending: ${currentTabState.generationId} vs Completed: ${currentGenId})`);
                     return prev;
                 }
 
-                // If we are here, the result is valid for the current UI state.
+                // If we are here, we are the current (or most recent) request.
                 let selectedFiles: FileEntry[] = [];
                 let lastSelectedFile: FileEntry | null = null;
 
@@ -116,33 +145,78 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                     if (selectedFiles.length > 0) {
                         lastSelectedFile = selectedFiles[selectedFiles.length - 1];
                     }
-                } else {
-                    if (currentTabState.selectedFiles.length > 0) {
-                        const currentSelectedPaths = currentTabState.selectedFiles.map(f => normalizePath(f.path));
-                        selectedFiles = result.filter(f => currentSelectedPaths.includes(normalizePath(f.path)));
-                        if (selectedFiles.length > 0) {
-                            const lastPath = currentTabState.lastSelectedFile ? normalizePath(currentTabState.lastSelectedFile.path) : null;
-                            lastSelectedFile = selectedFiles.find(f => normalizePath(f.path) === lastPath) || selectedFiles[0];
-                        }
+                } else if (currentTabState.selectedFiles.length > 0) {
+                    const currentSelectedPaths = currentTabState.selectedFiles.map(f => normalizePath(f.path));
+                    selectedFiles = result.filter(f => currentSelectedPaths.includes(normalizePath(f.path)));
+                    if (selectedFiles.length > 0) {
+                        const lastPath = currentTabState.lastSelectedFile ? normalizePath(currentTabState.lastSelectedFile.path) : null;
+                        lastSelectedFile = selectedFiles.find(f => normalizePath(f.path) === lastPath) || selectedFiles[0];
                     }
                 }
 
                 return prev.map(t => t.id === tabId ? {
                     ...t,
                     files: result,
-                    path, // Enforce path sync with data
+                    path,
                     selectedFiles,
                     lastSelectedFile,
                     loading: false
                 } : t);
             });
-
         } catch (err) {
+            clearTimeout(safetyTimeout);
             setTabs(prev => {
                 const currentTabState = prev.find(t => t.id === tabId);
-                if (!currentTabState || currentTabState.generationId !== currentGenId) {
+                if (!currentTabState || currentTabState.generationId > currentGenId) {
                     return prev;
                 }
+
+                if (!retryDirection && revertState) {
+                    return prev.map(t => t.id === tabId ? { ...t, ...revertState, error: null, loading: false } : t);
+                }
+
+                const direction = retryDirection;
+
+                if (direction === 'back') {
+                    let nextIndex = currentTabState.historyIndex - 1;
+
+                    // Skip not only the failed path but also any path identical to where we started.
+                    // This handles the [A, B, C, D, C] case where going Back from C over deleted D lands on C again.
+                    while (nextIndex >= 0 && normalizePath(currentTabState.history[nextIndex]) === normalizePath(jumpOriginPath || '')) {
+                        console.log(`[Nav] Skipping redundant path in history jump: ${currentTabState.history[nextIndex]} at index ${nextIndex}`);
+                        nextIndex--;
+                    }
+
+                    if (nextIndex >= 0) {
+                        const nextPath = currentTabState.history[nextIndex];
+                        const nextGenId = currentTabState.generationId + 1;
+                        console.log(`[Nav] Jump Back: "${path}" (idx ${currentTabState.historyIndex}) failed → trying "${nextPath}" (idx ${nextIndex})`);
+                        setTimeout(() => loadFilesForTab(tabId, nextPath, undefined, undefined, nextGenId, undefined, 'back', jumpOriginPath), 0);
+                        return prev.map(t => t.id === tabId ? { ...t, historyIndex: nextIndex, path: nextPath, generationId: nextGenId, error: null } : t);
+                    } else {
+                        const nextGenId = currentTabState.generationId + 1;
+                        setTimeout(() => loadFilesForTab(tabId, '', undefined, undefined, nextGenId, undefined, null), 0);
+                        return prev.map(t => t.id === tabId ? { ...t, path: '', generationId: nextGenId, error: null } : t);
+                    }
+                } else if (direction === 'forward') {
+                    let nextIndex = currentTabState.historyIndex + 1;
+
+                    while (nextIndex < currentTabState.history.length && normalizePath(currentTabState.history[nextIndex]) === normalizePath(jumpOriginPath || '')) {
+                        console.log(`[Nav] Skipping redundant path in history jump: ${currentTabState.history[nextIndex]} at index ${nextIndex}`);
+                        nextIndex++;
+                    }
+
+                    if (nextIndex < currentTabState.history.length) {
+                        const nextPath = currentTabState.history[nextIndex];
+                        const nextGenId = currentTabState.generationId + 1;
+                        console.log(`[Nav] Jump Forward: "${path}" (idx ${currentTabState.historyIndex}) failed → trying "${nextPath}" (idx ${nextIndex})`);
+                        setTimeout(() => loadFilesForTab(tabId, nextPath, undefined, undefined, nextGenId, undefined, 'forward', jumpOriginPath), 0);
+                        return prev.map(t => t.id === tabId ? { ...t, historyIndex: nextIndex, path: nextPath, generationId: nextGenId, error: null } : t);
+                    } else {
+                        return prev.map(t => t.id === tabId ? { ...t, loading: false, error: null } : t);
+                    }
+                }
+
                 return prev.map(t => t.id === tabId ? { ...t, error: String(err), loading: false } : t);
             });
         }
@@ -157,72 +231,93 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         });
     }, [loadFilesForTab]);
 
-    const navigateTo = useCallback((path: string) => {
+    const navigateTo = useCallback((path: string, isManual: boolean = false) => {
         if (!currentTab) return;
 
-        // OPTIMISTIC UPDATE: Update UI path and history immediately.
-        // INCREMENT GENERATION: Invalidate any pending old requests.
+        const isSamePath = normalizePath(path) === normalizePath(currentTab.path);
         const nextGenId = currentTab.generationId + 1;
         lastNavigationTimeRef.current = Date.now();
 
-        const newHistory = currentTab.history.slice(0, currentTab.historyIndex + 1);
-        newHistory.push(path);
-
-        updateTab(currentTab.id, {
-            history: newHistory,
-            historyIndex: newHistory.length - 1,
+        // If duplicate path, we allow the load (for retry/refresh) but skip history entry
+        const updates: Partial<Tab> = {
             searchQuery: '',
             renamingPath: null,
-            path: path, // Optimistic update
+            path: path,
             generationId: nextGenId,
-            selectedFiles: [], // Clear selection immediately on nav
+            selectedFiles: [],
             lastSelectedFile: null,
-            scrollIndex: 0
-        });
+            scrollIndex: 0,
+            error: null
+        };
 
-        loadFilesForTab(currentTab.id, path, undefined, undefined, nextGenId);
+        if (!isSamePath) {
+            const newHistory = currentTab.history.slice(0, currentTab.historyIndex + 1);
+            newHistory.push(path);
+            updates.history = newHistory;
+            updates.historyIndex = newHistory.length - 1;
+        }
+
+        const revertState = isManual ? {
+            path: currentTab.path,
+            history: currentTab.history,
+            historyIndex: currentTab.historyIndex,
+            generationId: nextGenId
+        } : undefined;
+
+        updateTab(currentTab.id, updates);
+        loadFilesForTab(currentTab.id, path, undefined, undefined, nextGenId, revertState);
     }, [currentTab, updateTab, loadFilesForTab]);
 
-    const goBack = useCallback(() => {
-        if (!currentTab || currentTab.historyIndex <= 0) return;
+    const goBack = useCallback((isRetry: any = false) => {
+        const tab = tabsRef.current.find(t => t.id === activeTabIdRef.current);
+        if (!tab) return;
 
-        const newIndex = currentTab.historyIndex - 1;
-        const newPath = currentTab.history[newIndex];
-        const nextGenId = currentTab.generationId + 1;
+        if (tab.historyIndex <= 0) {
+            if (isRetry === true) updateTab(tab.id, { loading: false });
+            return;
+        }
+
+        const newIndex = tab.historyIndex - 1;
+        const newPath = tab.history[newIndex];
+        const nextGenId = tab.generationId + 1;
         lastNavigationTimeRef.current = Date.now();
 
-        updateTab(currentTab.id, {
+        updateTab(tab.id, {
             historyIndex: newIndex,
             searchQuery: '',
-            path: newPath, // Optimistic
             generationId: nextGenId,
             selectedFiles: [],
             lastSelectedFile: null,
             scrollIndex: 0
         });
 
-        loadFilesForTab(currentTab.id, newPath, undefined, undefined, nextGenId);
-    }, [currentTab, updateTab, loadFilesForTab]);
+        loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, undefined, 'back', tab.path);
+    }, [updateTab, loadFilesForTab]);
 
-    const goForward = useCallback(() => {
-        if (!currentTab || currentTab.historyIndex >= currentTab.history.length - 1) return;
+    const goForward = useCallback((isRetry: any = false) => {
+        const tab = tabsRef.current.find(t => t.id === activeTabIdRef.current);
+        if (!tab) return;
 
-        const newIndex = currentTab.historyIndex + 1;
-        const newPath = currentTab.history[newIndex];
-        const nextGenId = currentTab.generationId + 1;
+        if (tab.historyIndex >= tab.history.length - 1) {
+            if (isRetry === true) updateTab(tab.id, { loading: false });
+            return;
+        }
+
+        const newIndex = tab.historyIndex + 1;
+        const newPath = tab.history[newIndex];
+        const nextGenId = tab.generationId + 1;
         lastNavigationTimeRef.current = Date.now();
 
-        updateTab(currentTab.id, {
+        updateTab(tab.id, {
             historyIndex: newIndex,
             searchQuery: '',
-            path: newPath,
             generationId: nextGenId,
             selectedFiles: [],
             lastSelectedFile: null,
             scrollIndex: 0
         });
-        loadFilesForTab(currentTab.id, newPath, undefined, undefined, nextGenId);
-    }, [currentTab, updateTab, loadFilesForTab]);
+        loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, undefined, 'forward', tab.path);
+    }, [updateTab, loadFilesForTab]);
 
     const goUp = useCallback(() => {
         if (!currentTab) return;

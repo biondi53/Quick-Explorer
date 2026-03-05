@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { Trash } from 'lucide-react';
+import { Trash, RotateCw } from 'lucide-react';
 import { FileEntry } from '../types';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -30,12 +30,17 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     const [showZoomIndicator, setShowZoomIndicator] = useState(false);
     const [translate, setTranslate] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
+    const [rotation, setRotation] = useState(0);
+    const [mediaAspect, setMediaAspect] = useState(1);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const lastScrollTime = useRef<number>(0);
     const zoomIndicatorTimer = useRef<number | undefined>(undefined);
     const videoSettings = useRef({ muted: true, volume: 1.0 });
     const dragStart = useRef({ x: 0, y: 0 });
+    const mouseDownPos = useRef({ x: 0, y: 0 });
+    const textContentRef = useRef<HTMLDivElement>(null);
+    const mediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null);
 
     const ext = file.path.split('.').pop()?.toLowerCase() || '';
 
@@ -57,6 +62,8 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         setShowZoomIndicator(false);
         setTranslate({ x: 0, y: 0 });
         setIsDragging(false);
+        setRotation(0);
+        setMediaAspect(1);
 
         const loadContent = async () => {
             if (isText) {
@@ -122,6 +129,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         // Only start drag if clicking on the media itself, and we are zoomed
         if (scale > 1 && isZoomable) {
+            mouseDownPos.current = { x: e.clientX, y: e.clientY };
             if (e.target instanceof HTMLImageElement || e.target instanceof HTMLVideoElement) {
                 e.preventDefault(); // Prevent default image drag
                 setIsDragging(true);
@@ -138,9 +146,10 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             if (e.key === 'Escape') {
                 e.preventDefault();
                 e.stopPropagation();
-                if (scale !== 1.0) {
+                if (scale !== 1.0 || rotation !== 0) {
                     setScale(1.0);
                     setTranslate({ x: 0, y: 0 });
+                    setRotation(0);
                     triggerZoomIndicator();
                 } else {
                     onClose();
@@ -203,7 +212,35 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         }
     };
 
+    const getCompensationScale = () => {
+        if (rotation % 180 === 0) return 1;
+        const cw = window.innerWidth - 64;
+        const ch = window.innerHeight - 110;
+
+        let a = mediaAspect;
+        if (mediaRef.current) {
+            if (mediaRef.current instanceof HTMLImageElement && mediaRef.current.naturalWidth) {
+                a = mediaRef.current.naturalWidth / mediaRef.current.naturalHeight;
+            } else if (mediaRef.current instanceof HTMLVideoElement && mediaRef.current.videoWidth) {
+                a = mediaRef.current.videoWidth / mediaRef.current.videoHeight;
+            }
+        }
+
+        const fit = Math.min(cw / a, ch / 1);
+        const rw = a * fit;
+        const rh = 1 * fit;
+        const rad = (rotation * Math.PI) / 180;
+        const absCos = Math.abs(Math.cos(rad));
+        const absSin = Math.abs(Math.sin(rad));
+        const boundingW = rw * absCos + rh * absSin;
+        const boundingH = rw * absSin + rh * absCos;
+        const scaleX = cw / boundingW;
+        const scaleY = ch / boundingH;
+        return Math.min(1, scaleX, scaleY);
+    };
+
     const renderContent = () => {
+        const compScale = getCompensationScale();
         if (file.is_dir) {
             return renderFallback(file);
         }
@@ -225,11 +262,14 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             const src = convertFileSrc(file.path);
             return (
                 <img
+                    ref={mediaRef as React.Ref<HTMLImageElement>}
                     src={src}
                     alt={file.name}
+                    onLoad={(e) => setMediaAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
                     className="rounded drop-shadow-2xl"
                     style={{
-                        transform: `scale(${scale}) translate(${translate.x / scale}px, ${translate.y / scale}px)`,
+                        height: '100%',
+                        transform: `scale(${scale * compScale}) translate(${translate.x / scale}px, ${translate.y / scale}px) rotate(${rotation}deg)`,
                         transformOrigin: 'center center',
                         transition: isDragging ? 'none' : 'transform 0.1s ease-out',
                         maxWidth: '100%',
@@ -251,6 +291,17 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                     controls
                     autoPlay
                     loop
+                    onClickCapture={(e) => {
+                        if (scale > 1) {
+                            const dx = e.clientX - mouseDownPos.current.x;
+                            const dy = e.clientY - mouseDownPos.current.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            if (distance > 5) {
+                                e.stopPropagation();
+                                e.preventDefault();
+                            }
+                        }
+                    }}
                     onVolumeChange={(e) => {
                         videoSettings.current.muted = e.currentTarget.muted;
                         videoSettings.current.volume = e.currentTarget.volume;
@@ -260,14 +311,18 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                             el.muted = videoSettings.current.muted;
                             el.volume = videoSettings.current.volume;
                         }
+                        mediaRef.current = el;
                     }}
+                    onLoadedMetadata={(e) => setMediaAspect(e.currentTarget.videoWidth / e.currentTarget.videoHeight)}
                     className="rounded drop-shadow-2xl bg-black/50"
                     style={{
-                        transform: `scale(${scale}) translate(${translate.x / scale}px, ${translate.y / scale}px)`,
+                        height: '100%',
+                        objectFit: 'contain',
+                        transform: `scale(${scale * compScale}) translate(${translate.x / scale}px, ${translate.y / scale}px) rotate(${rotation}deg)`,
                         transformOrigin: 'center center',
                         transition: isDragging ? 'none' : 'transform 0.1s ease-out',
                         maxWidth: '100%',
-                        maxHeight: '85vh',
+                        maxHeight: '100%',
                         outline: 'none',
                         cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
                     }}
@@ -288,12 +343,26 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
         if (isText && textContent !== null) {
             return (
-                <div className="w-full max-w-5xl h-full max-h-[85vh] flex flex-col bg-[#1e1e1e] rounded-xl border border-white/10 shadow-2xl overflow-hidden cursor-default" onClick={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}>
-                    <div className="bg-black/40 border-b border-white/5 px-4 py-3 flex justify-between items-center text-sm font-mono text-white/70">
-                        <span className="truncate">{file.name}</span>
+                <div
+                    className="w-full max-w-5xl h-full max-h-[85vh] flex flex-col bg-[#1e1e1e] rounded-xl border border-white/10 shadow-2xl overflow-hidden cursor-default"
+                    onClick={(e) => e.stopPropagation()}
+                    onWheel={(e) => {
+                        if (textContentRef.current) {
+                            const { scrollHeight, clientHeight } = textContentRef.current;
+                            // Only stop propagation (preventing navigation) if there is actual content to scroll
+                            if (scrollHeight > clientHeight) {
+                                e.stopPropagation();
+                            }
+                        }
+                    }}
+                >
+                    <div className="bg-black/40 border-b border-white/5 px-4 py-2 flex justify-end items-center text-sm font-mono text-white/70">
                         {isTruncated && <span className="text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded text-xs">{t('preview.truncated')}</span>}
                     </div>
-                    <div className="flex-1 overflow-auto p-4 text-white/90 font-mono text-sm leading-relaxed whitespace-pre-wrap">
+                    <div
+                        className="flex-1 overflow-auto p-4 text-white/90 font-mono text-sm leading-relaxed whitespace-pre-wrap"
+                        ref={textContentRef}
+                    >
                         {textContent || <span className="text-white/30 italic">{t('preview.empty_file')}</span>}
                     </div>
                 </div>
@@ -337,7 +406,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
     return (
         <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-8 animate-in fade-in duration-200"
+            className="fixed inset-0 z-[9999] overflow-hidden flex items-center justify-center bg-black/60 backdrop-blur-sm p-8 animate-in fade-in duration-200"
             onMouseDown={(e) => {
                 handleMouseDown(e);
                 handleBackdropClick(e);
@@ -347,22 +416,36 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             onMouseLeave={handleMouseUp}
             onWheel={handleWheel}
         >
-            <div
-                ref={containerRef}
-                className="relative flex items-center justify-center w-full h-full animate-in zoom-in-95 duration-200 overflow-hidden"
-            >
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/40 rounded-xl backdrop-blur-md border border-white/10 shadow-xl">
-                    <span className="text-white/90 font-medium text-lg pointer-events-none select-none drop-shadow-md">
-                        {file.name}
-                    </span>
+            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/40 rounded-xl backdrop-blur-md border border-white/10 shadow-xl animate-in zoom-in-95 duration-200">
+                <span className="text-white/90 font-medium text-lg pointer-events-none select-none drop-shadow-md">
+                    {file.name}
+                </span>
+                {isZoomable && (
                     <button
-                        onClick={handleDelete}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/80 text-white/70 hover:text-white transition-all duration-200 border border-white/5 hover:border-red-400/50 backdrop-blur-sm outline-none"
-                        title={t('preview.move_to_trash')}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setRotation(r => r + 90);
+                        }}
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all duration-200 border border-white/5 backdrop-blur-sm outline-none"
+                        title={t('preview.rotate')}
                     >
-                        <Trash size={18} />
+                        <RotateCw size={18} />
                     </button>
-                </div>
+                )}
+                <button
+                    onClick={handleDelete}
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/80 text-white/70 hover:text-white transition-all duration-200 border border-white/5 hover:border-red-400/50 backdrop-blur-sm outline-none"
+                    title={t('preview.move_to_trash')}
+                >
+                    <Trash size={18} />
+                </button>
+            </div>
+
+            <div
+                className="flex-1 w-full h-full flex items-center justify-center pt-20 relative animate-in zoom-in-95 duration-200"
+                ref={containerRef}
+            >
+                {renderContent()}
 
                 {/* Zoom indicator */}
                 {isZoomable && (
@@ -374,8 +457,6 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                         {scale !== 1 && <span className="text-white/40 ml-2 text-xs">{t('preview.esc_to_reset')}</span>}
                     </div>
                 )}
-
-                {renderContent()}
             </div>
         </div>
     );

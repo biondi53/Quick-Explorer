@@ -1,0 +1,41 @@
+
+ RUN  v4.0.17 D:/SpeedExplorer
+
+stdout | src/hooks/useTabs.repro.test.ts > useTabs Hook - Neat Navigation Test > should stay on the current path during the jump and update only once a valid path is found
+[Navigation] Discarding stale success for  (Pending: 5 vs Completed: 0)
+[Navigation] Discarding stale success for C:\nico\pruebas (Pending: 5 vs Completed: 1)
+[Navigation] Discarding stale success for C:\nico\pruebas\new folder (Pending: 5 vs Completed: 2)
+[Navigation] Discarding stale success for C:\nico\pruebas\new folder (Pending: 5 vs Completed: 4)
+[Nav] Skipping redundant path in history jump: C:\nico\pruebas\new folder at index 2
+[Nav] Jump Back: "C:\nico\pruebas\new folder\folder 2" (idx 3) failed ÔåÆ trying "C:\nico\pruebas" (idx 1)
+
+ ÔØ» src/hooks/useTabs.repro.test.ts (1 test | 1 failed) 241ms
+     ├ù should stay on the current path during the jump and update only once a valid path is found 239ms
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ» Failed Tests 1 ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»
+
+ FAIL  src/hooks/useTabs.repro.test.ts > useTabs Hook - Neat Navigation Test > should stay on the current path during the jump and update only once a valid path is found
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ÔØ» src/hooks/useTabs.repro.test.ts:62:51
+     60|         expect(result.current.currentTab.path).toBe('C:\\nico\\pruebasÔÇª
+     61|         expect(result.current.currentTab.historyIndex).toBe(1);
+     62|         expect(result.current.currentTab.loading).toBe(false);
+       |                                                   ^
+     63|     });
+     64| });
+
+ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»ÔÄ»[1/1]ÔÄ»
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  21:56:17
+   Duration  2.24s (transform 73ms, setup 189ms, import 239ms, tests 241ms, environment 1.36s)
+

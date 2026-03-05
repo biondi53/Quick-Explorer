@@ -34,6 +34,7 @@ export interface Tab {
     renamingPath: string | null;
     generationId: number;
     scrollIndex?: number;
+    lastLoadTime?: number;
 }
 
 

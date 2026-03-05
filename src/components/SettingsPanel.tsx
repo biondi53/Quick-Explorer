@@ -110,7 +110,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                     >
                         <div className="flex items-center gap-3">
                             <SlidersHorizontal size={18} />
-                            {t('settings.behavior')}
+                            {t('settings.general')}
                         </div>
                         <ChevronRight size={14} className="opacity-30" />
                         {activeSection === 'general' && (
@@ -157,8 +157,8 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                             className="flex-1 overflow-y-auto min-w-0 h-full min-h-0"
                         >
                             <header className="px-10 pt-10 pb-6">
-                                <h1 className="text-3xl font-bold text-white mb-2">{t('settings.behavior')}</h1>
-                                <p className="text-sm text-[var(--text-muted)]">{t('settings.behavior_desc')}</p>
+                                <h1 className="text-3xl font-bold text-white mb-2">{t('settings.general')}</h1>
+                                <p className="text-sm text-[var(--text-muted)]">{t('settings.general_desc')}</p>
                             </header>
 
                             <div className="px-10 space-y-8 max-w-2xl pb-10">

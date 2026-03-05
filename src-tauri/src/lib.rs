@@ -1355,6 +1355,16 @@ fn get_clipboard_info(state: tauri::State<'_, ClipboardCache>) -> Result<Clipboa
 }
 
 #[tauri::command]
+fn get_clipboard_text() -> Result<String, String> {
+    if let Ok(_clip) = Clipboard::new() {
+        if let Ok(text) = clipboard_win::get_clipboard::<String, _>(formats::Unicode) {
+            return Ok(text);
+        }
+    }
+    Ok(String::new())
+}
+
+#[tauri::command]
 async fn check_diagnostics() -> serde_json::Value {
     let mut is_admin = false;
     let mut integrity_level = "Unknown".to_string();
@@ -1570,6 +1580,7 @@ pub fn run() {
             get_recycle_bin_status,
             empty_recycle_bin,
             save_clipboard_image,
+            get_clipboard_text,
             open_terminal,
             resolve_shortcut,
             drop_overlay::show_overlay,

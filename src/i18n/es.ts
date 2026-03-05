@@ -63,6 +63,8 @@ export const es: Translations = {
         open_terminal: 'Abrir en Terminal',
         open_with: 'Abrir con...',
         empty_recycle_bin: 'Vaciar papelera de reciclaje',
+        move_to: 'Mover a',
+        paste_and_go: 'Pegar e ir',
     },
     toolbar: {
         new_folder: 'Nueva carpeta',
@@ -108,6 +110,8 @@ export const es: Translations = {
         select_prompt: 'Selecciona un archivo o carpeta para ver sus propiedades',
         name: 'Nombre',
         type: 'Tipo',
+        size: 'Tamaño',
+        rotate: 'Rotar 90°',
     },
     settings: {
         title: 'Ajustes',
@@ -119,8 +123,8 @@ export const es: Translations = {
         auto: 'Sistema (Auto)',
         spanish: 'Español',
         english: 'Inglés',
-        behavior: 'Comportamiento',
-        behavior_desc: 'Configura el comportamiento general y la apariencia de la aplicación.',
+        general: 'General',
+        general_desc: 'Configura el comportamiento general y el idioma de la aplicación.',
         show_hidden: 'Mostrar archivos ocultos',
         auto_search: 'Búsqueda automática al escribir',
         focus_new_tab: 'Enfocar pestaña nueva al abrir',
