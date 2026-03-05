@@ -82,6 +82,7 @@ export const en: Translations = {
         up: 'Up',
         refresh: 'Refresh',
         search_placeholder: 'Search {count} items...',
+        paste_image: 'Image',
     },
     footer: {
         items: 'items',
@@ -140,5 +141,9 @@ export const en: Translations = {
         custom_folders: 'Custom Folders',
         custom_folders_desc: 'Configure paths for your manually pinned folders.',
         no_custom_folders: 'No custom folders pinned yet.',
+        toolbar_style: 'Toolbar Style',
+        toolbar_style_desc: 'Choose if the toolbar collapses automatically or stays compact.',
+        toolbar_dynamic: 'Dynamic (Automatic)',
+        toolbar_compact: 'Compact (Icons only)',
     },
 };

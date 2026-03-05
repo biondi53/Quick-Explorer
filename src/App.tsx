@@ -38,6 +38,7 @@ import FileGrid from './components/FileGrid';
 import InfoPanel from './components/InfoPanel';
 import ContextMenu from './components/ContextMenu';
 import SettingsPanel from './components/SettingsPanel';
+import { invalidateCachedSize } from './utils/folderSizeCache';
 import TabBar from './components/TabBar';
 import QuickPreview from './components/QuickPreview';
 import InputContextMenu from './components/InputContextMenu';
@@ -45,7 +46,7 @@ import { useDebouncedValue } from './hooks/useDebouncedValue';
 import './App.css';
 
 import { useTabs } from './hooks/useTabs';
-import { /* Tab, */ SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus } from './types';
+import { /* Tab, */ SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus, ToolbarMode } from './types';
 import SplashScreen from './components/SplashScreen';
 import { useTranslation } from './i18n/useTranslation';
 // getCurrentWindow moved to top imports
@@ -145,6 +146,10 @@ export default function App() {
     return false; // Default to opening in background
   });
 
+  const [toolbarMode, setToolbarMode] = useState<ToolbarMode>(() => {
+    return (localStorage.getItem('speedexplorer-toolbar-mode') as ToolbarMode) || 'dynamic';
+  });
+
   const [isToolbarCompact, setIsToolbarCompact] = useState(false);
 
 
@@ -212,7 +217,8 @@ export default function App() {
         // We consider compact if width is below 1050px
         const width = entry.contentRect.width;
         if (width > 0) {
-          setIsToolbarCompact(width < 1050);
+          const isCompact = toolbarMode === 'compact' || (toolbarMode === 'dynamic' && width < 1050);
+          setIsToolbarCompact(isCompact);
         }
       }
     });
@@ -222,11 +228,12 @@ export default function App() {
     // Initial check
     const initialWidth = centralPanelRef.current.offsetWidth;
     if (initialWidth > 0) {
-      setIsToolbarCompact(initialWidth < 1050);
+      const isCompact = toolbarMode === 'compact' || (toolbarMode === 'dynamic' && initialWidth < 1050);
+      setIsToolbarCompact(isCompact);
     }
 
     return () => observer.disconnect();
-  }, [isLoadingApp, t, showSettings]);
+  }, [isLoadingApp, t, showSettings, toolbarMode]);
 
   // Sync refs on every render (cheap operation, no side effects)
   useEffect(() => {
@@ -409,6 +416,13 @@ export default function App() {
                 files: paths,
                 targetPath: targetPath
               });
+              // Invalidate cache for destination
+              invalidateCachedSize(targetPath);
+              // Invalidate cache for sources (if they were folders or files whose parents change)
+              paths.forEach(p => {
+                const parent = p.substring(0, p.lastIndexOf('\\'));
+                if (parent) invalidateCachedSize(parent.endsWith(':') ? parent + '\\' : parent);
+              });
               refreshCurrentTabRef.current();
             } catch (error) {
               console.error('[App] Failed to drop items command (internal):', error);
@@ -462,6 +476,13 @@ export default function App() {
             const result = await invoke('drop_items', {
               files: paths,
               targetPath: targetPath
+            });
+            // Invalidate cache for destination
+            invalidateCachedSize(targetPath);
+            // Invalidate cache for sources
+            paths.forEach(p => {
+              const parent = p.substring(0, p.lastIndexOf('\\'));
+              if (parent) invalidateCachedSize(parent.endsWith(':') ? parent + '\\' : parent);
             });
             console.log(`[APP] [${now}] drop_items success result:`, result);
             refreshCurrentTabRef.current(); // Call current ref value
@@ -744,6 +765,26 @@ export default function App() {
     };
   }, [checkClipboard]);
 
+  const pasteTitle = useMemo(() => {
+    const base = t('toolbar.paste');
+    if (!canPaste || !clipboardInfo) return base;
+    if (clipboardInfo.has_image) return `${base}\n${t('toolbar.paste_image')}`;
+    if (!clipboardInfo.has_files || !clipboardInfo.paths.length) return base;
+
+    const counts: Record<string, number> = {};
+    for (const p of clipboardInfo.paths) {
+      const name = p.split('\\').pop() ?? '';
+      const dotIdx = name.lastIndexOf('.');
+      const key = dotIdx > 0 ? name.slice(dotIdx + 1).toUpperCase() : t('files.folder');
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    const groups = Object.entries(counts);
+    if (groups.length > 4) {
+      return `${base}\n${clipboardInfo.file_count} ${t('files.items')}`;
+    }
+    return `${base}\n${groups.map(([ext, n]) => `${n} ${ext}`).join('\n')}`;
+  }, [canPaste, clipboardInfo, t]);
+
   // Load initial files - delegated to hook (init in hook state or effect if needed, but here we can just ensure at least one load)
   useEffect(() => {
     if (tabs.length > 0 && tabs[0].files.length === 0) {
@@ -783,7 +824,6 @@ export default function App() {
       } else {
         comparison = String(a[column]).localeCompare(String(b[column]));
       }
-
       return direction === 'asc' ? comparison : -comparison;
     });
   }, [currentTab?.files, currentTab?.searchQuery, currentTab?.sortConfig, defaultSortConfig]);
@@ -797,7 +837,402 @@ export default function App() {
     }
   }, [hookHandleSort]);
 
+  const handleSelectAll = useCallback(() => {
+    hookHandleSelectAll(sortedFiles);
+  }, [hookHandleSelectAll, sortedFiles]);
+
+  const handleClearSelection = hookHandleClearSelection;
+
+  const startEditingPath = () => {
+    if (currentTab) {
+      setPathInput(currentTab.path);
+      setIsEditingPath(true);
+    }
+  };
+
+  const handlePathSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (pathInput.trim()) {
+      navigateTo(pathInput.trim());
+    }
+    setIsEditingPath(false);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, file: FileEntry | null) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, file, fromSidebar: false });
+
+    if (file && currentTab) {
+      const isAlreadySelected = currentTab.selectedFiles.some(f => f.path === file.path);
+      if (!isAlreadySelected) {
+        updateTab(currentTab.id, {
+          selectedFiles: [file],
+          lastSelectedFile: file
+        });
+      }
+    }
+  };
+
+  const handleRename = useCallback((file: FileEntry) => {
+    const isDrive = file.file_type === 'Drive' || (file.path.length <= 3 && file.path.endsWith(':\\'));
+    if (isDrive) return; // Disallow drive rename
+
+    if (currentTab) {
+      updateTab(currentTab.id, { renamingPath: file.path });
+    }
+  }, [currentTab, updateTab]);
+
+  const handleRenameCancel = useCallback(() => {
+    if (currentTab) {
+      updateTab(currentTab.id, { renamingPath: null });
+    }
+  }, [currentTab, updateTab]);
+
+  const handleRenameSubmit = useCallback(async (file: FileEntry, newName: string) => {
+    if (!currentTab || !newName || newName === file.name) {
+      handleRenameCancel();
+      return;
+    }
+
+    try {
+      const isDrive = file.file_type === 'Drive' || (file.path.length <= 3 && file.path.endsWith(':\\'));
+
+      await invoke('rename_item', { oldPath: file.path, newName });
+
+      // Invalidate old path to avoid stale cache entries (only relevant if it was a folder)
+      invalidateCachedSize(file.path);
+
+      updateTab(currentTab.id, { renamingPath: null });
+
+      if (isDrive) {
+        refreshCurrentTab();
+      } else {
+        const lastSlash = file.path.lastIndexOf('\\');
+        let parent = "";
+        if (lastSlash === -1) {
+          parent = file.path;
+        } else {
+          parent = file.path.substring(0, lastSlash);
+          if (parent.endsWith(':')) parent += '\\';
+        }
+
+        const newPath = parent.endsWith('\\') ? parent + newName : parent + '\\' + newName;
+
+        const oldPathLower = file.path.toLowerCase();
+        const oldPrefix = oldPathLower + '\\';
+
+        setQuickAccessConfig(prev => {
+          let updated = false;
+          const newPinned = prev.pinnedFolders.map(folder => {
+            const folderPathLower = folder.path.toLowerCase();
+            if (folderPathLower === oldPathLower) {
+              updated = true;
+              return { ...folder, path: newPath, name: folder.id.startsWith('custom-') ? newName : folder.name };
+            }
+            if (folderPathLower.startsWith(oldPrefix)) {
+              updated = true;
+              const relative = folder.path.substring(file.path.length);
+              return { ...folder, path: newPath + relative };
+            }
+            return folder;
+          });
+
+          if (updated) {
+            const newConfig = { pinnedFolders: newPinned };
+            localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
+            return newConfig;
+          }
+          return prev;
+        });
+
+        await loadFilesForTab(currentTab.id, parent, undefined, [newPath]);
+        refreshTabsViewing(parent);
+      }
+    } catch (err) {
+      updateTab(currentTab.id, { error: String(err), renamingPath: null });
+    }
+  }, [currentTab, updateTab, handleRenameCancel, refreshTabsViewing, loadFilesForTab, refreshCurrentTab]);
+
+  const handleCopy = async (files: FileEntry[]) => {
+    try {
+      await invoke('copy_items', { paths: files.map(f => f.path) });
+      setLastCutPaths([]);
+      checkClipboard();
+    } catch (err) {
+      console.error('Failed to copy', err);
+    }
+  };
+
+  const handleCut = async (files: FileEntry[]) => {
+    try {
+      await invoke('cut_items', { paths: files.map(f => f.path) });
+      const parents = Array.from(new Set(files.map(f => {
+        const lastSlash = f.path.lastIndexOf('\\');
+        if (lastSlash === -1) return f.path;
+        let parent = f.path.substring(0, lastSlash);
+        if (parent.endsWith(':')) parent += '\\';
+        return parent;
+      })));
+      setLastCutPaths(parents);
+      checkClipboard();
+    } catch (err) {
+      console.error('Failed to cut', err);
+    }
+  };
+
+  const handlePaste = useCallback(async (customTargetPath?: string) => {
+    if (!currentTab) return;
+    const targetPath = customTargetPath || currentTab.path;
+
+    if (clipboardInfo && !clipboardInfo.has_files && clipboardInfo.has_image) {
+      try {
+        const newFile = await invoke<FileEntry>('save_clipboard_image', { targetPath });
+        if (targetPath === currentTab.path) {
+          updateTab(currentTab.id, {
+            files: [...currentTab.files, newFile],
+            selectedFiles: [newFile],
+            lastSelectedFile: newFile
+          });
+        }
+      } catch (err) {
+        updateTab(currentTab.id, { error: String(err) });
+      }
+      return;
+    }
+
+    try {
+      await invoke('paste_items', { targetPath });
+
+      // Invalidate destination and sources
+      invalidateCachedSize(targetPath);
+      lastCutPaths.forEach(p => invalidateCachedSize(p));
+
+      refreshCurrentTab();
+      refreshTabsViewing(targetPath);
+      if (lastCutPaths.length > 0) {
+        refreshTabsViewing(lastCutPaths);
+        setLastCutPaths([]);
+      }
+      checkClipboard();
+    } catch (err) {
+      updateTab(currentTab.id, { error: String(err) });
+    }
+  }, [currentTab, updateTab, refreshCurrentTab, refreshTabsViewing, lastCutPaths, clipboardInfo, checkClipboard]);
+
+  const handlePinFolder = useCallback((folder: FileEntry) => {
+    setQuickAccessConfig(prev => {
+      const newConfig = {
+        ...prev,
+        pinnedFolders: [
+          ...prev.pinnedFolders,
+          { id: crypto.randomUUID(), name: folder.name, path: folder.path }
+        ]
+      };
+      localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
+      return newConfig;
+    });
+  }, []);
+
+  const handleUnpinFolder = useCallback((path: string) => {
+    setQuickAccessConfig(prev => {
+      const folder = prev.pinnedFolders.find(f => f.path === path || (f.id === 'home' && path === ''));
+      const isSystemFolder = folder && ['desktop', 'downloads', 'documents', 'pictures', 'recycle-bin', 'home'].includes(folder.id);
+
+      let newPinnedFolders;
+      if (isSystemFolder) {
+        newPinnedFolders = prev.pinnedFolders.map(f =>
+          f.id === folder.id ? { ...f, enabled: false } : f
+        );
+      } else {
+        newPinnedFolders = prev.pinnedFolders.filter(f => f.path !== path);
+      }
+
+      const newConfig = {
+        ...prev,
+        pinnedFolders: newPinnedFolders
+      };
+      localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
+      return newConfig;
+    });
+  }, []);
+
+  const handleToggleColumn = useCallback((column: SortColumn) => {
+    setVisibleColumns(prev => {
+      const newColumns = prev.includes(column)
+        ? (prev.length > 1 ? prev.filter(c => c !== column) : prev)
+        : [...prev, column].sort((a, b) => DEFAULT_COLUMNS.indexOf(a) - DEFAULT_COLUMNS.indexOf(b));
+
+      localStorage.setItem('speedexplorer-columns', JSON.stringify(newColumns));
+      return newColumns;
+    });
+  }, []);
+
+
+  const handleDelete = async (files: FileEntry[], silent: boolean = false) => {
+    if (files.length === 0) return;
+
+    let confirmed = silent;
+    if (!silent) {
+      const message = files.length === 1
+        ? t('preview.delete_conf_msg').replace('{name}', files[0].name)
+        : t('preview.delete_conf_msg').replace('{name}', `${files.length} ${t('files.items')}`);
+
+      confirmed = await ask(message, {
+        title: t('preview.delete_conf_title'),
+        kind: 'warning',
+      });
+    }
+
+    if (confirmed && currentTab) {
+      try {
+        const deletedPaths = files.map(f => f.path);
+        await invoke('delete_items', { paths: deletedPaths, silent });
+
+        const deletedFolders = files.filter(f => f.is_dir).map(f => f.path.toLowerCase());
+        if (deletedFolders.length > 0) {
+          tabs.forEach(t => {
+            if (t.path && deletedFolders.some(folderPath =>
+              t.path.toLowerCase() === folderPath || t.path.toLowerCase().startsWith(folderPath + '\\')
+            )) {
+              closeTab(t.id);
+            }
+          });
+        }
+
+        const parents = Array.from(new Set(files.map(f => {
+          const lastSlash = f.path.lastIndexOf('\\');
+          if (lastSlash === -1) return f.path;
+          let parent = f.path.substring(0, lastSlash);
+          if (parent.endsWith(':')) parent += '\\';
+          return parent;
+        })));
+        refreshTabsViewing(parents);
+        parents.forEach(p => invalidateCachedSize(p));
+        fetchRecycleBinStatus();
+      } catch (err) {
+        updateTab(currentTab.id, { error: String(err) });
+      }
+    }
+  };
+
+  const handleEmptyRecycleBin = async () => {
+    const confirmed = await ask(t('context_menu.empty_recycle_bin') + '?', {
+      title: t('preview.delete_conf_title'),
+      kind: 'warning',
+    });
+
+    if (confirmed) {
+      try {
+        await invoke('empty_recycle_bin');
+        refreshTabsViewing('shell:RecycleBin');
+        invalidateCachedSize('shell:RecycleBin');
+        fetchRecycleBinStatus();
+      } catch (err) {
+        if (currentTab) updateTab(currentTab.id, { error: String(err) });
+      }
+    }
+  };
+
+  const handleContextMenuAction = async (action: string, data?: any) => {
+    if (!currentTab) return;
+    const selectedFiles = currentTab.selectedFiles;
+    const file = selectedFiles.length === 1 ? selectedFiles[0] : null;
+
+    if (action === 'move-to-tab' && data) {
+      const { targetPath, tabId } = data;
+      if (selectedFiles.length === 0) return;
+      try {
+        await invoke('move_items', { paths: selectedFiles.map(f => f.path), targetPath });
+        const movedFolders = selectedFiles.filter(f => f.is_dir).map(f => f.path.toLowerCase());
+        if (movedFolders.length > 0) {
+          tabs.forEach(t => {
+            if (t.path && movedFolders.some(folderPath =>
+              t.path.toLowerCase() === folderPath || t.path.toLowerCase().startsWith(folderPath + '\\')
+            )) {
+              closeTab(t.id);
+            }
+          });
+        }
+        refreshCurrentTab();
+        loadFilesForTab(tabId, targetPath);
+      } catch (err) {
+        updateTab(currentTab.id, { error: String(err) });
+      }
+      return;
+    }
+
+    if (action === 'delete') {
+      handleDelete(selectedFiles, false);
+      return;
+    } else if (action === 'copy') {
+      handleCopy(selectedFiles);
+      return;
+    } else if (action === 'cut') {
+      handleCut(selectedFiles);
+      return;
+    }
+
+    if (!file) {
+      if (action === 'paste') {
+        handlePaste();
+      } else if (action === 'properties') {
+        if (currentTab) invoke('show_item_properties', { path: currentTab.path });
+      } else if (action === 'open-terminal') {
+        invoke('open_terminal', { path: currentTab.path });
+      }
+      return;
+    }
+
+    if (action === 'open') {
+      if (file.is_dir) navigateTo(file.path);
+      else invoke('open_file', { path: file.path });
+    } else if (action === 'open-with' && file) {
+      invoke('open_with', { path: file.path });
+    } else if (action === 'open-location') {
+      if (file.is_shortcut) {
+        invoke<string>('resolve_shortcut', { path: file.path }).then(targetPath => {
+          const parent = targetPath.substring(0, targetPath.lastIndexOf('\\'));
+          if (parent) navigateTo(parent);
+        }).catch(err => {
+          updateTab(currentTab.id, { error: String(err) });
+        });
+      } else {
+        const parent = file.path.substring(0, file.path.lastIndexOf('\\'));
+        if (parent) navigateTo(parent);
+      }
+    } else if (action === 'copy-path') {
+      navigator.clipboard.writeText(file.path);
+    } else if (action === 'properties') {
+      invoke('show_item_properties', { path: file.path });
+    } else if (action === 'paste') {
+      if (file.is_dir) handlePaste(file.path);
+      else handlePaste();
+    } else if (action === 'select-all') {
+      handleSelectAll();
+    } else if (action === 'open-in-new-tab' && file) {
+      if (file.is_dir) addTab(file.path);
+    } else if (action === 'pin' && file) {
+      handlePinFolder(file);
+    } else if (action === 'unpin' && file) {
+      handleUnpinFolder(file.path);
+    } else if (action === 'rename' && file) {
+      handleRename(file);
+    } else if (action === 'empty-recycle-bin') {
+      handleEmptyRecycleBin();
+    } else if (action === 'extract-here' && file) {
+      try {
+        const parentDir = file.path.substring(0, file.path.lastIndexOf('\\'));
+        await invoke('extract_archive', { archivePath: file.path, targetDir: parentDir || currentTab.path });
+        refreshCurrentTab();
+      } catch (err) {
+        updateTab(currentTab.id, { error: String(err) });
+      }
+    }
+  };
+
+
   // Keyboard shortcuts for tabs
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isInputFocused = document.activeElement?.tagName === 'INPUT';
@@ -935,66 +1370,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo, showQuickPreview, isEditingPath]);
 
-  const handleContextMenu = (e: React.MouseEvent, file: FileEntry | null) => {
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, file, fromSidebar: false });
+  // Duplicate handlers below removed
 
-    // If we right-click a file that is NOT already selected, we want to select ONLY it.
-    // If it IS already part of multiple selected files, we keep the selection.
-    if (file && currentTab) {
-      const isAlreadySelected = currentTab.selectedFiles.some(f => f.path === file.path);
-      if (!isAlreadySelected) {
-        updateTab(currentTab.id, {
-          selectedFiles: [file],
-          lastSelectedFile: file
-        });
-      }
-    }
-  };
-
-  const handleRename = useCallback((file: FileEntry) => {
-    if (currentTab) {
-      updateTab(currentTab.id, { renamingPath: file.path });
-    }
-  }, [currentTab, updateTab]);
-
-
-  const handleRenameCancel = useCallback(() => {
-    if (currentTab) {
-      updateTab(currentTab.id, { renamingPath: null });
-    }
-  }, [currentTab, updateTab]);
-
-  const handleRenameSubmit = useCallback(async (file: FileEntry, newName: string) => {
-    if (!currentTab || !newName || newName === file.name || currentTab.renamingPath !== file.path) {
-      handleRenameCancel();
-      return;
-    }
-
-    try {
-      await invoke('rename_item', { oldPath: file.path, newName });
-      updateTab(currentTab.id, { renamingPath: null });
-
-      const lastSlash = file.path.lastIndexOf('\\');
-      let parent = "";
-      if (lastSlash === -1) {
-        parent = file.path;
-      } else {
-        parent = file.path.substring(0, lastSlash);
-        if (parent.endsWith(':')) parent += '\\';
-      }
-
-      const newPath = parent.endsWith('\\') ? parent + newName : parent + '\\' + newName;
-
-      // Force refresh current tab with selection
-      await loadFilesForTab(currentTab.id, parent, undefined, [newPath]);
-
-      // Refresh other tabs viewing this parent
-      refreshTabsViewing(parent);
-    } catch (err) {
-      updateTab(currentTab.id, { error: String(err), renamingPath: null });
-    }
-  }, [currentTab, updateTab, handleRenameCancel, refreshTabsViewing, loadFilesForTab]);
 
   const handleSidebarContextMenu = (e: React.MouseEvent, path: string, name: string) => {
     e.preventDefault();
@@ -1004,7 +1381,7 @@ export default function App() {
       is_dir: true,
       size: 0,
       formatted_size: '',
-      file_type: 'Folder',
+      file_type: (path.length <= 3 && path.endsWith(':\\')) ? 'Drive' : 'Folder',
       created_at: '',
       modified_at: '',
       is_shortcut: false,
@@ -1022,7 +1399,7 @@ export default function App() {
     }
   };
 
-  const saveConfig = (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, newShowHidden?: boolean, newAutoSearch?: boolean, newFocusNewTab?: boolean, closePanel = true) => {
+  const saveConfig = (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, newShowHidden?: boolean, newAutoSearch?: boolean, newFocusNewTab?: boolean, newToolbarMode?: ToolbarMode, closePanel = true) => {
     setQuickAccessConfig(newConfig);
     localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
     if (newSortConfig) {
@@ -1043,6 +1420,10 @@ export default function App() {
       setFocusNewTabOnMiddleClick(newFocusNewTab);
       localStorage.setItem('speedexplorer-focus-new-tab', JSON.stringify(newFocusNewTab));
     }
+    if (newToolbarMode !== undefined) {
+      setToolbarMode(newToolbarMode);
+      localStorage.setItem('speedexplorer-toolbar-mode', newToolbarMode);
+    }
     if (closePanel) {
       setShowSettings(false);
     }
@@ -1061,11 +1442,13 @@ export default function App() {
       localStorage.removeItem('speedexplorer-autosearch');
       localStorage.removeItem('speedexplorer-theme');
       localStorage.removeItem('speedexplorer-focus-new-tab');
+      localStorage.removeItem('speedexplorer-toolbar-mode');
 
       setDefaultSortConfig({ column: 'name', direction: 'asc' });
       setShowHiddenFiles(false);
       setAutoSearchOnKey(true);
       setFocusNewTabOnMiddleClick(false);
+      setToolbarMode('dynamic');
       setTheme('neon');
       await fetchSystemPaths(true);
       setShowSettings(false);
@@ -1096,332 +1479,10 @@ export default function App() {
     });
 
     return crumbs;
-  }, [currentTab?.path]);
-
-  const handleSelectAll = useCallback(() => {
-    hookHandleSelectAll(sortedFiles);
-  }, [hookHandleSelectAll, sortedFiles]);
-
-  const handleClearSelection = hookHandleClearSelection;
-
-  const startEditingPath = () => {
-    if (currentTab) {
-      setPathInput(currentTab.path);
-      setIsEditingPath(true);
-    }
-  };
-
-  const handlePathSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (pathInput.trim()) {
-      navigateTo(pathInput.trim(), true);
-    }
-    setIsEditingPath(false);
-  };
-
-  const handlePinFolder = useCallback((folder: FileEntry) => {
-    setQuickAccessConfig(prev => {
-      const newConfig = {
-        ...prev,
-        pinnedFolders: [
-          ...prev.pinnedFolders,
-          { id: crypto.randomUUID(), name: folder.name, path: folder.path }
-        ]
-      };
-      localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
-      return newConfig;
-    });
-  }, []);
-
-  const handleUnpinFolder = useCallback((path: string) => {
-    setQuickAccessConfig(prev => {
-      // Find the folder. Special case for home which might have empty path
-      const folder = prev.pinnedFolders.find(f => f.path === path || (f.id === 'home' && path === ''));
-      const isSystemFolder = folder && ['desktop', 'downloads', 'documents', 'pictures', 'recycle-bin', 'home'].includes(folder.id);
-
-      let newPinnedFolders;
-      if (isSystemFolder) {
-        newPinnedFolders = prev.pinnedFolders.map(f =>
-          f.id === folder.id ? { ...f, enabled: false } : f
-        );
-      } else {
-        newPinnedFolders = prev.pinnedFolders.filter(f => f.path !== path);
-      }
-
-      const newConfig = {
-        ...prev,
-        pinnedFolders: newPinnedFolders
-      };
-      localStorage.setItem('speedexplorer-config', JSON.stringify(newConfig));
-      return newConfig;
-    });
-  }, []);
-
-  const handleToggleColumn = useCallback((column: SortColumn) => {
-    setVisibleColumns(prev => {
-      const newColumns = prev.includes(column)
-        ? (prev.length > 1 ? prev.filter(c => c !== column) : prev) // Prevent hiding all columns
-        : [...prev, column].sort((a, b) => DEFAULT_COLUMNS.indexOf(a) - DEFAULT_COLUMNS.indexOf(b));
-
-      localStorage.setItem('speedexplorer-columns', JSON.stringify(newColumns));
-      return newColumns;
-    });
-  }, []);
-
-  const handleCopy = async (files: FileEntry[]) => {
-    try {
-      await invoke('copy_items', { paths: files.map(f => f.path) });
-      setLastCutPaths([]);
-      checkClipboard();
-    } catch (err) {
-      console.error('Failed to copy', err);
-    }
-  };
-
-  const handleCut = async (files: FileEntry[]) => {
-    try {
-      await invoke('cut_items', { paths: files.map(f => f.path) });
-      const parents = Array.from(new Set(files.map(f => {
-        const lastSlash = f.path.lastIndexOf('\\');
-        if (lastSlash === -1) return f.path;
-        let parent = f.path.substring(0, lastSlash);
-        if (parent.endsWith(':')) parent += '\\';
-        return parent;
-      })));
-      setLastCutPaths(parents);
-      checkClipboard();
-    } catch (err) {
-      console.error('Failed to cut', err);
-    }
-  };
-
-  const handlePaste = useCallback(async (customTargetPath?: string) => {
-    if (!currentTab) return;
-    const targetPath = customTargetPath || currentTab.path;
-
-    // Optimistic Update for Screenshots
-    const isCurrentView = targetPath === currentTab.path;
-
-    if (clipboardInfo && !clipboardInfo.has_files && clipboardInfo.has_image) {
-      try {
-        const newFile = await invoke<FileEntry>('save_clipboard_image', { targetPath });
-
-        if (isCurrentView) {
-          updateTab(currentTab.id, {
-            files: [...currentTab.files, newFile],
-            selectedFiles: [newFile],
-            lastSelectedFile: newFile
-          });
-        }
-
-        checkClipboard();
-      } catch (err) {
-        console.error('Failed to paste image', err);
-        updateTab(currentTab.id, { error: String(err) });
-      }
-      return;
-    }
-
-    // Default Paste (Files)
-    try {
-      const pastedPaths = await invoke<string[]>('paste_items', { targetPath });
-
-      // If pasting into current tab, reload it directly with selection
-      if (isCurrentView) {
-        await loadFilesForTab(currentTab.id, targetPath, undefined, pastedPaths);
-      } else {
-        refreshTabsViewing(targetPath);
-      }
-
-      // If it was a cut operation, also refresh the source directories
-      if (lastCutPaths.length > 0) {
-        refreshTabsViewing(lastCutPaths);
-        setLastCutPaths([]); // Clear after move
-      }
-
-      checkClipboard();
-    } catch (err) {
-      console.error('Failed to paste', err);
-      // Optional: Show error to user
-      updateTab(currentTab.id, { error: String(err) });
-    }
-  }, [currentTab, clipboardInfo, lastCutPaths, updateTab, loadFilesForTab, refreshTabsViewing, checkClipboard]);
+  }, [currentTab, t]);
 
 
-
-  const handleContextMenuAction = async (action: string, data?: any) => {
-    if (!currentTab) return;
-    const selectedFiles = currentTab.selectedFiles;
-    const file = selectedFiles.length === 1 ? selectedFiles[0] : null;
-
-    if (action === 'move-to-tab' && data) {
-      const { targetPath, tabId } = data;
-      if (selectedFiles.length === 0) return;
-      try {
-        await invoke('move_items', { paths: selectedFiles.map(f => f.path), targetPath });
-
-        // Auto-close tabs looking at moved FOLDERS
-        const movedFolders = selectedFiles.filter(f => f.is_dir).map(f => f.path.toLowerCase());
-        if (movedFolders.length > 0) {
-          tabs.forEach(t => {
-            if (t.path && movedFolders.some(folderPath =>
-              t.path.toLowerCase() === folderPath || t.path.toLowerCase().startsWith(folderPath + '\\')
-            )) {
-              closeTab(t.id);
-            }
-          });
-        }
-
-        refreshCurrentTab();
-        loadFilesForTab(tabId, targetPath);
-      } catch (err) {
-        updateTab(currentTab.id, { error: String(err) });
-      }
-      return;
-    }
-
-    if (action === 'delete') {
-      handleDelete(selectedFiles, false); // Context menu delete is always non-silent for safety
-      return;
-    } else if (action === 'copy') {
-      handleCopy(selectedFiles);
-      return;
-    } else if (action === 'cut') {
-      handleCut(selectedFiles);
-      return;
-    }
-
-    if (!file) {
-      // Actions for empty space
-      if (action === 'paste') {
-        handlePaste();
-      } else if (action === 'properties') {
-        // Show current folder properties
-        if (currentTab) invoke('show_item_properties', { path: currentTab.path });
-      } else if (action === 'open-terminal') {
-        invoke('open_terminal', { path: currentTab.path });
-      }
-      return;
-    }
-
-    if (action === 'open') {
-      if (file.is_dir) {
-        navigateTo(file.path);
-      } else {
-        invoke('open_file', { path: file.path });
-      }
-    } else if (action === 'open-with' && file) {
-      invoke('open_with', { path: file.path });
-    } else if (action === 'open-location') {
-      if (file.is_shortcut) {
-        invoke<string>('resolve_shortcut', { path: file.path }).then(targetPath => {
-          const parent = targetPath.substring(0, targetPath.lastIndexOf('\\'));
-          if (parent) navigateTo(parent);
-        }).catch(err => {
-          updateTab(currentTab.id, { error: String(err) });
-        });
-      } else {
-        const parent = file.path.substring(0, file.path.lastIndexOf('\\'));
-        if (parent) navigateTo(parent);
-      }
-    } else if (action === 'copy-path') {
-      navigator.clipboard.writeText(file.path);
-    } else if (action === 'properties') {
-      invoke('show_item_properties', { path: file.path });
-    } else if (action === 'paste') {
-      // Logic: If file is a directory, paste INTO it. Else paste into current dir.
-      if (file.is_dir) {
-        handlePaste(file.path);
-      } else {
-        handlePaste();
-      }
-    } else if (action === 'select-all') {
-      handleSelectAll();
-    } else if (action === 'open-in-new-tab' && file) {
-      if (file.is_dir) addTab(file.path);
-    } else if (action === 'pin' && file) {
-      handlePinFolder(file);
-    } else if (action === 'unpin' && file) {
-      handleUnpinFolder(file.path);
-    } else if (action === 'rename' && file) {
-      handleRename(file);
-    } else if (action === 'empty-recycle-bin') {
-      handleEmptyRecycleBin();
-    } else if (action === 'extract-here' && file) {
-      try {
-        const parentDir = file.path.substring(0, file.path.lastIndexOf('\\'));
-        await invoke('extract_archive', { archivePath: file.path, targetDir: parentDir || currentTab.path });
-        refreshCurrentTab();
-      } catch (err) {
-        updateTab(currentTab.id, { error: String(err) });
-      }
-    }
-  };
-
-  const handleDelete = async (files: FileEntry[], silent: boolean = false) => {
-    if (files.length === 0) return;
-
-    let confirmed = silent;
-    if (!silent) {
-      const message = files.length === 1
-        ? t('preview.delete_conf_msg').replace('{name}', files[0].name)
-        : t('preview.delete_conf_msg').replace('{name}', `${files.length} ${t('files.items')}`);
-
-      confirmed = await ask(message, {
-        title: t('preview.delete_conf_title'),
-        kind: 'warning',
-      });
-    }
-
-    if (confirmed && currentTab) {
-      try {
-        const deletedPaths = files.map(f => f.path);
-        await invoke('delete_items', { paths: deletedPaths, silent });
-
-        // Auto-close tabs looking at deleted FOLDERS
-        const deletedFolders = files.filter(f => f.is_dir).map(f => f.path.toLowerCase());
-        if (deletedFolders.length > 0) {
-          tabs.forEach(t => {
-            if (t.path && deletedFolders.some(folderPath =>
-              t.path.toLowerCase() === folderPath || t.path.toLowerCase().startsWith(folderPath + '\\')
-            )) {
-              closeTab(t.id);
-            }
-          });
-        }
-
-        // Refresh all tabs viewing the parent directories of deleted items
-        const parents = Array.from(new Set(files.map(f => {
-          const lastSlash = f.path.lastIndexOf('\\');
-          if (lastSlash === -1) return f.path;
-          let parent = f.path.substring(0, lastSlash);
-          if (parent.endsWith(':')) parent += '\\';
-          return parent;
-        })));
-        refreshTabsViewing(parents);
-        fetchRecycleBinStatus();
-      } catch (err) {
-        updateTab(currentTab.id, { error: String(err) });
-      }
-    }
-  };
-
-  const handleEmptyRecycleBin = async () => {
-    const confirmed = await ask(t('context_menu.empty_recycle_bin') + '?', {
-      title: t('preview.delete_conf_title'),
-      kind: 'warning',
-    });
-
-    if (confirmed) {
-      try {
-        await invoke('empty_recycle_bin');
-        refreshTabsViewing('shell:RecycleBin');
-        fetchRecycleBinStatus();
-      } catch (err) {
-        if (currentTab) updateTab(currentTab.id, { error: String(err) });
-      }
-    }
-  };
+  // Placeholder for handleContextMenuAction, handleDelete, etc. which are now consolidated above
 
   // Mouse Handlers for Resizing
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -1533,6 +1594,7 @@ export default function App() {
           if (parent.endsWith(':')) parent += '\\';
         }
         refreshTabsViewing([parent]);
+        invalidateCachedSize(parent);
         fetchRecycleBinStatus();
 
         if (nextFile) {
@@ -1610,7 +1672,7 @@ export default function App() {
     } else if (action === 'paste-and-go') {
       try {
         const text = await invoke<string>('get_clipboard_text');
-        navigateTo(text, true);
+        navigateTo(text);
         setIsEditingPath(false);
       } catch (err) {
         console.error("Failed to paste and go", err);
@@ -1629,6 +1691,7 @@ export default function App() {
           showHiddenFiles={showHiddenFiles}
           autoSearchOnKey={autoSearchOnKey}
           focusNewTabOnMiddleClick={focusNewTabOnMiddleClick}
+          toolbarMode={toolbarMode}
           onSave={saveConfig}
           onReset={handleResetSettings}
           onCancel={() => setShowSettings(false)}
@@ -1944,9 +2007,9 @@ export default function App() {
                                     ${canPaste
                               ? 'text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/10 hover:shadow-[0_0_15px_rgba(var(--accent-rgb),0.3)]'
                               : 'text-zinc-500 cursor-not-allowed opacity-50'}`}
-                          title={t('toolbar.paste')}
+                          title={pasteTitle}
                         >
-                          <PasteIcon size={18} className={`shrink-0 ${canPaste ? 'animate-pulse' : ''}`} />
+                          <PasteIcon size={18} className="shrink-0" />
                           <AnimatePresence>
                             {!isToolbarCompact && (
                               <motion.span
@@ -1964,13 +2027,13 @@ export default function App() {
                           {/* Content Indicator Chip */}
                           {canPaste && clipboardInfo && (
                             <div className="flex items-center ml-1 animate-in fade-in slide-in-from-right-2 duration-300">
-                              <div className="w-6 h-6 bg-[var(--accent-primary)] text-black rounded-md flex items-center justify-center shadow-sm">
+                              <div className="w-6 h-6 text-[var(--accent-primary)] flex items-center justify-center">
                                 {clipboardInfo.has_image ? (
-                                  <ImageIcon size={14} strokeWidth={3} />
+                                  <ImageIcon size={20} strokeWidth={2.5} />
                                 ) : clipboardInfo.file_count > 1 ? (
-                                  <FilesIcon size={14} strokeWidth={3} />
+                                  <FilesIcon size={20} strokeWidth={2.5} />
                                 ) : (
-                                  <FileIcon size={14} strokeWidth={3} />
+                                  <FileIcon size={20} strokeWidth={2.5} />
                                 )}
                               </div>
                             </div>
@@ -2240,7 +2303,8 @@ export default function App() {
               onAction={handleContextMenuAction}
               selectedFiles={currentTab?.selectedFiles || []}
               pinnedFolders={quickAccessConfig.pinnedFolders}
-              allowRename={!contextMenu.fromSidebar}
+              allowRename={true}
+
               fromSidebar={contextMenu.fromSidebar}
               recycleBinStatus={recycleBinStatus}
               tabs={tabs}

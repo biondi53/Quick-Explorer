@@ -8,6 +8,13 @@ export type FileEntry = GeneratedFileEntry & { thumbnail?: string | null };
 export type ClipboardInfo = GeneratedClipboardInfo;
 export type RecycleBinStatus = GeneratedRecycleBinStatus;
 
+export interface FolderSizeUpdate {
+    path: string;
+    req_id: string;
+    size: number;
+    formatted_size: string;
+}
+
 export type SortColumn = 'name' | 'modified_at' | 'created_at' | 'file_type' | 'size';
 export type SortDirection = 'asc' | 'desc';
 
@@ -17,6 +24,7 @@ export interface SortConfig {
 }
 
 export type ViewMode = 'list' | 'grid';
+export type ToolbarMode = 'dynamic' | 'compact';
 
 export interface Tab {
     id: string;

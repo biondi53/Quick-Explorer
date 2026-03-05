@@ -8,6 +8,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::sync::OnceLock;
 use std::time::SystemTime;
 // use tauri::Emitter; // Moved to drop_overlay.rs
+use tauri::Emitter;
 use tauri::Manager;
 use ts_rs::TS;
 // use window_vibrancy::apply_mica;
@@ -65,6 +66,7 @@ pub struct DiskInfo {
     #[serde(rename = "available_space")]
     #[ts(type = "number")]
     pub free: u64,
+    pub is_system: bool,
 }
 
 #[derive(Serialize, Default, Clone, TS)]
@@ -95,6 +97,18 @@ pub struct FileEntry {
     pub modified_timestamp: i64,
     pub dimensions: Option<String>,
 }
+
+#[derive(Serialize, Clone, TS)]
+#[ts(export)]
+pub struct FolderSizeUpdate {
+    pub path: String,
+    pub req_id: String,
+    #[ts(type = "number")]
+    pub size: u64,
+    pub formatted_size: String,
+}
+
+pub static GLOBAL_NAV_ID: OnceLock<std::sync::Mutex<String>> = OnceLock::new();
 
 pub fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     let metadata = path.metadata().map_err(|e| e.to_string())?;
@@ -1521,6 +1535,117 @@ fn get_dropped_file_paths() -> Result<Vec<String>, String> {
     Ok(Vec::new())
 }
 
+#[tauri::command]
+fn cancel_folder_size_calculations(nav_id: String) {
+    if let Some(mutex) = GLOBAL_NAV_ID.get() {
+        if let Ok(mut current_id) = mutex.lock() {
+            *current_id = nav_id;
+            log::debug!("[RUST] Navigation ID updated to: {}", current_id);
+        }
+    }
+}
+
+#[tauri::command]
+async fn calculate_folder_size(path: String, nav_id: String) -> Result<(), String> {
+    let app_handle = APP_HANDLE
+        .get()
+        .ok_or("App handle not initialized")?
+        .clone();
+
+    // Check if this nav_id is still valid
+    if let Some(mutex) = GLOBAL_NAV_ID.get() {
+        if let Ok(current_id) = mutex.lock() {
+            if *current_id != nav_id {
+                return Ok(()); // Navigation already changed
+            }
+        }
+    }
+
+    // Launch background thread for deep calculation
+    std::thread::spawn(move || {
+        let start_time = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(1500);
+
+        // Cancellation check closure
+        let is_cancelled = || {
+            if start_time.elapsed() > timeout {
+                return true;
+            }
+            if let Some(mutex) = GLOBAL_NAV_ID.get() {
+                if let Ok(current_id) = mutex.lock() {
+                    return *current_id != nav_id;
+                }
+            }
+            false
+        };
+
+        let size = calculate_dir_size_recursive(std::path::Path::new(&path), &is_cancelled);
+
+        // Only emit if not cancelled by navigation
+        let mut final_id_match = true;
+        if let Some(mutex) = GLOBAL_NAV_ID.get() {
+            if let Ok(current_id) = mutex.lock() {
+                final_id_match = *current_id == nav_id;
+            }
+        }
+
+        if final_id_match {
+            let formatted_size = if size < 1024 {
+                format!("{} B", size)
+            } else if size < 1024 * 1024 {
+                format!("{:.1} KB", size as f64 / 1024.0)
+            } else if size < 1024 * 1024 * 1024 {
+                format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+            } else {
+                format!("{:.2} GB", size as f64 / (1024.0 * 1024.0 * 1024.0))
+            };
+
+            let _ = app_handle.emit(
+                "folder-size-calculated",
+                FolderSizeUpdate {
+                    path: path.clone(),
+                    req_id: nav_id,
+                    size,
+                    formatted_size,
+                },
+            );
+        }
+    });
+
+    Ok(())
+}
+
+fn calculate_dir_size_recursive(path: &std::path::Path, is_cancelled: &dyn Fn() -> bool) -> u64 {
+    if is_cancelled() {
+        return 0;
+    }
+
+    if path.is_file() {
+        return path.metadata().map(|m| m.len()).unwrap_or(0);
+    }
+
+    let mut total_size = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        // Collect entries to process in parallel via Rayon if path is shallow,
+        // but for deep recursion it's better to stay simple or use par_bridge.
+        // To keep it safe and cancellable, we'll do a simple loop and check cancellation.
+        for entry in entries.filter_map(|e| e.ok()) {
+            if is_cancelled() {
+                break;
+            }
+            let metadata = entry.metadata();
+            if let Ok(meta) = metadata {
+                if meta.is_dir() {
+                    total_size += calculate_dir_size_recursive(&entry.path(), is_cancelled);
+                } else {
+                    total_size += meta.len();
+                }
+            }
+        }
+    }
+    total_size
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1540,6 +1665,7 @@ pub fn run() {
         })
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
+            let _ = GLOBAL_NAV_ID.set(std::sync::Mutex::new(String::new()));
             let window = app.get_webview_window("main").unwrap();
 
             #[cfg(target_os = "windows")]
@@ -1586,7 +1712,9 @@ pub fn run() {
             drop_overlay::show_overlay,
             drop_overlay::hide_overlay,
             extraction::extract_archive,
-            read_preview_text
+            read_preview_text,
+            calculate_folder_size,
+            cancel_folder_size_calculations
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

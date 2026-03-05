@@ -82,6 +82,7 @@ export interface Translations {
         up: string;
         refresh: string;
         search_placeholder: string;
+        paste_image: string;
     };
     footer: {
         items: string;
@@ -140,5 +141,9 @@ export interface Translations {
         custom_folders: string;
         custom_folders_desc: string;
         no_custom_folders: string;
+        toolbar_style: string;
+        toolbar_style_desc: string;
+        toolbar_dynamic: string;
+        toolbar_compact: string;
     };
 }

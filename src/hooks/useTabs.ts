@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Tab, SortConfig, FileEntry, SortColumn, QuickAccessConfig } from '../types';
+import { listen } from '@tauri-apps/api/event';
+import { Tab, SortConfig, FileEntry, SortColumn, QuickAccessConfig, FolderSizeUpdate } from '../types';
+import { getCachedSize, setCachedSize, clearExpiredEntries } from '../utils/folderSizeCache';
 
 const normalizePath = (p: string) => {
     if (!p) return '';
@@ -90,13 +92,47 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         localStorage.setItem('speedexplorer-active-tab', activeTabId);
     }, [activeTabId]);
 
+    // Cleanup expired folder size cache entries on mount
+    useEffect(() => {
+        clearExpiredEntries();
+    }, []);
+
+    // Async Folder Size Listener
+    useEffect(() => {
+        const unlisten = listen<FolderSizeUpdate>('folder-size-calculated', (event) => {
+            const update = event.payload;
+
+            setTabs(prev => prev.map(tab => {
+                // Find if the tab contains this path and the request ID matches
+                const fileIndex = tab.files.findIndex(f => f.path === update.path);
+                if (fileIndex !== -1) {
+                    // Save to persistent cache
+                    setCachedSize(update.path, update.size, update.formatted_size);
+
+                    const newFiles = [...tab.files];
+                    newFiles[fileIndex] = {
+                        ...newFiles[fileIndex],
+                        size: update.size,
+                        formatted_size: update.formatted_size
+                    };
+                    return { ...tab, files: newFiles };
+                }
+                return tab;
+            }));
+        });
+
+        return () => {
+            unlisten.then(u => u());
+        };
+    }, [setTabs]);
+
     const currentTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
     const updateTab = useCallback((tabId: string, updates: Partial<Tab>) => {
         setTabs(prev => prev.map(t => t.id === tabId ? { ...t, ...updates } : t));
     }, []);
 
-    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[], expectedGenerationId?: number, revertState?: Partial<Tab>, retryDirection?: 'back' | 'forward' | null, jumpOriginPath?: string) => {
+    const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[], expectedGenerationId?: number, pendingUpdates?: Partial<Tab>, retryDirection?: 'back' | 'forward' | null, jumpOriginPath?: string) => {
         // If expectedGenerationId is provided, we only want to proceed if it matches the current tab's ID.
         // However, we can't easily check the *current* state inside this callback before the async call without refs or functional updates.
         // But the robust check MUST happen AFTER the async call.
@@ -122,8 +158,19 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         }, 15000);
 
         try {
-            const result = await invoke<FileEntry[]>('list_files', { path, showHidden: showHidden ?? showHiddenFiles });
+            let result = await invoke<FileEntry[]>('list_files', { path, showHidden: showHidden ?? showHiddenFiles });
             clearTimeout(safetyTimeout);
+
+            // Pre-populate with cached folder sizes
+            result = result.map(file => {
+                if (file.is_dir) {
+                    const cached = getCachedSize(file.path);
+                    if (cached) {
+                        return { ...file, size: cached.size, formatted_size: cached.formatted_size };
+                    }
+                }
+                return file;
+            });
 
             setTabs(prev => {
                 const currentTabState = prev.find(t => t.id === tabId);
@@ -156,6 +203,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
 
                 return prev.map(t => t.id === tabId ? {
                     ...t,
+                    ...(pendingUpdates || {}),
                     files: result,
                     path,
                     selectedFiles,
@@ -163,6 +211,16 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                     loading: false
                 } : t);
             });
+
+            // Trigger folder size calculations for all directories in the result
+            const targetNavId = (pendingUpdates as any)?.navId || String(currentGenId);
+
+            result.forEach(file => {
+                if (file.is_dir) {
+                    invoke('calculate_folder_size', { path: file.path, navId: targetNavId }).catch(console.error);
+                }
+            });
+
         } catch (err) {
             clearTimeout(safetyTimeout);
             setTabs(prev => {
@@ -171,8 +229,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                     return prev;
                 }
 
-                if (!retryDirection && revertState) {
-                    return prev.map(t => t.id === tabId ? { ...t, ...revertState, error: null, loading: false } : t);
+                if (!retryDirection && pendingUpdates) {
+                    return prev.map(t => t.id === tabId ? { ...t, ...pendingUpdates, error: String(err), loading: false, files: [] } : t);
                 }
 
                 const direction = retryDirection;
@@ -231,15 +289,15 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         });
     }, [loadFilesForTab]);
 
-    const navigateTo = useCallback((path: string, isManual: boolean = false) => {
+    const navigateTo = useCallback((path: string) => {
         if (!currentTab) return;
 
         const isSamePath = normalizePath(path) === normalizePath(currentTab.path);
         const nextGenId = currentTab.generationId + 1;
         lastNavigationTimeRef.current = Date.now();
 
-        // If duplicate path, we allow the load (for retry/refresh) but skip history entry
-        const updates: Partial<Tab> = {
+        // Instead of immediate updates, we schedule them as pending
+        const pendingUpdates: Partial<Tab> = {
             searchQuery: '',
             renamingPath: null,
             path: path,
@@ -253,19 +311,15 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         if (!isSamePath) {
             const newHistory = currentTab.history.slice(0, currentTab.historyIndex + 1);
             newHistory.push(path);
-            updates.history = newHistory;
-            updates.historyIndex = newHistory.length - 1;
+            pendingUpdates.history = newHistory;
+            pendingUpdates.historyIndex = newHistory.length - 1;
         }
 
-        const revertState = isManual ? {
-            path: currentTab.path,
-            history: currentTab.history,
-            historyIndex: currentTab.historyIndex,
-            generationId: nextGenId
-        } : undefined;
+        const currentNavId = String(nextGenId);
+        invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
 
-        updateTab(currentTab.id, updates);
-        loadFilesForTab(currentTab.id, path, undefined, undefined, nextGenId, revertState);
+        updateTab(currentTab.id, { loading: true, generationId: nextGenId });
+        loadFilesForTab(currentTab.id, path, undefined, undefined, nextGenId, { ...pendingUpdates, navId: currentNavId } as any);
     }, [currentTab, updateTab, loadFilesForTab]);
 
     const goBack = useCallback((isRetry: any = false) => {
@@ -282,16 +336,20 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         const nextGenId = tab.generationId + 1;
         lastNavigationTimeRef.current = Date.now();
 
-        updateTab(tab.id, {
+        const pendingUpdates: Partial<Tab> = {
             historyIndex: newIndex,
             searchQuery: '',
             generationId: nextGenId,
             selectedFiles: [],
             lastSelectedFile: null,
             scrollIndex: 0
-        });
+        };
 
-        loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, undefined, 'back', tab.path);
+        const currentNavId = String(nextGenId);
+        invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
+
+        updateTab(tab.id, { loading: true, generationId: nextGenId });
+        loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, { ...pendingUpdates, navId: currentNavId } as any, 'back', tab.path);
     }, [updateTab, loadFilesForTab]);
 
     const goForward = useCallback((isRetry: any = false) => {
@@ -308,15 +366,20 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         const nextGenId = tab.generationId + 1;
         lastNavigationTimeRef.current = Date.now();
 
-        updateTab(tab.id, {
+        const pendingUpdates: Partial<Tab> = {
             historyIndex: newIndex,
             searchQuery: '',
             generationId: nextGenId,
             selectedFiles: [],
             lastSelectedFile: null,
             scrollIndex: 0
-        });
-        loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, undefined, 'forward', tab.path);
+        };
+
+        const currentNavId = String(nextGenId);
+        invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
+
+        updateTab(tab.id, { loading: true, generationId: nextGenId });
+        loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, { ...pendingUpdates, navId: currentNavId } as any, 'forward', tab.path);
     }, [updateTab, loadFilesForTab]);
 
     const goUp = useCallback(() => {
@@ -361,8 +424,11 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             // Even for refresh, we bump the generation ID to "cancel" any previous pending loads
             // and ensure this refresh is the authoritative source of truth.
             const nextGenId = targetTab.generationId + 1;
+            const currentNavId = String(nextGenId);
+            invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
+
             updateTab(targetTab.id, { generationId: nextGenId });
-            loadFilesForTab(targetTab.id, targetTab.path, undefined, undefined, nextGenId);
+            loadFilesForTab(targetTab.id, targetTab.path, undefined, undefined, nextGenId, { navId: currentNavId } as any);
         }
     }, [loadFilesForTab, updateTab]);
 

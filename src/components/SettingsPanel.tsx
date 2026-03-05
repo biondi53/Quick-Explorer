@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Settings, Folder, Check, X, ChevronRight, SlidersHorizontal, Monitor, Download, FileText, Image, Trash2, Languages } from 'lucide-react';
+import { Settings, Folder, Check, X, ChevronRight, SlidersHorizontal, Monitor, Download, FileText, Image, Trash2, Languages, Layout } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '../i18n/useTranslation';
 import { Language } from '../i18n/types';
+import { ToolbarMode } from '../types';
 
 interface PinnedFolder {
     id: string;
@@ -29,14 +30,15 @@ interface SettingsPanelProps {
     showHiddenFiles: boolean;
     autoSearchOnKey: boolean;
     focusNewTabOnMiddleClick: boolean;
-    onSave: (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, showHiddenFiles?: boolean, autoSearchOnKey?: boolean, focusNewTabOnMiddleClick?: boolean, closePanel?: boolean) => void;
+    toolbarMode: ToolbarMode;
+    onSave: (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, showHiddenFiles?: boolean, autoSearchOnKey?: boolean, focusNewTabOnMiddleClick?: boolean, toolbarMode?: ToolbarMode, closePanel?: boolean) => void;
     onReset: () => void;
     onCancel: () => void;
 }
 
 const SYSTEM_FOLDER_IDS = ['desktop', 'downloads', 'documents', 'pictures', 'recycle-bin', 'home'];
 
-export default function SettingsPanel({ config, sortConfig, showHiddenFiles, autoSearchOnKey, focusNewTabOnMiddleClick, onSave, onReset, onCancel }: SettingsPanelProps) {
+export default function SettingsPanel({ config, sortConfig, showHiddenFiles, autoSearchOnKey, focusNewTabOnMiddleClick, toolbarMode, onSave, onReset, onCancel }: SettingsPanelProps) {
     const { t, language, setLanguage } = useTranslation();
     const [localConfig, setLocalConfig] = useState<QuickAccessConfig>(() => ({
         pinnedFolders: config?.pinnedFolders || []
@@ -48,12 +50,13 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
     const [localShowHidden, setLocalShowHidden] = useState(!!showHiddenFiles);
     const [localAutoSearch, setLocalAutoSearch] = useState(!!autoSearchOnKey);
     const [localFocusNewTab, setLocalFocusNewTab] = useState(!!focusNewTabOnMiddleClick);
+    const [localToolbarMode, setLocalToolbarMode] = useState<ToolbarMode>(toolbarMode || 'dynamic');
     const [activeSection, setActiveSection] = useState('general');
     const [localLanguage, setLocalLanguage] = useState<Language>(language);
 
     const handleSave = (closePanel = true) => {
         setLanguage(localLanguage);
-        onSave(localConfig, localSortConfig, localShowHidden, localAutoSearch, localFocusNewTab, closePanel);
+        onSave(localConfig, localSortConfig, localShowHidden, localAutoSearch, localFocusNewTab, localToolbarMode, closePanel);
     };
 
     const toggleFolder = (id: string) => {
@@ -81,7 +84,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
 
     const getIcon = (id: string) => {
         switch (id) {
-            case 'desktop': return <Monitor size={16} />;
+            case 'desktop': return <Layout size={16} />;
             case 'home': return <Monitor size={16} />;
             case 'downloads': return <Download size={16} />;
             case 'documents': return <FileText size={16} />;
@@ -245,6 +248,31 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                         <label htmlFor="focusNewTab" className="text-sm text-zinc-300 cursor-pointer">
                                             {t('settings.focus_new_tab')}
                                         </label>
+                                    </div>
+
+                                    <div className="grid gap-2 pt-2">
+                                        <label className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-widest pl-1">{t('settings.toolbar_style')}</label>
+                                        <p className="text-[10px] text-[var(--text-muted)] pl-1 mb-1">{t('settings.toolbar_style_desc')}</p>
+                                        <div className="flex bg-white/[0.03] border border-white/10 rounded-xl p-1 gap-1">
+                                            <button
+                                                onClick={() => setLocalToolbarMode('dynamic')}
+                                                className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all
+                                                    ${localToolbarMode === 'dynamic'
+                                                        ? 'bg-[var(--accent-primary)] text-white shadow-lg shadow-[rgba(var(--accent-rgb),0.2)]'
+                                                        : 'text-[var(--text-dim)] hover:text-zinc-300 hover:bg-white/5'}`}
+                                            >
+                                                {t('settings.toolbar_dynamic')}
+                                            </button>
+                                            <button
+                                                onClick={() => setLocalToolbarMode('compact')}
+                                                className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all
+                                                    ${localToolbarMode === 'compact'
+                                                        ? 'bg-[var(--accent-primary)] text-white shadow-lg shadow-[rgba(var(--accent-rgb),0.2)]'
+                                                        : 'text-[var(--text-dim)] hover:text-zinc-300 hover:bg-white/5'}`}
+                                            >
+                                                {t('settings.toolbar_compact')}
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="pt-8 border-t border-white/5 space-y-4">

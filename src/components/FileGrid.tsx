@@ -302,6 +302,12 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                         {file.name}
                     </span>
                 )}
+
+                {file.is_dir && file.formatted_size && (
+                    <span className="text-[9px] text-[var(--text-muted)] font-mono opacity-80 mt-0.5">
+                        {file.formatted_size}
+                    </span>
+                )}
             </div>
         </GlowCard>
     );

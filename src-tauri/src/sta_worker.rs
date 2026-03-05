@@ -519,6 +519,131 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
     Ok(files)
 }
 
+fn get_localized_name(name: &str) -> String {
+    match name.to_lowercase().as_str() {
+        "downloads" => "Descargas".to_string(),
+        "documents" => "Documentos".to_string(),
+        "pictures" => "Imágenes".to_string(),
+        "music" => "Música".to_string(),
+        "videos" => "Vídeos".to_string(),
+        "desktop" => "Escritorio".to_string(),
+        "favorites" => "Favoritos".to_string(),
+        "contacts" => "Contactos".to_string(),
+        "links" => "Vínculos".to_string(),
+        "searches" => "Búsquedas".to_string(),
+        "saved games" => "Juegos guardados".to_string(),
+        "3d objects" => "Objetos 3D".to_string(),
+        _ => name.to_string(),
+    }
+}
+
+fn list_files_native(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+    let entries =
+        std::fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    let entries_vec: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+
+    let files: Vec<FileEntry> = entries_vec
+        .into_par_iter()
+        .filter_map(|entry| {
+            let path_obj = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            let full_path = path_obj.to_string_lossy().to_string();
+
+            if !show_hidden {
+                // On Windows, check file attributes for hidden flag
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    if let Ok(metadata) = entry.metadata() {
+                        let attrs = metadata.file_attributes();
+                        if (attrs & 0x2) != 0 {
+                            // 0x2 is FILE_ATTRIBUTE_HIDDEN
+                            return None;
+                        }
+                    }
+                }
+            }
+
+            if let Ok(metadata) = entry.metadata() {
+                let is_dir = metadata.is_dir();
+                let size = if is_dir { 0 } else { metadata.len() };
+
+                let formatted_size = if is_dir {
+                    String::new()
+                } else if size < 1024 {
+                    format!("{} B", size)
+                } else if size < 1024 * 1024 {
+                    format!("{:.1} KB", size as f64 / 1024.0)
+                } else {
+                    format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+                };
+
+                let extension = path_obj
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let is_shortcut = extension == "lnk";
+
+                let file_type = if is_shortcut {
+                    "Shortcut".to_string()
+                } else if is_dir {
+                    "Folder".to_string()
+                } else {
+                    path_obj
+                        .extension()
+                        .map(|ext| ext.to_string_lossy().to_uppercase() + " File")
+                        .unwrap_or_else(|| "File".to_string())
+                };
+
+                let created_at = metadata.created().unwrap_or_else(|_| SystemTime::now());
+                let created_datetime: DateTime<Local> = created_at.into();
+                let created_at_str = created_datetime.format("%d/%m/%Y %H:%M").to_string();
+
+                let modified_at = metadata.modified().unwrap_or_else(|_| SystemTime::now());
+                let modified_datetime: DateTime<Local> = modified_at.into();
+                let modified_at_str = modified_datetime.format("%d/%m/%Y %H:%M").to_string();
+
+                Some(FileEntry {
+                    name: get_localized_name(&name),
+                    path: full_path,
+                    is_dir,
+                    size,
+                    formatted_size,
+                    file_type,
+                    created_at: created_at_str,
+                    modified_at: modified_at_str,
+                    is_shortcut,
+                    disk_info: None,
+                    modified_timestamp: modified_at
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64,
+                    dimensions: None,
+                })
+            } else {
+                Some(FileEntry {
+                    name: get_localized_name(&name),
+                    path: full_path,
+                    is_dir: false,
+                    size: 0,
+                    formatted_size: String::new(),
+                    file_type: "System Item".to_string(),
+                    created_at: "".to_string(),
+                    modified_at: "".to_string(),
+                    is_shortcut: false,
+                    disk_info: None,
+                    modified_timestamp: 0,
+                    dimensions: None,
+                })
+            }
+        })
+        .collect();
+
+    Ok(files)
+}
+
 fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
     if path == "shell:RecycleBin" {
         return list_recycle_bin();
@@ -542,6 +667,11 @@ fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, Stri
                     .chain(std::iter::once(0))
                     .collect();
 
+                let system_drive = std::env::var("SystemDrive")
+                    .unwrap_or_else(|_| "C:".to_string())
+                    .to_uppercase();
+                let is_system = drive_path.starts_with(&system_drive);
+
                 let disk_info = unsafe {
                     if GetDiskFreeSpaceExW(
                         PCWSTR(path_wide.as_ptr()),
@@ -555,6 +685,7 @@ fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, Stri
                             total: total_number_of_bytes,
                             used: total_number_of_bytes - total_number_of_free_bytes,
                             free: total_number_of_free_bytes,
+                            is_system,
                         })
                     } else {
                         None
@@ -606,6 +737,18 @@ fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, Stri
         return Ok(drives);
     }
 
+    if path.is_empty() {
+        // ... drives logic exists ... (already correctly handled above)
+    }
+
+    // LEVEL 1 OPTIMIZATION: Bifurcation
+    // If it's a normal absolute path on disk, use the high-performance native reader.
+    let path_obj = std::path::Path::new(path);
+    if path_obj.is_absolute() && path_obj.exists() {
+        return list_files_native(path, show_hidden);
+    }
+
+    // Fallback: Shell API (IShellItem) for virtual folders, drives, etc.
     let mut files = Vec::new();
 
     unsafe {

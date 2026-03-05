@@ -82,6 +82,7 @@ export const es: Translations = {
         up: 'Subir nivel',
         refresh: 'Actualizar',
         search_placeholder: 'Buscar en {count} elementos...',
+        paste_image: 'Imagen',
     },
     footer: {
         items: 'elementos',
@@ -140,5 +141,9 @@ export const es: Translations = {
         custom_folders: 'Carpetas Personalizadas',
         custom_folders_desc: 'Configura las rutas para tus carpetas ancladas manualmente.',
         no_custom_folders: 'No hay carpetas personalizadas ancladas aún.',
+        toolbar_style: 'Estilo de Barra de Herramientas',
+        toolbar_style_desc: 'Elige si la barra se colapsa automáticamente o permanece compacta.',
+        toolbar_dynamic: 'Dinámico (Automático)',
+        toolbar_compact: 'Compacto (Solo íconos)',
     },
 };

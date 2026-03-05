@@ -1,3 +1,17 @@
+# 🚀 Quick Explorer v0.1.23
+*Changelog - March 5, 2026*
+
+## ✨ Folder Size Intelligence & System Branding
+- **⚡ Asynchronous Folder Sizes**: Implemented a high-performance background engine using `Rayon` parallelism to calculate folder sizes without affecting UI responsiveness.
+- **🛡️ Persistent Folder Cache**: Calculated sizes are now saved in `localStorage` (TTL 2h), allowing them to appear **instantly** when revisiting folders.
+- **🧠 Intelligent Invalidation**: Added targeted cache clearing for Move, Copy, Delete, and Rename operations, ensuring sizes stay fresh without unnecessary re-calculations.
+- **🟦 System Drive Identity**: The system drive (C:) now features a premium, enlarged Windows 11 logo in both the Sidebar and "This PC" views.
+- **⚙️ Toolbar Customization**: New setting in **Ajustes > General** to choose between Dynamic (auto-collapse) and Compact (icons only) toolbar modes.
+- **💾 Native Drive Renaming**: Fixed a limitation in the Windows Shell API; you can now rename physical disk volumes directly from the "This PC" view.
+- **🎨 Refined Clipboard UI**: Modernized the "Paste" indicator with a cleaner, theme-accented chip design.
+
+---
+
 # 🚀 Quick Explorer v0.1.22
 *Changelog - March 4, 2026*
 
@@ -211,4 +225,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.22*
+*Quick Explorer Project © 2026 - Versión 0.1.23*
