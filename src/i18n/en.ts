@@ -113,6 +113,8 @@ export const en: Translations = {
         shortcut: 'Shortcut',
         no_preview: 'Preview unavailable',
         rotate: 'Rotate 90°',
+        access_denied_title: 'Access Restricted',
+        access_denied_msg: 'This file is locked by the system or requires administrator permissions.',
     },
     settings: {
         title: 'Settings',

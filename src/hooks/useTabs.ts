@@ -217,7 +217,10 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
 
             result.forEach(file => {
                 if (file.is_dir) {
-                    invoke('calculate_folder_size', { path: file.path, navId: targetNavId }).catch(console.error);
+                    const cached = getCachedSize(file.path);
+                    if (!cached) {
+                        invoke('calculate_folder_size', { path: file.path, navId: targetNavId }).catch(console.error);
+                    }
                 }
             });
 

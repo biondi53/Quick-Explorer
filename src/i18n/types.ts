@@ -113,6 +113,8 @@ export interface Translations {
         esc_to_reset: string;
         shortcut: string;
         rotate: string;
+        access_denied_title: string;
+        access_denied_msg: string;
     };
     settings: {
         title: string;

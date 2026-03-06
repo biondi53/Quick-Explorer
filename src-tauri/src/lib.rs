@@ -209,8 +209,7 @@ fn read_preview_text(path: String) -> Result<PreviewTextResult, String> {
         .map_err(|e| format!("Failed to read file: {}", e))?;
     buffer.truncate(bytes_read);
 
-    let content =
-        String::from_utf8(buffer.clone()).map_err(|_| "Not a valid UTF-8 text file".to_string())?;
+    let content = String::from_utf8_lossy(&buffer).into_owned();
 
     // Check if there's more data the file
     let mut extra_byte = [0; 1];
@@ -843,22 +842,21 @@ fn save_clipboard_image(window: tauri::Window, target_path: String) -> Result<Fi
     return Err("Clipboard is empty or format not supported".into());
 }
 
-#[derive(serde::Serialize, Clone)]
-struct ThumbnailResult {
-    data: String,
-    source: String, // "native" or "ffmpeg"
-}
-
-struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, ThumbnailResult>>);
-
-#[tauri::command]
-async fn get_video_thumbnail(
+async fn get_thumbnail_bytes(
     path: String,
     size: u32,
     modified: i64,
     state: tauri::State<'_, ThumbnailCache>,
-) -> Result<ThumbnailResult, String> {
-    let cache_key = format!("video:{}:{}:{}", path, size, modified);
+    is_video: bool,
+) -> Result<Vec<u8>, String> {
+    let cache_key = format!(
+        "{}:{}:{}:{}",
+        if is_video { "video" } else { "image" },
+        path,
+        size,
+        modified
+    );
+
     {
         let mut cache = state.0.lock().unwrap();
         if let Some(res) = cache.get(&cache_key) {
@@ -866,68 +864,78 @@ async fn get_video_thumbnail(
         }
     }
 
-    // 1. Try Native Shell first
-    let path_clone = path.clone();
-    let native_res =
-        tokio::task::spawn_blocking(move || generate_shell_thumbnail(&path_clone, size))
-            .await
-            .map_err(|e| format!("Task join error: {}", e))?;
+    let mut result_bytes: Option<Vec<u8>> = None;
 
-    if let Ok((data_uri, _)) = native_res {
-        let result = ThumbnailResult {
-            data: data_uri,
-            source: "native".to_string(),
-        };
+    if let Ok(bytes) = generate_shell_thumbnail(&path, size) {
+        result_bytes = Some(bytes);
+    }
+
+    if result_bytes.is_none() && is_video {
+        let mut cmd = tokio::process::Command::new("ffmpeg");
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000);
+
+        let output_res = cmd
+            .arg("-ss")
+            .arg("2.0")
+            .arg("-i")
+            .arg(&path)
+            .arg("-vf")
+            .arg("scale=480:-1:flags=lanczos")
+            .arg("-vframes")
+            .arg("1")
+            .arg("-f")
+            .arg("image2")
+            .arg("-c:v")
+            .arg("mjpeg")
+            .arg("-pipe:1")
+            .arg("pipe:1")
+            .output()
+            .await;
+
+        if let Ok(output) = output_res {
+            if output.status.success() {
+                result_bytes = Some(output.stdout);
+            }
+        }
+    }
+
+    if let Some(bytes) = result_bytes {
         let mut cache = state.0.lock().unwrap();
-        cache.put(cache_key, result.clone());
-        return Ok(result);
+        cache.put(cache_key, bytes.clone());
+        Ok(bytes)
+    } else {
+        Err("Failed to generate thumbnail".to_string())
     }
-
-    // 2. Fallback to FFmpeg
-    let mut cmd = tokio::process::Command::new("ffmpeg");
-
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000);
-
-    let output = cmd
-        .arg("-ss")
-        .arg("2.0")
-        .arg("-i")
-        .arg(&path)
-        .arg("-vf")
-        .arg("scale=480:-1:flags=lanczos")
-        .arg("-vframes")
-        .arg("1")
-        .arg("-f")
-        .arg("image2")
-        .arg("-c:v")
-        .arg("mjpeg")
-        .arg("pipe:1")
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute ffmpeg: {}", e))?;
-
-    if !output.status.success() {
-        return Err("FFmpeg failed".to_string());
-    }
-
-    let base64_img = base64::engine::general_purpose::STANDARD.encode(&output.stdout);
-    let data_uri = format!("data:image/jpeg;base64,{}", base64_img);
-
-    let result = ThumbnailResult {
-        data: data_uri,
-        source: "ffmpeg".to_string(),
-    };
-
-    {
-        let mut cache = state.0.lock().unwrap();
-        cache.put(cache_key, result.clone());
-    }
-
-    Ok(result)
 }
 
-fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<String>), String> {
+struct ThumbnailCache(std::sync::Mutex<lru::LruCache<String, Vec<u8>>>);
+
+#[tauri::command]
+async fn get_video_thumbnail(
+    path: String,
+    size: u32,
+    modified: i64,
+    state: tauri::State<'_, ThumbnailCache>,
+) -> Result<String, String> {
+    let bytes = get_thumbnail_bytes(path, size, modified, state, true).await?;
+    let base64_img = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/jpeg;base64,{}", base64_img))
+}
+
+#[tauri::command]
+async fn get_thumbnail(
+    path: String,
+    size: u32,
+    modified: i64,
+    state: tauri::State<'_, ThumbnailCache>,
+) -> Result<String, String> {
+    let bytes = get_thumbnail_bytes(path, size, modified, state, false).await?;
+    let base64_img = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/jpeg;base64,{}", base64_img))
+}
+
+fn generate_shell_thumbnail(path: &str, size: u32) -> Result<Vec<u8>, String> {
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, SelectObject, BITMAP,
@@ -1034,43 +1042,8 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<(String, Option<Str
             .write_to(&mut cursor, image::ImageFormat::Jpeg)
             .map_err(|e| format!("Failed to encode image: {}", e))?;
 
-        let base64_data = base64::engine::general_purpose::STANDARD.encode(cursor.into_inner());
-        Ok((format!("data:image/jpeg;base64,{}", base64_data), None))
+        Ok(cursor.into_inner())
     }
-}
-
-#[tauri::command]
-async fn get_thumbnail(
-    path: String,
-    size: u32,
-    modified: i64,
-    state: tauri::State<'_, ThumbnailCache>,
-) -> Result<ThumbnailResult, String> {
-    let cache_key = format!("image:{}:{}:{}", path, size, modified);
-
-    {
-        let mut cache = state.0.lock().unwrap();
-        if let Some(res) = cache.get(&cache_key) {
-            return Ok(res.clone());
-        }
-    }
-
-    let path_clone = path.clone();
-    let data_uri = tokio::task::spawn_blocking(move || generate_shell_thumbnail(&path_clone, size))
-        .await
-        .map_err(|e| format!("Task join error: {}", e))??;
-
-    let result = ThumbnailResult {
-        data: data_uri.0,
-        source: "native".to_string(),
-    };
-
-    {
-        let mut cache = state.0.lock().unwrap();
-        cache.put(cache_key, result.clone());
-    }
-
-    Ok(result)
 }
 
 #[tauri::command]
@@ -1286,9 +1259,10 @@ fn get_clipboard_info(state: tauri::State<'_, ClipboardCache>) -> Result<Clipboa
 
             if ["png", "jpg", "jpeg", "bmp", "webp", "gif"].contains(&ext.as_str()) {
                 // Use shell thumbnail (fast, uses Windows cache) instead of image::open
-                if let Ok((data_uri, _)) = generate_shell_thumbnail(&paths[0], 1200) {
+                if let Ok(bytes) = generate_shell_thumbnail(&paths[0], 1200) {
+                    let base64_img = base64::engine::general_purpose::STANDARD.encode(&bytes);
                     info.has_image = true;
-                    info.image_data = Some(data_uri);
+                    info.image_data = Some(format!("data:image/jpeg;base64,{}", base64_img));
                 }
             }
         }
@@ -1646,6 +1620,8 @@ fn calculate_dir_size_recursive(path: &std::path::Path, is_cancelled: &dyn Fn() 
     total_size
 }
 
+struct ThumbnailConcurrencyLimit(tokio::sync::Semaphore);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1658,10 +1634,102 @@ pub fn run() {
             std::num::NonZeroUsize::new(500).unwrap(),
         ))))
         .manage(ClipboardCache(std::sync::Mutex::new(None)))
+        .manage(ThumbnailConcurrencyLimit(tokio::sync::Semaphore::new(4)))
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Focused(focused) = event {
                 log::info!("!!! [RUST] Window focused: {}", focused);
             }
+        })
+        .register_asynchronous_uri_scheme_protocol("thumbnail", |app, request, responder| {
+            use tauri::Manager;
+            let uri_str = request.uri().to_string();
+
+            let url = match url::Url::parse(&uri_str) {
+                Ok(url) => url,
+                Err(_e) => {
+                    responder.respond(
+                        tauri::http::Response::builder()
+                            .status(400)
+                            .body(Vec::new())
+                            .unwrap(),
+                    );
+                    return;
+                }
+            };
+
+            let mut path = String::new();
+            let mut size = 256;
+            let mut modified = 0;
+
+            for (k, v) in url.query_pairs() {
+                match k.as_ref() {
+                    "path" => path = v.into_owned(),
+                    "s" => size = v.parse().unwrap_or(256),
+                    "m" => modified = v.parse().unwrap_or(0),
+                    _ => {}
+                }
+            }
+
+            if path.is_empty() {
+                responder.respond(
+                    tauri::http::Response::builder()
+                        .status(400)
+                        .body(Vec::new())
+                        .unwrap(),
+                );
+                return;
+            }
+
+            let ext = std::path::Path::new(&path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let is_video = [
+                "mp4", "mkv", "avi", "mov", "wmv", "webm", "flv", "mpg", "mpeg",
+            ]
+            .contains(&ext.as_str());
+
+            let app_handle = app.app_handle().clone();
+
+            tauri::async_runtime::spawn(async move {
+                let limit_state = app_handle.state::<ThumbnailConcurrencyLimit>();
+                let default_permit_result = limit_state.0.acquire().await;
+                let _permit = match default_permit_result {
+                    Ok(p) => p,
+                    Err(_) => {
+                        responder.respond(
+                            tauri::http::Response::builder()
+                                .status(500)
+                                .body(Vec::new())
+                                .unwrap(),
+                        );
+                        return;
+                    }
+                };
+
+                let state = app_handle.state::<ThumbnailCache>();
+                match get_thumbnail_bytes(path.clone(), size, modified, state, is_video).await {
+                    Ok(bytes) => {
+                        let response = tauri::http::Response::builder()
+                            .header("Access-Control-Allow-Origin", "*")
+                            .header("Content-Type", "image/jpeg")
+                            .status(200)
+                            .body(bytes)
+                            .unwrap();
+                        responder.respond(response);
+                    }
+                    Err(e) => {
+                        log::warn!("[PROTOCOL] Failed for {}: {}", path, e);
+                        let response = tauri::http::Response::builder()
+                            .header("Access-Control-Allow-Origin", "*")
+                            .status(404)
+                            .body(Vec::new())
+                            .unwrap();
+                        responder.respond(response);
+                    }
+                }
+            });
         })
         .setup(|app| {
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -1695,8 +1763,6 @@ pub fn run() {
             drop_items,
             move_items,
             delete_items,
-            get_video_thumbnail,
-            get_thumbnail,
             get_file_dimensions,
             get_system_default_paths,
             get_clipboard_info,

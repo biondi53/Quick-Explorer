@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { Trash, RotateCw } from 'lucide-react';
+import { Trash, RotateCw, Lock } from 'lucide-react';
 import { FileEntry } from '../types';
 import { useTranslation } from '../i18n/useTranslation';
+import { IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS, TEXT_EXTS } from '../utils/previewUtils';
 
 interface QuickPreviewProps {
     file: FileEntry;
@@ -44,11 +45,11 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
     const ext = file.path.split('.').pop()?.toLowerCase() || '';
 
-    const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext);
-    const isVideo = ['mp4', 'webm', 'ogg'].includes(ext);
-    const isAudio = ['mp3', 'wav', 'ogg'].includes(ext);
-    const isText = ['txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'json', 'css', 'html', 'rs', 'py', 'log', 'ini', 'cfg', 'csv'].includes(ext);
-    const isZoomable = isImage || isVideo;
+    const isImage = IMAGE_EXTS.includes(ext);
+    const isVideo = VIDEO_EXTS.includes(ext);
+    const isAudio = AUDIO_EXTS.includes(ext);
+    const isText = TEXT_EXTS.includes(ext);
+    const isZoomable = isImage || (isVideo && ext !== 'ogg'); // Selective zoom for video, ogg might be audio-only
 
     // Reset state when file changes
     useEffect(() => {
@@ -250,6 +251,30 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         }
 
         if (error) {
+            const isAccessDenied = error.toLowerCase().includes('acceso denegado') || error.toLowerCase().includes('os error 5');
+
+            if (isAccessDenied) {
+                return (
+                    <div className="bg-white/5 p-10 rounded-2xl border border-white/10 backdrop-blur-md flex flex-col items-center gap-4 max-w-md w-full shadow-2xl transform transition-transform duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
+                        <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
+                            <Lock size={40} className="text-red-400" />
+                        </div>
+                        <h2 className="text-white font-bold text-xl text-center break-all mb-1 leading-tight">
+                            {t('preview.access_denied_title')}
+                        </h2>
+                        <p className="text-white/60 text-sm text-center leading-relaxed">
+                            {t('preview.access_denied_msg')}
+                        </p>
+
+                        <div className="w-full h-px bg-white/5 my-2" />
+
+                        <div className="w-full text-xs text-white/30 font-mono text-center overflow-hidden text-ellipsis whitespace-nowrap">
+                            {file.name}
+                        </div>
+                    </div>
+                );
+            }
+
             return (
                 <div className="text-red-400 bg-red-400/10 p-6 rounded-lg border border-red-400/20">
                     <h3 className="text-lg font-bold mb-2">{t('preview.error_title')}</h3>

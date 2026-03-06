@@ -27,6 +27,7 @@ import {
   ChevronRight,
   PanelRight
 } from 'lucide-react';
+import { isPreviewable } from './utils/previewUtils';
 
 const DEFAULT_COLUMNS: SortColumn[] = ['name', 'modified_at', 'created_at', 'file_type', 'size'];
 
@@ -1301,7 +1302,7 @@ export default function App() {
         if (showQuickPreview) {
           setShowQuickPreview(false);
           setForceScrollToSelected(p => p + 1);
-        } else if (currentTab?.selectedFiles.length === 1) {
+        } else if (currentTab?.selectedFiles.length === 1 && isPreviewable(currentTab.selectedFiles[0])) {
           setShowQuickPreview(true);
         }
         return;
@@ -1538,26 +1539,26 @@ export default function App() {
   const handleQuickPreviewNavigate = useCallback((direction: 'next' | 'prev') => {
     if (!currentTab || currentTab.selectedFiles.length !== 1) return;
 
-    const fileOnlyList = sortedFiles.filter(f => !f.is_dir);
-    if (fileOnlyList.length === 0) return;
+    const previewableFiles = sortedFiles.filter(f => isPreviewable(f));
+    if (previewableFiles.length === 0) return;
 
     const currentFile = currentTab.selectedFiles[0];
-    const currentIndex = fileOnlyList.findIndex(f => f.path === currentFile.path);
+    const currentIndex = previewableFiles.findIndex(f => f.path === currentFile.path);
 
     let nextFile;
     if (currentIndex === -1) {
-      // If current is a folder, find the next/prev file in the full list or wrap around
+      // If current is somehow not in the previewable list, find the next/prev relative to it in the full list
       const currentIndexInFull = sortedFiles.findIndex(f => f.path === currentFile.path);
       if (direction === 'next') {
-        nextFile = sortedFiles.slice(currentIndexInFull + 1).find(f => !f.is_dir) || fileOnlyList[0];
+        nextFile = sortedFiles.slice(currentIndexInFull + 1).find(f => isPreviewable(f)) || previewableFiles[0];
       } else {
-        nextFile = [...sortedFiles.slice(0, currentIndexInFull)].reverse().find(f => !f.is_dir) || fileOnlyList[fileOnlyList.length - 1];
+        nextFile = [...sortedFiles.slice(0, currentIndexInFull)].reverse().find(f => isPreviewable(f)) || previewableFiles[previewableFiles.length - 1];
       }
     } else {
       const newIndex = direction === 'next'
-        ? (currentIndex + 1) % fileOnlyList.length
-        : (currentIndex - 1 + fileOnlyList.length) % fileOnlyList.length;
-      nextFile = fileOnlyList[newIndex];
+        ? (currentIndex + 1) % previewableFiles.length
+        : (currentIndex - 1 + previewableFiles.length) % previewableFiles.length;
+      nextFile = previewableFiles[newIndex];
     }
 
     if (nextFile) {

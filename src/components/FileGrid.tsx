@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { invoke } from '@tauri-apps/api/core';
+
 import {
     Link as LinkIcon,
     Play
@@ -37,8 +37,6 @@ interface FileGridProps {
 
 const ITEM_SIZE = 160;
 const GAP = 8;
-const MAX_CONCURRENT = 6;
-const THUMBNAIL_TIMEOUT = 10000;
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
 const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
@@ -50,78 +48,7 @@ const shouldLoadThumbnail = (file: FileEntry) => {
     return IMAGE_EXTS.includes(ext) || VIDEO_EXTS.includes(ext);
 };
 
-// ===== THUMBNAIL MANAGER WITH CANCELLATION =====
-let currentSessionId = 0;
-let activeRequests = 0;
-
-interface ThumbnailResult {
-    data: string;
-    source: string;
-}
-
-interface ThumbnailRequest {
-    path: string;
-    is_video: boolean;
-    modified: number;
-    sessionId: number;
-    callback: (result: ThumbnailResult | null) => void;
-}
-
-const pendingQueue: ThumbnailRequest[] = [];
-
-const processNext = () => {
-    if (activeRequests >= MAX_CONCURRENT || pendingQueue.length === 0) return;
-
-    const request = pendingQueue.shift()!;
-
-    // Skip if session changed (folder changed)
-    if (request.sessionId !== currentSessionId) {
-        processNext();
-        return;
-    }
-
-    activeRequests++;
-
-    const command = request.is_video ? 'get_video_thumbnail' : 'get_thumbnail';
-    const thumbnailPromise = invoke<ThumbnailResult>(command, { path: request.path, size: 256, modified: request.modified });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), THUMBNAIL_TIMEOUT)
-    );
-
-    Promise.race([thumbnailPromise, timeoutPromise])
-        .then(res => {
-            request.callback(res);
-        })
-        .catch(() => {
-            request.callback(null);
-        })
-        .finally(() => {
-            activeRequests = Math.max(0, activeRequests - 1);
-            processNext();
-        });
-};
-
-const requestThumbnail = (path: string, is_video: boolean, modified: number, callback: (result: ThumbnailResult | null) => void) => {
-    pendingQueue.push({ path, is_video, modified, sessionId: currentSessionId, callback });
-    processNext();
-};
-
-const startNewThumbnailSession = () => {
-    currentSessionId++;
-    pendingQueue.length = 0;
-    return currentSessionId;
-};
-
-const cancelThumbnailSession = (sessionId: number) => {
-    // Only cancel if this session is still the active one
-    if (currentSessionId === sessionId) {
-        pendingQueue.length = 0;
-        // We don't increment currentSessionId here to allow activeRequests 
-        // from this session to complete if they are already in progress,
-        // but we prevent new ones from being shifted out of the queue.
-    }
-};
-// ===== END THUMBNAIL MANAGER =====
+// No explicit thumbnail manager needed. The browser's native HTTP connection pool handles `http://` streams natively.
 
 interface GridItemProps {
     file: FileEntry;
@@ -135,16 +62,18 @@ interface GridItemProps {
     onRenameSubmit: (file: FileEntry, newName: string) => void;
     onRenameCancel: () => void;
     isClipboardItem: boolean;
-    sessionId: number;
 }
 
-const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem, sessionId }: GridItemProps) => {
+const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem }: GridItemProps) => {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [editValue, setEditValue] = useState("");
     const editInputRef = useRef<HTMLInputElement>(null);
     const requestedRef = useRef(false);
     const submittingRef = useRef(false);
+    const itemRef = useRef<HTMLDivElement>(null);
+    const [isVisible, setIsVisible] = useState(false);
+    const visTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         // Reset on file change
@@ -152,16 +81,40 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
         submittingRef.current = false;
         setThumbnail(null);
         setLoading(false);
+        setIsVisible(false);
+        if (visTimerRef.current) {
+            clearTimeout(visTimerRef.current);
+            visTimerRef.current = null;
+        }
     }, [file.path, file.modified_timestamp]);
 
     useEffect(() => {
-        // Reset request flag on session change ONLY if we don't have a thumbnail yet.
-        // This handles cases where items were cleared from the global queue during a fast tab switch
-        // but the component itself was reused by React.
-        if (!thumbnail) {
-            requestedRef.current = false;
+        if (thumbnail || !shouldLoadThumbnail(file)) return;
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) {
+                    visTimerRef.current = setTimeout(() => {
+                        setIsVisible(true);
+                        observer.disconnect();
+                    }, 300);
+                } else if (visTimerRef.current) {
+                    clearTimeout(visTimerRef.current);
+                    visTimerRef.current = null;
+                }
+            },
+            { threshold: 0.1 }
+        );
+
+        if (itemRef.current) {
+            observer.observe(itemRef.current);
         }
-    }, [sessionId]);
+
+        return () => {
+            observer.disconnect();
+            if (visTimerRef.current) clearTimeout(visTimerRef.current);
+        };
+    }, [file.path, file.modified_timestamp, thumbnail]);
 
     useEffect(() => {
         if (isRenaming && editInputRef.current) {
@@ -180,27 +133,21 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
     }, [isRenaming]); // Only trigger when isRenaming state changes
 
     useEffect(() => {
-        if (requestedRef.current || thumbnail || !shouldLoadThumbnail(file)) return;
+        if (!isVisible || requestedRef.current || thumbnail || !shouldLoadThumbnail(file)) return;
 
         requestedRef.current = true;
         setLoading(true);
 
-        const ext = file.name.split('.').pop()?.toLowerCase() || '';
-        const isVideo = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'].includes(ext);
-
-        requestThumbnail(file.path, isVideo, file.modified_timestamp, (result) => {
-            if (result) {
-                setThumbnail(result.data);
-            }
-            setLoading(false);
-        });
-    }, [file.path, file.modified_timestamp, thumbnail, sessionId]);
+        const url = `http://thumbnail.localhost/?path=${encodeURIComponent(file.path)}&s=256&m=${file.modified_timestamp}`;
+        setThumbnail(url);
+    }, [file.path, file.modified_timestamp, thumbnail, isVisible]);
 
     const Icon = getIconComponent(file);
 
     return (
         <GlowCard className="rounded-xl" glowColor="rgba(var(--accent-rgb), 0.15)">
             <div
+                ref={itemRef}
                 className={`
                     flex flex-col items-center justify-center p-2 rounded-xl cursor-default
                     transition-all duration-150 group h-full w-full
@@ -237,6 +184,8 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                                 alt={file.name}
                                 draggable={false}
                                 className="w-full h-full object-cover rounded-lg shadow-md"
+                                onLoad={() => setLoading(false)}
+                                onError={() => setLoading(false)}
                             />
                             {/* Thumbnail source indicator commented out for now */}
                         </>
@@ -302,12 +251,6 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                         {file.name}
                     </span>
                 )}
-
-                {file.is_dir && file.formatted_size && (
-                    <span className="text-[9px] text-[var(--text-muted)] font-mono opacity-80 mt-0.5">
-                        {file.formatted_size}
-                    </span>
-                )}
             </div>
         </GlowCard>
     );
@@ -338,19 +281,6 @@ export default function FileGrid({
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(800);
     const selectedBeforeDownRef = useRef<boolean>(false);
-
-    const sessionIdRef = useRef<number>(currentSessionId);
-    const lastPathRef = useRef<string | null>(null);
-
-    if (lastPathRef.current !== currentPath) {
-        sessionIdRef.current = startNewThumbnailSession();
-        lastPathRef.current = currentPath;
-    }
-
-    // cleanup on unmount - only cancels if this grid still owns the session
-    useEffect(() => {
-        return () => cancelThumbnailSession(sessionIdRef.current);
-    }, []);
 
     // Smart Reset: Only reset to top when navigating within the SAME tab
     const lastResetTabIdRef = useRef(activeTabId);
@@ -771,7 +701,6 @@ export default function FileGrid({
                                         onRenameSubmit={onRenameSubmit}
                                         onRenameCancel={onRenameCancel}
                                         isClipboardItem={clipboardInfo?.paths.includes(file.path) || false}
-                                        sessionId={sessionIdRef.current}
                                     />
                                 ))}
                             </div>

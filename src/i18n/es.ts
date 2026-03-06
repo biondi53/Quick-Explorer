@@ -113,6 +113,8 @@ export const es: Translations = {
         type: 'Tipo',
         size: 'Tamaño',
         rotate: 'Rotar 90°',
+        access_denied_title: 'Acceso Restringido',
+        access_denied_msg: 'Este archivo está bloqueado por el sistema o requiere permisos de administrador.',
     },
     settings: {
         title: 'Ajustes',

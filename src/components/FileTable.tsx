@@ -3,7 +3,6 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronUp, ChevronDown, Check } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 import { useTranslation } from '../i18n/useTranslation';
-import { invoke } from '@tauri-apps/api/core';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
@@ -167,17 +166,16 @@ const FileTable = memo(({
                 const isVideo = VIDEO_EXTS.includes(ext);
                 if (isImage || isVideo) {
                     try {
-                        const command = isVideo ? 'get_video_thumbnail' : 'get_thumbnail';
-                        const timeoutPromise = new Promise<null>((resolve) =>
-                            setTimeout(() => resolve(null), 150)
-                        );
-                        const fetchPromise = invoke<{ data: string }>(command, {
-                            path: primaryFile.path,
-                            size: 256,
-                            modified: primaryFile.modified_timestamp
-                        });
-                        const result = await Promise.race([fetchPromise, timeoutPromise]);
-                        if (result) thumbnailBase64 = result.data;
+                        const protocolUrl = `http://thumbnail.localhost/?path=${encodeURIComponent(primaryFile.path)}&s=256&m=${primaryFile.modified_timestamp}`;
+                        const response = await fetch(protocolUrl);
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            thumbnailBase64 = await new Promise<string>((resolve) => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => resolve(reader.result as string);
+                                reader.readAsDataURL(blob);
+                            });
+                        }
                     } catch {
                         // Timeout or error: fall through to element/SVG fallback
                     }

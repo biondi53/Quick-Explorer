@@ -1,5 +1,16 @@
+# 🚀 Quick Explorer v0.1.24
+*Changelog - March 6, 2026*
+
+## ✨ Asynchronous Pipeline & CPU Optimization
+- **⚡ Asynchronous Thumbnail Protocol**: Migrated the entire thumbnail backend to Tauri's asynchronous protocol handler. This eliminates all IPC blocking, ensuring the UI remains 100% fluid regardless of folder size or media complexity.
+- **🛡️ Tokio Semaphore Throttling**: Implemented a strict concurrency limit (4 concurrent operations) using a Tokio Semaphore. This protects system resources by preventing "thread explosion" during rapid scrolling.
+- **🧠 Native Async FFmpeg**: Refactored the backend to use native Rust `async`/`.await` for all media processing. This ensures granular task management and immediate responsiveness to system interrupts.
+- **🔍 Smart Fast-Scroll Filtering**: Injected a 300ms "grace period" into the grid visibility observer. The app now intelligently ignores files you pass by at high speed, zeroing out unnecessary CPU usage during long travels.
+- **🔄 Performance Stability**: Eliminated the "black screen" and "jerky scroll" issues previously experienced under heavy load, providing a premium, high-end navigation experience.
+
+---
+
 # 🚀 Quick Explorer v0.1.23
-*Changelog - March 5, 2026*
 
 ## ✨ Folder Size Intelligence & System Branding
 - **⚡ Asynchronous Folder Sizes**: Implemented a high-performance background engine using `Rayon` parallelism to calculate folder sizes without affecting UI responsiveness.
@@ -225,4 +236,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.23*
+*Quick Explorer Project © 2026 - Versión 0.1.24*
