@@ -4,9 +4,18 @@ import type { ClipboardInfo as GeneratedClipboardInfo } from './bindings/Clipboa
 import type { RecycleBinStatus as GeneratedRecycleBinStatus } from './bindings/RecycleBinStatus';
 
 export type DiskInfo = GeneratedDiskInfo;
-export type FileEntry = GeneratedFileEntry & { thumbnail?: string | null };
+export type FileEntry = GeneratedFileEntry & {
+    thumbnail?: string | null;
+    source?: 'native' | 'ffmpeg' | null;
+};
 export type ClipboardInfo = GeneratedClipboardInfo;
 export type RecycleBinStatus = GeneratedRecycleBinStatus;
+
+declare global {
+    interface Window {
+        __SPEED_EXPLORER_DND_LOCK: boolean;
+    }
+}
 
 export interface FolderSizeUpdate {
     path: string;

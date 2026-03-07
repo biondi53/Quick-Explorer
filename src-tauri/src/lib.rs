@@ -1046,8 +1046,14 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<Vec<u8>, String> {
     }
 }
 
+#[derive(Serialize)]
+struct FileDimensionsResult {
+    dimensions: String,
+    source: String,
+}
+
 #[tauri::command]
-async fn get_file_dimensions(path: String) -> Result<Option<String>, String> {
+async fn get_file_dimensions(path: String) -> Result<Option<FileDimensionsResult>, String> {
     tokio::task::spawn_blocking(move || {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -1057,50 +1063,52 @@ async fn get_file_dimensions(path: String) -> Result<Option<String>, String> {
                 .chain(std::iter::once(0))
                 .collect();
 
-            let shell_item: IShellItem2 =
-                match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
-                    Ok(si) => si,
-                    Err(_) => {
-                        CoUninitialize();
-                        return Ok(None);
-                    }
+            let shell_item_result: Result<IShellItem2, _> =
+                SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None);
+
+            if let Ok(shell_item) = shell_item_result {
+                // PKEY_Video_FrameWidth: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 3
+                let k_width = PROPERTYKEY {
+                    fmtid: windows::core::GUID::from_values(
+                        0x64440489,
+                        0x4C8E,
+                        0x11D1,
+                        [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+                    ),
+                    pid: 3,
+                };
+                // PKEY_Video_FrameHeight: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 4
+                let k_height = PROPERTYKEY {
+                    fmtid: windows::core::GUID::from_values(
+                        0x64440489,
+                        0x4C8E,
+                        0x11D1,
+                        [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
+                    ),
+                    pid: 4,
                 };
 
-            // PKEY_Video_FrameWidth: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 3
-            let k_width = PROPERTYKEY {
-                fmtid: windows::core::GUID::from_values(
-                    0x64440489,
-                    0x4C8E,
-                    0x11D1,
-                    [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
-                ),
-                pid: 3,
-            };
-            // PKEY_Video_FrameHeight: {64440489-4C8E-11D1-8C70-00C04FC2B64F}, 4
-            let k_height = PROPERTYKEY {
-                fmtid: windows::core::GUID::from_values(
-                    0x64440489,
-                    0x4C8E,
-                    0x11D1,
-                    [0x8C, 0x70, 0x00, 0xC0, 0x4F, 0xC2, 0xB6, 0x4F],
-                ),
-                pid: 4,
-            };
-
-            if let (Ok(w), Ok(h)) = (
-                shell_item.GetUInt32(&k_width),
-                shell_item.GetUInt32(&k_height),
-            ) {
-                if w > 0 && h > 0 {
-                    CoUninitialize();
-                    return Ok(Some(format!("{}x{}", w, h)));
+                if let (Ok(w), Ok(h)) = (
+                    shell_item.GetUInt32(&k_width),
+                    shell_item.GetUInt32(&k_height),
+                ) {
+                    if w > 0 && h > 0 {
+                        CoUninitialize();
+                        return Ok(Some(FileDimensionsResult {
+                            dimensions: format!("{}x{}", w, h),
+                            source: "native".to_string(),
+                        }));
+                    }
                 }
             }
 
-            // Fallback for images
+            // Fallback for images via the `image` crate
             if let Ok((w, h)) = image::image_dimensions(&path) {
                 CoUninitialize();
-                return Ok(Some(format!("{}x{}", w, h)));
+                return Ok(Some(FileDimensionsResult {
+                    dimensions: format!("{}x{}", w, h),
+                    source: "native".to_string(),
+                }));
             }
 
             // Fallback for videos (FFmpeg probe)
@@ -1128,7 +1136,10 @@ async fn get_file_dimensions(path: String) -> Result<Option<String>, String> {
                                     && h_str_clean.chars().all(char::is_numeric)
                                 {
                                     CoUninitialize();
-                                    return Ok(Some(format!("{}x{}", w_str, h_str_clean)));
+                                    return Ok(Some(FileDimensionsResult {
+                                        dimensions: format!("{}x{}", w_str, h_str_clean),
+                                        source: "ffmpeg".to_string(),
+                                    }));
                                 }
                             }
                         }

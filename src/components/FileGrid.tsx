@@ -10,6 +10,7 @@ import { useTranslation } from '../i18n/useTranslation';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
+import { createGhostIcon } from '../utils/ghostIcon';
 import { DRAG_ICON_BASE64 } from '../utils/dragIcon';
 import GlowCard from './ui/GlowCard';
 
@@ -73,7 +74,6 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
     const submittingRef = useRef(false);
     const itemRef = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
-    const visTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         // Reset on file change
@@ -82,10 +82,6 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
         setThumbnail(null);
         setLoading(false);
         setIsVisible(false);
-        if (visTimerRef.current) {
-            clearTimeout(visTimerRef.current);
-            visTimerRef.current = null;
-        }
     }, [file.path, file.modified_timestamp]);
 
     useEffect(() => {
@@ -94,13 +90,8 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
         const observer = new IntersectionObserver(
             ([entry]) => {
                 if (entry.isIntersecting) {
-                    visTimerRef.current = setTimeout(() => {
-                        setIsVisible(true);
-                        observer.disconnect();
-                    }, 300);
-                } else if (visTimerRef.current) {
-                    clearTimeout(visTimerRef.current);
-                    visTimerRef.current = null;
+                    setIsVisible(true);
+                    observer.disconnect();
                 }
             },
             { threshold: 0.1 }
@@ -112,7 +103,6 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
 
         return () => {
             observer.disconnect();
-            if (visTimerRef.current) clearTimeout(visTimerRef.current);
         };
     }, [file.path, file.modified_timestamp, thumbnail]);
 
@@ -187,7 +177,16 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                                 onLoad={() => setLoading(false)}
                                 onError={() => setLoading(false)}
                             />
-                            {/* Thumbnail source indicator commented out for now */}
+                            {file.source && (
+                                <div
+                                    title={file.source === 'native' ? 'Loaded via Windows Shell' : 'Generated via FFmpeg'}
+                                    className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full backdrop-blur-md border animate-in fade-in zoom-in duration-300 z-20
+                                    ${file.source === 'native'
+                                            ? 'bg-blue-500/40 border-blue-500/50 shadow-[0_0_8px_rgba(59,130,246,0.3)]'
+                                            : 'bg-orange-500/40 border-orange-500/50 shadow-[0_0_8px_rgba(249,115,22,0.3)]'
+                                        }`}
+                                />
+                            )}
                         </>
                     ) : loading ? (
                         <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />
@@ -313,7 +312,7 @@ export default function FileGrid({
         count: rowCount,
         getScrollElement: () => containerRef.current,
         estimateSize: () => ITEM_SIZE + GAP,
-        overscan: 2,
+        overscan: 5,
     });
 
     // Tracking exact columns count async for timeout closures
@@ -433,10 +432,8 @@ export default function FileGrid({
     const dragThresholdRef = useRef<{ x: number, y: number, paths: string[], element: HTMLElement } | null>(null);
 
     // Native drag handler using manual threshold
-    const handleDragStart = useCallback(async (paths: string[], element?: HTMLElement) => {
+    const handleDragStart = useCallback(async (paths: string[]) => {
         if (paths.length === 0) return;
-
-        console.log('[FileGrid] Starting drag for paths:', paths);
 
         if (onInternalDragStart) {
             onInternalDragStart(paths);
@@ -446,16 +443,37 @@ export default function FileGrid({
         const primaryFile = files.find(f => f.path === paths[0]);
         let iconBase64 = DRAG_ICON_BASE64;
         if (primaryFile) {
-            const { createGhostIcon } = await import('../utils/ghostIcon');
+            // JIT Thumbnail: Try to fetch a real thumbnail manually to avoid Tainted Canvas SecurityError
+            let thumbnailBase64: string | undefined;
+            if (!primaryFile.is_dir) {
+                const ext = primaryFile.name.split('.').pop()?.toLowerCase() || '';
+                const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
+                const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
 
-            // Try to see if we have a thumbnail in DOM or state
-            // But for now, we'll pass what we have.
-            // Better: search for the thumbnail in the actual GridItem components if possible,
-            // but it's simpler to just use the Base64 if it's already in the cache or wait a bit.
+                if (IMAGE_EXTS.includes(ext) || VIDEO_EXTS.includes(ext)) {
+                    try {
+                        const url = `http://thumbnail.localhost/?path=${encodeURIComponent(primaryFile.path)}&s=256&m=${primaryFile.modified_timestamp}`;
+                        const response = await fetch(url);
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            thumbnailBase64 = await new Promise<string>((resolve) => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => resolve(reader.result as string);
+                                reader.readAsDataURL(blob);
+                            });
+                        }
+                    } catch {
+                        // Fallback to non-thumbnail ghost
+                    }
+                }
+            }
+
+            // SYNC HANDSHAKE (v7.1): Use the pre-imported createGhostIcon 
+            // to avoid any async yield during the critical drag start window.
             iconBase64 = await createGhostIcon({
                 name: primaryFile.name,
                 isDir: primaryFile.is_dir,
-                element: element,
+                thumbnailBase64,
                 count: paths.length
             });
         }
@@ -467,13 +485,12 @@ export default function FileGrid({
             // @ts-ignore
             mode: 'copy'
         }).then(() => {
-            console.log('[FileGrid] Native drag completed successfully');
             if (onInternalDragEnd) onInternalDragEnd('promise-success');
         }).catch((err) => {
             console.error('[FileGrid] Native drag failed or cancelled:', err);
             if (onInternalDragEnd) onInternalDragEnd('promise-error');
         });
-    }, [onInternalDragStart, files]);
+    }, [onInternalDragStart, onInternalDragEnd, files]);
 
     // Handler for mousedown on items - handles immediate selection and prepares drag
     const handleItemMouseDown = useCallback((file: FileEntry, e: React.MouseEvent) => {
@@ -519,11 +536,10 @@ export default function FileGrid({
 
             if (dist > 5) { // 5px threshold
                 const finalPaths = dragThresholdRef.current.paths;
-                const element = dragThresholdRef.current.element;
                 dragThresholdRef.current = null;
                 window.removeEventListener('mousemove', onMouseMove);
                 window.removeEventListener('mouseup', onMouseUp);
-                handleDragStart(finalPaths, element);
+                handleDragStart(finalPaths);
             }
         };
 

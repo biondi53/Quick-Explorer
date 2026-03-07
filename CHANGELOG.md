@@ -1,3 +1,15 @@
+# 🚀 Quick Explorer v0.1.25
+*Changelog - March 7, 2026*
+
+## ✨ Grid Performance & High-Fidelity DnD
+- **🖱️ Grid DnD Fix**: Resolved a critical `SecurityError` (Tainted Canvas) that prevented dragging files with thumbnails in Grid Mode. The app now performantly fetches thumbnails manually to ensure stable drag initiation.
+- **⚡ Instant Thumbnail Loading**: Removed the 300ms observer delay in Grid Mode. Thumbnails now load with 0ms latency, providing a truly "instant" visual experience.
+- **🔵 Thumbnail Source Indicators**: Integrated visual cues (blue/orange dots) to differentiate between native Windows thumbnails and FFmpeg-generated ones, available in both Grid View and Info Panel.
+- **📜 Maximized Scroll Fluidity**: Increased grid `overscan` to 5 rows, ensuring that neighboring items are pre-rendered and thumbnails pre-loaded before they enter the viewport.
+- **🛠️ Diagnostic Cleanup**: Removed all internal DND tracing logs for a cleaner production console.
+
+---
+
 # 🚀 Quick Explorer v0.1.24
 *Changelog - March 6, 2026*
 
@@ -236,4 +248,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.24*
+*Quick Explorer Project © 2026 - Versión 0.1.25*

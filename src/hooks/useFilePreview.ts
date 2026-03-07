@@ -48,15 +48,15 @@ export function useFilePreview(filePath: string | null, type: FileType, modified
             try {
                 const protocolUrl = `http://thumbnail.localhost/?path=${encodeURIComponent(filePath)}&s=256&m=${modified}`;
 
-                // Fetch dimensions
-                const dimsResult = await invoke<string | null>('get_file_dimensions', { path: filePath });
+                // Fetch dimensions AND source from backend
+                const dimsResult = await invoke<{ dimensions: string; source: string } | null>('get_file_dimensions', { path: filePath });
 
                 if (mountedRef.current) {
                     setState({
                         previewUrl: protocolUrl,
                         isLoading: false,
-                        source: type,
-                        dimensions: dimsResult
+                        source: dimsResult?.source ?? null,
+                        dimensions: dimsResult?.dimensions ?? null,
                     });
                 }
             } catch (error) {
