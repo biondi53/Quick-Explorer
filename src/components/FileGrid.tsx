@@ -12,6 +12,7 @@ import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
 import { createGhostIcon } from '../utils/ghostIcon';
 import { DRAG_ICON_BASE64 } from '../utils/dragIcon';
+import { isPreviewable } from '../utils/previewUtils';
 import GlowCard from './ui/GlowCard';
 
 interface FileGridProps {
@@ -34,6 +35,7 @@ interface FileGridProps {
     initialScrollIndex: number;
     onScrollChange: (index: number) => void;
     activeTabId: string;
+    onOpenPreview?: (file: FileEntry) => void;
 }
 
 const ITEM_SIZE = 160;
@@ -63,9 +65,10 @@ interface GridItemProps {
     onRenameSubmit: (file: FileEntry, newName: string) => void;
     onRenameCancel: () => void;
     isClipboardItem: boolean;
+    onOpenPreview?: (file: FileEntry) => void;
 }
 
-const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem }: GridItemProps) => {
+const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem, onOpenPreview }: GridItemProps) => {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [editValue, setEditValue] = useState("");
@@ -156,11 +159,19 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                     if (e.button !== 0) return;
                     onClick(file, e);
                 }}
-                onDoubleClick={() => onOpen(file)}
+                onDoubleClick={() => {
+                    if (!isRenaming) {
+                        onOpen(file);
+                    }
+                }}
                 onAuxClick={(e) => {
-                    if (e.button === 1 && file.is_dir) {
+                    if (e.button === 1) {
                         e.preventDefault();
-                        onOpenInNewTab(file);
+                        if (file.is_dir) {
+                            onOpenInNewTab(file);
+                        } else if (onOpenPreview && isPreviewable(file)) {
+                            onOpenPreview(file);
+                        }
                     }
                 }}
                 onContextMenu={(e) => onContextMenu(e, file)}
@@ -237,7 +248,10 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                             }
                         }}
                         onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            // Allow default text selection
+                        }}
                     />
                 ) : (
                     <span
@@ -274,7 +288,8 @@ export default function FileGrid({
     forceScrollToSelected,
     initialScrollIndex,
     onScrollChange,
-    activeTabId
+    activeTabId,
+    onOpenPreview
 }: FileGridProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -486,7 +501,7 @@ export default function FileGrid({
             mode: 'copy'
         }).then(() => {
             if (onInternalDragEnd) onInternalDragEnd('promise-success');
-        }).catch((err) => {
+        }).catch((err: any) => {
             console.error('[FileGrid] Native drag failed or cancelled:', err);
             if (onInternalDragEnd) onInternalDragEnd('promise-error');
         });
@@ -717,6 +732,7 @@ export default function FileGrid({
                                         onRenameSubmit={onRenameSubmit}
                                         onRenameCancel={onRenameCancel}
                                         isClipboardItem={clipboardInfo?.paths.includes(file.path) || false}
+                                        onOpenPreview={onOpenPreview}
                                     />
                                 ))}
                             </div>

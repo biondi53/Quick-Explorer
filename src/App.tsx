@@ -1536,6 +1536,13 @@ export default function App() {
     });
   }, [activeTabId, updateTab]);
 
+  const handleOpenPreview = useCallback((file: FileEntry) => {
+    if (isPreviewable(file)) {
+      handleSelectMultiple([file], file);
+      setShowQuickPreview(true);
+    }
+  }, [handleSelectMultiple]);
+
   const handleQuickPreviewNavigate = useCallback((direction: 'next' | 'prev') => {
     if (!currentTab || currentTab.selectedFiles.length !== 1) return;
 
@@ -2205,6 +2212,7 @@ export default function App() {
                               }
                             }}
                             activeTabId={activeTabId}
+                            onOpenPreview={handleOpenPreview}
                           />
                         ) : (
                           <FileTable
@@ -2265,6 +2273,7 @@ export default function App() {
                               }
                             }}
                             activeTabId={activeTabId}
+                            onOpenPreview={handleOpenPreview}
                           />
                         )}
                       </motion.div>

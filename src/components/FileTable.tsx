@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronUp, ChevronDown, Check } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 import { useTranslation } from '../i18n/useTranslation';
+import { isPreviewable } from '../utils/previewUtils';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
@@ -42,6 +43,7 @@ interface FileTableProps {
     initialScrollIndex: number;
     onScrollChange: (index: number) => void;
     activeTabId: string;
+    onOpenPreview?: (file: FileEntry) => void;
 }
 
 const ITEM_HEIGHT = 42;
@@ -122,7 +124,8 @@ const FileTable = memo(({
     forceScrollToSelected,
     initialScrollIndex,
     onScrollChange,
-    activeTabId
+    activeTabId,
+    onOpenPreview
 }: FileTableProps) => {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -713,8 +716,21 @@ const FileTable = memo(({
                                 }
                                 // For unselected items, selection was already handled in onMouseDown
                             }}
-                            onDoubleClick={() => onOpen(file)}
-                            onAuxClick={(e) => { if (e.button === 1 && file.is_dir) { e.preventDefault(); onOpenInNewTab(file); } }}
+                            onDoubleClick={() => {
+                                if (renamingPath !== file.path) {
+                                    onOpen(file);
+                                }
+                            }}
+                            onAuxClick={(e) => {
+                                if (e.button === 1) {
+                                    e.preventDefault();
+                                    if (file.is_dir) {
+                                        onOpenInNewTab(file);
+                                    } else if (onOpenPreview && isPreviewable(file)) {
+                                        onOpenPreview(file);
+                                    }
+                                }
+                            }}
                             onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, file); }}
                         >
                             {visibleColumns.map(col => (
@@ -750,7 +766,10 @@ const FileTable = memo(({
                                                     }}
                                                     onMouseDown={(e) => e.stopPropagation()}
                                                     onClick={(e) => e.stopPropagation()}
-                                                    onDoubleClick={(e) => e.stopPropagation()}
+                                                    onDoubleClick={(e) => {
+                                                        e.stopPropagation();
+                                                        // Default behavior for double click on text is to select the word
+                                                    }}
                                                 />
                                             ) : (
                                                 <span className={`text-sm truncate transition-colors ${isSelected ? 'text-white font-bold' : 'text-[var(--text-dim)] font-medium group-hover:text-white'}`}>{file.name}</span>

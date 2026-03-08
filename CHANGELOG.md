@@ -1,3 +1,13 @@
+# 🚀 Quick Explorer v0.1.26
+*Changelog - March 8, 2026*
+
+## ✨ Middle-Click Preview & Rename UX
+- **🖱️ Middle-Click Preview**: You can now instantly open file previews by clicking with the middle mouse button, in addition to the standard spacebar shortcut.
+- **📝 Precise Rename UX**: Fixed a bug where double-clicking text during a rename operation would accidentally open the file. Double-clicking now correctly selects words within the filename for faster editing.
+- **🔍 Preview Logic**: Middle-click on folders now opens them in a new tab, matching the behavior of modern web browsers.
+
+---
+
 # 🚀 Quick Explorer v0.1.25
 *Changelog - March 7, 2026*
 
@@ -248,4 +258,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.25*
+*Quick Explorer Project © 2026 - Versión 0.1.26*

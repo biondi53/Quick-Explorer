@@ -20,6 +20,7 @@ interface PreviewTextResult {
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 5.0;
 const ZOOM_STEP = 0.1;
+const CLICK_ZOOM_STEP = 0.5;
 
 const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, onDelete }) => {
     const { t } = useTranslation();
@@ -42,6 +43,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     const mouseDownPos = useRef({ x: 0, y: 0 });
     const textContentRef = useRef<HTMLDivElement>(null);
     const mediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null);
+    const lastRightClickTime = useRef<number>(0);
 
     const ext = file.path.split('.').pop()?.toLowerCase() || '';
 
@@ -142,6 +144,47 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         }
     }, [scale, isZoomable, translate]);
 
+    const handleManualZoom = useCallback((delta: number) => {
+        if (!isZoomable) return;
+
+        setScale(prev => {
+            const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, parseFloat((prev + delta).toFixed(2))));
+            if (next === 1.0) {
+                setTranslate({ x: 0, y: 0 });
+            }
+            return next;
+        });
+        triggerZoomIndicator();
+    }, [isZoomable, triggerZoomIndicator]);
+
+    const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+        if (!isZoomable) return;
+        e.preventDefault();
+        handleManualZoom(CLICK_ZOOM_STEP);
+    }, [isZoomable, handleManualZoom]);
+
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+        if (!isZoomable) return;
+
+        const now = Date.now();
+        const timespan = now - lastRightClickTime.current;
+        lastRightClickTime.current = now;
+
+        if (timespan < 300) {
+            // Double right click detected
+            e.preventDefault();
+            handleManualZoom(-CLICK_ZOOM_STEP);
+        }
+    }, [isZoomable, handleManualZoom]);
+
+    const handleAuxClick = useCallback((e: React.MouseEvent) => {
+        if (e.button === 1) { // Middle-click
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+        }
+    }, [onClose]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
@@ -191,7 +234,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             e.preventDefault();
             const delta = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
             setScale(prev => {
-                const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, parseFloat((prev + delta).toFixed(1))));
+                const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, parseFloat((prev + delta).toFixed(2))));
                 if (next === 1.0) {
                     setTranslate({ x: 0, y: 0 });
                 }
@@ -239,6 +282,37 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         const scaleY = ch / boundingH;
         return Math.min(1, scaleX, scaleY);
     };
+
+    const renderFallback = (f: FileEntry) => (
+        <div className="bg-white/5 p-10 rounded-2xl border border-white/10 backdrop-blur-md flex flex-col items-center gap-4 max-w-md w-full shadow-2xl transform transition-transform duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
+            <div className="text-8xl mb-4 drop-shadow-lg">{getFileIcon(f.name, f.is_dir)}</div>
+            <h2 className="text-white font-bold text-2xl text-center break-all mb-2 leading-tight">{f.name}</h2>
+
+            <div className="w-full space-y-3 mt-4 text-sm text-white/70">
+                <div className="flex justify-between border-b border-white/5 pb-2">
+                    <span className="text-white/50">{t('preview.type')}</span>
+                    <span>{file.is_dir
+                        ? t('files.folder')
+                        : file.is_shortcut
+                            ? t('preview.shortcut')
+                            : file.file_type.endsWith(' File')
+                                ? `${file.file_type.replace(' File', '')} ${t('files.file').toLowerCase()}`
+                                : file.file_type === 'File' ? t('files.file') : file.file_type
+                    }</span>
+                </div>
+                {!f.is_dir && (
+                    <div className="flex justify-between border-b border-white/5 pb-2">
+                        <span className="text-white/50">{t('preview.size')}</span>
+                        <span>{f.formatted_size}</span>
+                    </div>
+                )}
+                <div className="flex justify-between pb-2">
+                    <span className="text-white/50">{t('preview.modified')}</span>
+                    <span>{f.modified_at}</span>
+                </div>
+            </div>
+        </div>
+    );
 
     const renderContent = () => {
         const compScale = getCompensationScale();
@@ -291,6 +365,8 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                     src={src}
                     alt={file.name}
                     onLoad={(e) => setMediaAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
+                    onDoubleClick={handleDoubleClick}
+                    onContextMenu={handleContextMenu}
                     className="rounded drop-shadow-2xl"
                     style={{
                         height: '100%',
@@ -339,6 +415,8 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                         mediaRef.current = el;
                     }}
                     onLoadedMetadata={(e) => setMediaAspect(e.currentTarget.videoWidth / e.currentTarget.videoHeight)}
+                    onDoubleClick={handleDoubleClick}
+                    onContextMenu={handleContextMenu}
                     className="rounded drop-shadow-2xl bg-black/50"
                     style={{
                         height: '100%',
@@ -398,37 +476,6 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         return renderFallback(file);
     };
 
-    const renderFallback = (f: FileEntry) => (
-        <div className="bg-white/5 p-10 rounded-2xl border border-white/10 backdrop-blur-md flex flex-col items-center gap-4 max-w-md w-full shadow-2xl transform transition-transform duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
-            <div className="text-8xl mb-4 drop-shadow-lg">{getFileIcon(f.name, f.is_dir)}</div>
-            <h2 className="text-white font-bold text-2xl text-center break-all mb-2 leading-tight">{f.name}</h2>
-
-            <div className="w-full space-y-3 mt-4 text-sm text-white/70">
-                <div className="flex justify-between border-b border-white/5 pb-2">
-                    <span className="text-white/50">{t('preview.type')}</span>
-                    <span>{file.is_dir
-                        ? t('files.folder')
-                        : file.is_shortcut
-                            ? t('preview.shortcut')
-                            : file.file_type.endsWith(' File')
-                                ? `${file.file_type.replace(' File', '')} ${t('files.file').toLowerCase()}`
-                                : file.file_type === 'File' ? t('files.file') : file.file_type
-                    }</span>
-                </div>
-                {!f.is_dir && (
-                    <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-white/50">{t('preview.size')}</span>
-                        <span>{f.formatted_size}</span>
-                    </div>
-                )}
-                <div className="flex justify-between pb-2">
-                    <span className="text-white/50">{t('preview.modified')}</span>
-                    <span>{f.modified_at}</span>
-                </div>
-            </div>
-        </div>
-    );
-
     return (
         <div
             className="fixed inset-0 z-[9999] overflow-hidden flex items-center justify-center bg-black/60 backdrop-blur-sm p-8 animate-in fade-in duration-200"
@@ -440,6 +487,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
             onWheel={handleWheel}
+            onAuxClick={handleAuxClick}
         >
             <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/40 rounded-xl backdrop-blur-md border border-white/10 shadow-xl animate-in zoom-in-95 duration-200">
                 <span className="text-white/90 font-medium text-lg pointer-events-none select-none drop-shadow-md">
