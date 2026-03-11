@@ -13,14 +13,22 @@ Este workflow documenta el proceso completo para crear un nuevo release de Quick
 
 ## Pasos
 
-### 0. Revisar commits recientes
+### 0. Auditoría de cambios técnicos (CRÍTICO)
 
-Antes de empezar, verificar qué cambios se han hecho desde el último release para no olvidar nada en el changelog:
+Antes de redactar el changelog, es obligatorio realizar una auditoría basada en datos de Git, no solo en la memoria de la sesión:
 
 ```bash
-# Ver lista de commits desde el último tag
+# 1. Ver qué archivos cambiaron realmente (los mensajes de commit pueden engañar)
+git diff --stat $(git describe --tags --abbrev=0)..HEAD
+
+# 2. Escaneo de palabras clave en el código nuevo (evita olvidos de features anteriores)
+git diff $(git describe --tags --abbrev=0)..HEAD | grep -iE "Recycle|Bin|Paperas|Trash|Thumbnail|ffmpeg|Performance|PIDL|Restore"
+
+# 3. Revisar lista de commits si los pasos anteriores muestran cambios grandes
 git log $(git describe --tags --abbrev=0)..HEAD --oneline
 ```
+
+**Matriz de Trazabilidad:** Por cada archivo modificado en `src-tauri/src/` o `src/` que aparezca en el `--stat`, debe existir un ítem correspondiente en el `CHANGELOG.md`. Si un archivo cambió y no está en el changelog, detente e investiga el código.
 
 ### 1. Actualizar versiones en archivos de configuración
 
