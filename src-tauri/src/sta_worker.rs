@@ -1,4 +1,5 @@
 use crate::{DiskInfo, FileEntry};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Local};
 use rayon::prelude::*;
 use std::ffi::OsStr;
@@ -14,16 +15,17 @@ use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL};
 use windows::Win32::System::Ole::{OleInitialize, OleUninitialize};
-use windows::Win32::System::SystemServices::SFGAO_FLAGS;
+use windows::Win32::System::SystemServices::{SFGAO_FLAGS, SFGAO_FOLDER};
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetActiveWindow, GetAsyncKeyState, GetFocus, IsWindowEnabled, SetActiveWindow, VK_LBUTTON,
 };
+use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::{
     BHID_EnumItems, FOLDERID_RecycleBinFolder, FileOperation, IEnumShellItems, IFileOperation,
-    IShellItem, SHCreateItemFromParsingName, SHGetKnownFolderItem, FOF_ALLOWUNDO,
-    FOF_NOCONFIRMMKDIR, FOF_RENAMEONCOLLISION, KF_FLAG_DEFAULT, SIGDN_FILESYSPATH,
-    SIGDN_NORMALDISPLAY,
+    ILFree, ILGetSize, IShellItem, SHCreateItemFromIDList, SHCreateItemFromParsingName,
+    SHGetIDListFromObject, SHGetKnownFolderItem, FOF_ALLOWUNDO, FOF_NOCONFIRMMKDIR,
+    FOF_RENAMEONCOLLISION, KF_FLAG_DEFAULT, SIGDN_FILESYSPATH, SIGDN_NORMALDISPLAY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, BringWindowToTop, GetClassNameW, GetForegroundWindow,
@@ -215,6 +217,10 @@ pub enum StaCommand {
         hwnd: Option<isize>,
         response: Sender<Result<Vec<String>, String>>,
     },
+    RestoreItems {
+        paths: Vec<String>,
+        response: Sender<Result<(), String>>,
+    },
 }
 
 pub struct StaWorker {
@@ -299,6 +305,10 @@ impl StaWorker {
                         response,
                     } => {
                         let result = paste_items_impl(paths, target_path, is_move, hwnd);
+                        let _ = response.send(result);
+                    }
+                    StaCommand::RestoreItems { paths, response } => {
+                        let result = restore_items_impl(paths);
                         let _ = response.send(result);
                     }
                 }
@@ -431,6 +441,19 @@ impl StaWorker {
         rx.recv()
             .map_err(|e| format!("Failed to receive paste response from STA worker: {}", e))?
     }
+
+    pub fn restore_items(&self, paths: Vec<String>) -> Result<(), String> {
+        let (tx, rx) = channel();
+        self.sender
+            .send(StaCommand::RestoreItems {
+                paths,
+                response: tx,
+            })
+            .map_err(|e| format!("Failed to send restore command to STA worker: {}", e))?;
+
+        rx.recv()
+            .map_err(|e| format!("Failed to receive restore response from STA worker: {}", e))?
+    }
 }
 
 fn empty_recycle_bin_impl() -> Result<(), String> {
@@ -446,6 +469,71 @@ fn empty_recycle_bin_impl() -> Result<(), String> {
             return Err(format!("Failed to empty recycle bin: {:?}", result));
         }
     }
+    Ok(())
+}
+
+fn create_shell_item(path: &str) -> Result<IShellItem, windows::core::Error> {
+    unsafe {
+        if path.len() > 100 && !path.contains('\\') && !path.contains(':') {
+            // Likely a Base64 encoded PIDL (Recycle Bin item)
+            if let Ok(pidl_bytes) = general_purpose::STANDARD.decode(path) {
+                return SHCreateItemFromIDList(pidl_bytes.as_ptr() as *const ITEMIDLIST);
+            }
+        }
+
+        let path_wide: Vec<u16> = OsStr::new(path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None)
+    }
+}
+
+fn restore_items_impl(paths: Vec<String>) -> Result<(), String> {
+    use windows::core::PCSTR;
+    use windows::Win32::UI::Shell::{BHID_SFUIObject, IContextMenu, CMINVOKECOMMANDINFO};
+
+    unsafe {
+        for path_encoded in paths {
+            let item: IShellItem = match create_shell_item(&path_encoded) {
+                Ok(i) => i,
+                Err(e) => {
+                    log::warn!(
+                        "[STA-WORKER] Failed to create shell item for restore: {}",
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            // Bind to IContextMenu to access the "undelete" (restore) verb
+            let context_menu: IContextMenu = match item.BindToHandler(None, &BHID_SFUIObject) {
+                Ok(cm) => cm,
+                Err(e) => {
+                    log::warn!(
+                        "[STA-WORKER] Failed to bind to IContextMenu for restore: {}",
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            // Use "undelete" as the canonical verb for restoring from Recycle Bin
+            let verb = "undelete\0";
+            let info = CMINVOKECOMMANDINFO {
+                cbSize: std::mem::size_of::<CMINVOKECOMMANDINFO>() as u32,
+                lpVerb: PCSTR(verb.as_ptr()),
+                nShow: windows::Win32::UI::WindowsAndMessaging::SW_HIDE.0 as i32,
+                ..Default::default()
+            };
+
+            if let Err(e) = context_menu.InvokeCommand(&info) {
+                log::warn!("[STA-WORKER] InvokeCommand(undelete) failed: {}", e);
+            }
+        }
+    }
+
+    notify_refresh();
     Ok(())
 }
 
@@ -489,22 +577,35 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
                     })
                     .unwrap_or_else(|_| "Unknown".to_string());
 
-                let path = item
-                    .GetDisplayName(SIGDN_FILESYSPATH)
-                    .map(|p: PWSTR| {
-                        let s = p.to_string().unwrap_or_else(|_| name.clone());
-                        CoTaskMemFree(Some(p.as_ptr() as *const _));
-                        s
-                    })
-                    .unwrap_or_else(|_| name.clone());
+                // Use Base64 encoded PIDL as the path identifier.
+                // This is the only unique and reliable way to identify Recycle Bin items.
+                let path = if let Ok(pidl) = SHGetIDListFromObject(&item) {
+                    let size = ILGetSize(Some(pidl as *const ITEMIDLIST));
+                    let pidl_slice = std::slice::from_raw_parts(pidl as *const u8, size as usize);
+                    let encoded = general_purpose::STANDARD.encode(pidl_slice);
+                    ILFree(Some(pidl as *const ITEMIDLIST));
+                    encoded
+                } else {
+                    name.clone()
+                };
+
+                let mut is_dir = false;
+                let mut file_type = "Deleted Item".to_string();
+
+                if let Ok(attr) = item.GetAttributes(SFGAO_FOLDER) {
+                    if (attr.0 & SFGAO_FOLDER.0) != 0 {
+                        is_dir = true;
+                        file_type = "Deleted Folder".to_string();
+                    }
+                }
 
                 files.push(FileEntry {
                     name,
                     path,
-                    is_dir: false,
+                    is_dir,
                     size: 0,
                     formatted_size: String::new(),
-                    file_type: "Deleted Item".to_string(),
+                    file_type,
                     created_at: now_str.clone(),
                     modified_at: now_str.clone(),
                     is_shortcut: false,
@@ -938,22 +1039,11 @@ fn drop_items_impl(
             let _ = file_op.SetOwnerWindow(hwnd_win);
         }
 
-        let path_wide: Vec<u16> = OsStr::new(&target_path)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let dest_item: IShellItem =
-            SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None)
-                .map_err(|e| format!("Failed to create destination item: {}", e))?;
+        let dest_item: IShellItem = create_shell_item(&target_path)
+            .map_err(|e| format!("Failed to create destination item: {}", e))?;
 
         for f in &files {
-            let f_wide: Vec<u16> = OsStr::new(f)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let item_res: Result<IShellItem, _> =
-                SHCreateItemFromParsingName(PCWSTR(f_wide.as_ptr()), None);
-            if let Ok(item) = item_res {
+            if let Ok(item) = create_shell_item(f) {
                 let _ = file_op.CopyItem(&item, &dest_item, PCWSTR(std::ptr::null()), None);
             }
         }
@@ -1001,22 +1091,11 @@ fn move_items_impl(
             let _ = file_op.SetOwnerWindow(hwnd_win);
         }
 
-        let path_wide: Vec<u16> = OsStr::new(&target_path)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let dest_item: IShellItem =
-            SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None)
-                .map_err(|e| format!("Failed to create destination item: {}", e))?;
+        let dest_item: IShellItem = create_shell_item(&target_path)
+            .map_err(|e| format!("Failed to create destination item: {}", e))?;
 
         for f in &paths {
-            let f_wide: Vec<u16> = OsStr::new(f)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let item_res: Result<IShellItem, _> =
-                SHCreateItemFromParsingName(PCWSTR(f_wide.as_ptr()), None);
-            if let Ok(item) = item_res {
+            if let Ok(item) = create_shell_item(f) {
                 let _ = file_op.MoveItem(&item, &dest_item, PCWSTR(std::ptr::null()), None);
             }
         }
@@ -1054,13 +1133,7 @@ fn delete_items_impl(paths: Vec<String>, hwnd: Option<isize>) -> Result<(), Stri
         }
 
         for f in &paths {
-            let f_wide: Vec<u16> = OsStr::new(f)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let item_res: Result<IShellItem, _> =
-                SHCreateItemFromParsingName(PCWSTR(f_wide.as_ptr()), None);
-            if let Ok(item) = item_res {
+            if let Ok(item) = create_shell_item(f) {
                 let _ = file_op.DeleteItem(&item, None);
             }
         }
@@ -1097,11 +1170,7 @@ fn rename_item_impl(path: String, new_name: String, hwnd: Option<isize>) -> Resu
             let _ = file_op.SetOwnerWindow(hwnd_win);
         }
 
-        let path_wide: Vec<u16> = OsStr::new(&path)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let item: IShellItem = SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None)
+        let item: IShellItem = create_shell_item(&path)
             .map_err(|e| format!("Failed to create item: {}", e))?;
 
         let name_wide: Vec<u16> = OsStr::new(&new_name)
@@ -1155,22 +1224,11 @@ fn paste_items_impl(
             let _ = file_op.SetOwnerWindow(hwnd_win);
         }
 
-        let path_wide: Vec<u16> = OsStr::new(&target_path)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let dest_item: IShellItem =
-            SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None)
-                .map_err(|e| format!("Failed to create destination item: {}", e))?;
+        let dest_item: IShellItem = create_shell_item(&target_path)
+            .map_err(|e| format!("Failed to create destination item: {}", e))?;
 
         for f in &paths {
-            let f_wide: Vec<u16> = OsStr::new(f)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let item_res: Result<IShellItem, _> =
-                SHCreateItemFromParsingName(PCWSTR(f_wide.as_ptr()), None);
-            if let Ok(item) = item_res {
+            if let Ok(item) = create_shell_item(f) {
                 if is_move {
                     let _ = file_op.MoveItem(&item, &dest_item, PCWSTR(std::ptr::null()), None);
                 } else {

@@ -65,6 +65,7 @@ export const es: Translations = {
         empty_recycle_bin: 'Vaciar papelera de reciclaje',
         move_to: 'Mover a',
         paste_and_go: 'Pegar e ir',
+        restore: 'Restaurar',
     },
     toolbar: {
         new_folder: 'Nueva carpeta',
@@ -83,6 +84,7 @@ export const es: Translations = {
         refresh: 'Actualizar',
         search_placeholder: 'Buscar en {count} elementos...',
         paste_image: 'Imagen',
+        restore: 'Restaurar',
     },
     footer: {
         items: 'elementos',

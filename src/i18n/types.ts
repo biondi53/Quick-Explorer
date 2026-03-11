@@ -65,6 +65,7 @@ export interface Translations {
         empty_recycle_bin: string;
         move_to: string;
         paste_and_go: string;
+        restore: string;
     };
     toolbar: {
         new_folder: string;
@@ -83,6 +84,7 @@ export interface Translations {
         refresh: string;
         search_placeholder: string;
         paste_image: string;
+        restore: string;
     };
     footer: {
         items: string;

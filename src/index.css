@@ -169,3 +169,59 @@ select,
 [role="button"] {
   -webkit-app-region: no-drag !important;
 }
+
+/* Custom Video Controls styling for WebView2/Chromium */
+video::-webkit-media-controls-panel {
+  background-image: none !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+video::-webkit-media-controls-play-button,
+video::-webkit-media-controls-timeline,
+video::-webkit-media-controls-current-time-display,
+video::-webkit-media-controls-time-remaining-display,
+video::-webkit-media-controls-mute-button,
+video::-webkit-media-controls-volume-slider,
+video::-webkit-media-controls-fullscreen-button {
+  filter: drop-shadow(0px 0px 3px rgba(0, 0, 0, 0.6)) drop-shadow(0px 0px 1px rgba(0, 0, 0, 0.4));
+  transition: all 0.2s ease;
+}
+
+video::-webkit-media-controls-play-button:hover,
+video::-webkit-media-controls-mute-button:hover,
+video::-webkit-media-controls-fullscreen-button:hover,
+video::-webkit-media-controls-timeline:hover {
+  filter: drop-shadow(0px 0px 3px rgba(0, 0, 0, 0.6)) drop-shadow(0px 0px 1px rgba(0, 0, 0, 0.4)) brightness(150%) !important;
+  opacity: 1 !important;
+}
+
+/* Custom Range Input (Slider) Styling for Custom Controls */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+  margin-top: 0px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+input[type="range"] {
+  outline: none;
+  padding: 0;
+  margin: 0;
+}

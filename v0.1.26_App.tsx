@@ -25,8 +25,7 @@ import {
   Scissors,
   Terminal,
   ChevronRight,
-  PanelRight,
-  RotateCcw
+  PanelRight
 } from 'lucide-react';
 import { isPreviewable } from './utils/previewUtils';
 
@@ -735,19 +734,6 @@ export default function App() {
     }
   }, []);
 
-  const handleRestore = async (paths: string[]) => {
-    try {
-      await invoke('restore_items', { paths });
-      if (currentTab) {
-        await loadFilesForTab(currentTab.id, currentTab.path);
-      }
-    } catch (err: any) {
-      if (currentTab) {
-        updateTab(currentTab.id, { error: String(err) });
-      }
-    }
-  };
-
   const handlePasteContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -963,7 +949,7 @@ export default function App() {
         await loadFilesForTab(currentTab.id, parent, undefined, [newPath]);
         refreshTabsViewing(parent);
       }
-    } catch (err: any) {
+    } catch (err) {
       updateTab(currentTab.id, { error: String(err), renamingPath: null });
     }
   }, [currentTab, updateTab, handleRenameCancel, refreshTabsViewing, loadFilesForTab, refreshCurrentTab]);
@@ -1009,7 +995,7 @@ export default function App() {
             lastSelectedFile: newFile
           });
         }
-      } catch (err: any) {
+      } catch (err) {
         updateTab(currentTab.id, { error: String(err) });
       }
       return;
@@ -1029,7 +1015,7 @@ export default function App() {
         setLastCutPaths([]);
       }
       checkClipboard();
-    } catch (err: any) {
+    } catch (err) {
       updateTab(currentTab.id, { error: String(err) });
     }
   }, [currentTab, updateTab, refreshCurrentTab, refreshTabsViewing, lastCutPaths, clipboardInfo, checkClipboard]);
@@ -1124,7 +1110,7 @@ export default function App() {
         refreshTabsViewing(parents);
         parents.forEach(p => invalidateCachedSize(p));
         fetchRecycleBinStatus();
-      } catch (err: any) {
+      } catch (err) {
         updateTab(currentTab.id, { error: String(err) });
       }
     }
@@ -1142,7 +1128,7 @@ export default function App() {
         refreshTabsViewing('shell:RecycleBin');
         invalidateCachedSize('shell:RecycleBin');
         fetchRecycleBinStatus();
-      } catch (err: any) {
+      } catch (err) {
         if (currentTab) updateTab(currentTab.id, { error: String(err) });
       }
     }
@@ -1170,7 +1156,7 @@ export default function App() {
         }
         refreshCurrentTab();
         loadFilesForTab(tabId, targetPath);
-      } catch (err: any) {
+      } catch (err) {
         updateTab(currentTab.id, { error: String(err) });
       }
       return;
@@ -1184,9 +1170,6 @@ export default function App() {
       return;
     } else if (action === 'cut') {
       handleCut(selectedFiles);
-      return;
-    } else if (action === 'restore') {
-      handleRestore(selectedFiles.map(f => f.path));
       return;
     }
 
@@ -1211,7 +1194,7 @@ export default function App() {
         invoke<string>('resolve_shortcut', { path: file.path }).then(targetPath => {
           const parent = targetPath.substring(0, targetPath.lastIndexOf('\\'));
           if (parent) navigateTo(parent);
-        }).catch((err: any) => {
+        }).catch(err => {
           updateTab(currentTab.id, { error: String(err) });
         });
       } else {
@@ -1242,7 +1225,7 @@ export default function App() {
         const parentDir = file.path.substring(0, file.path.lastIndexOf('\\'));
         await invoke('extract_archive', { archivePath: file.path, targetDir: parentDir || currentTab.path });
         refreshCurrentTab();
-      } catch (err: any) {
+      } catch (err) {
         updateTab(currentTab.id, { error: String(err) });
       }
     }
@@ -1386,7 +1369,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo, showQuickPreview, isEditingPath, handleRenameCancel, handleClearSelection, handleCopy, handleCut, handlePaste, handleSelectAll, handleDelete, handleRename]);
+  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo, showQuickPreview, isEditingPath]);
 
   // Duplicate handlers below removed
 
@@ -1631,7 +1614,7 @@ export default function App() {
           setShowQuickPreview(false);
         }
         return true;
-      } catch (err: any) {
+      } catch (err) {
         updateTab(currentTab.id, { error: String(err) });
         return false;
       }
@@ -1919,240 +1902,205 @@ export default function App() {
                   <>
                     {/* Toolbar (Moved here) */}
                     <div className="h-11 border-b border-white/10 flex items-center px-4 justify-between bg-white/[0.02]">
-                      {(() => {
-                        const isRecycleBin = currentTab?.path === 'shell:RecycleBin';
-                        const hasSelection = currentTab && currentTab.selectedFiles.length > 0;
-
-                        return (
-                          <div className="flex items-center gap-1.5">
-                            {isRecycleBin ? (
-                              <button
-                                onClick={() => currentTab && handleRestore(currentTab.selectedFiles.map(f => f.path))}
-                                disabled={!hasSelection}
-                                className={`flex items-center text-sm font-bold transition-all duration-300 group px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
-                                  ${hasSelection ? 'text-zinc-100 hover:text-white' : 'text-zinc-500 cursor-not-allowed opacity-50'}`}
-                                title={t('toolbar.restore')}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={async () => {
+                            if (!currentTab) return;
+                            try {
+                              const folderName = await invoke<string>('create_folder', { parentPath: currentTab.path });
+                              const newPath = currentTab.path.endsWith('\\') ? currentTab.path + folderName : currentTab.path + '\\' + folderName;
+                              await loadFilesForTab(currentTab.id, currentTab.path, undefined, [newPath]);
+                              updateTab(currentTab.id, { renamingPath: newPath });
+                            } catch (err) {
+                              updateTab(currentTab.id, { error: String(err) });
+                            }
+                          }}
+                          className="flex items-center text-sm font-bold text-zinc-100 hover:text-white transition-all duration-300 group px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden"
+                          title={t('toolbar.new_folder')}
+                        >
+                          <svg viewBox="0 0 24 24" fill="var(--accent-primary-20, rgba(var(--accent-rgb), 0.2))" stroke="var(--accent-primary)" strokeWidth="2" className="w-[18px] h-[18px] group-hover:drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)] transition-all shrink-0">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                          </svg>
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="overflow-hidden"
                               >
-                                <RotateCcw size={18} className={`shrink-0 transition-all ${hasSelection ? "text-[var(--accent-primary)] group-hover:drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)]" : "text-zinc-500"}`} />
-                                <AnimatePresence>
-                                  {!isToolbarCompact && (
-                                    <motion.span
-                                      initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                      animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                      exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                      className="overflow-hidden"
-                                    >
-                                      {t('toolbar.restore')}
-                                    </motion.span>
-                                  )}
-                                </AnimatePresence>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={async () => {
-                                  if (!currentTab || isRecycleBin) return;
-                                  try {
-                                    const folderName = await invoke<string>('create_folder', { parentPath: currentTab.path });
-                                    const newPath = currentTab.path.endsWith('\\') ? currentTab.path + folderName : currentTab.path + '\\' + folderName;
-                                    await loadFilesForTab(currentTab.id, currentTab.path, undefined, [newPath]);
-                                    updateTab(currentTab.id, { renamingPath: newPath });
-                                  } catch (err: any) {
-                                    updateTab(currentTab.id, { error: String(err) });
-                                  }
-                                }}
-                                disabled={isRecycleBin}
-                                className={`flex items-center text-sm font-bold transition-all duration-300 group px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
-                                  ${isRecycleBin ? 'text-zinc-500 cursor-not-allowed opacity-50' : 'text-zinc-100 hover:text-white'}`}
-                                title={t('toolbar.new_folder')}
-                              >
-                                <svg viewBox="0 0 24 24" fill={isRecycleBin ? "none" : "var(--accent-primary-20, rgba(var(--accent-rgb), 0.2))"} stroke={isRecycleBin ? "currentColor" : "var(--accent-primary)"} strokeWidth="2" className={`w-[18px] h-[18px] transition-all shrink-0 ${!isRecycleBin ? 'group-hover:drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)]' : ''}`}>
-                                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                                </svg>
-                                <AnimatePresence>
-                                  {!isToolbarCompact && (
-                                    <motion.span
-                                      initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                      animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                      exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                      className="overflow-hidden"
-                                    >
-                                      {t('toolbar.new_folder')}
-                                    </motion.span>
-                                  )}
-                                </AnimatePresence>
-                              </button>
+                                {t('toolbar.new_folder')}
+                              </motion.span>
                             )}
-                            <div className="h-3.5 w-px bg-white/5" />
-                            <button
-                              onClick={handleSelectAll}
-                              disabled={!currentTab || sortedFiles.length === 0}
-                              className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
-                                        ${currentTab && sortedFiles.length > 0
-                                  ? 'text-zinc-100 hover:text-white'
-                                  : 'text-zinc-500 cursor-not-allowed'}`}
-                              title={t('context_menu.select_all')}
-                            >
-                              <CheckSquare size={18} className={`shrink-0 ${currentTab && sortedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"}`} />
-                              <AnimatePresence>
-                                {!isToolbarCompact && (
-                                  <motion.span
-                                    initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                    exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    className="grid shrink-0 overflow-hidden"
-                                  >
-                                    <span className={`col-start-1 row-start-1 ${currentTab && sortedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('context_menu.select_all')}</span>
-                                    <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('context_menu.select_all')}</span>
-                                  </motion.span>
-                                )}
-                              </AnimatePresence>
-                            </button>
-                            <button
-                              onClick={() => currentTab?.selectedFiles.length > 0 && handleCopy(currentTab.selectedFiles)}
-                              disabled={!currentTab || currentTab.selectedFiles.length === 0 || isRecycleBin}
-                              className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
-                                        ${currentTab && currentTab.selectedFiles.length > 0 && !isRecycleBin
-                                  ? 'text-zinc-100 hover:text-white'
-                                  : 'text-zinc-500 cursor-not-allowed'}`}
-                              title={t('toolbar.copy')}
-                            >
-                              <Copy size={18} className={`shrink-0 ${currentTab && currentTab.selectedFiles.length > 0 && !isRecycleBin ? "text-[var(--accent-primary)]" : "text-zinc-500"}`} />
-                              <AnimatePresence>
-                                {!isToolbarCompact && (
-                                  <motion.span
-                                    initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                    exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    className="grid shrink-0 overflow-hidden"
-                                  >
-                                    <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 && !isRecycleBin ? 'font-bold' : 'font-medium'}`}>{t('toolbar.copy')}</span>
-                                    <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.copy')}</span>
-                                  </motion.span>
-                                )}
-                              </AnimatePresence>
-                            </button>
-                            <button
-                              onClick={() => currentTab?.selectedFiles.length > 0 && handleCut(currentTab.selectedFiles)}
-                              disabled={!currentTab || currentTab.selectedFiles.length === 0 || isRecycleBin}
-                              className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
-                                        ${currentTab && currentTab.selectedFiles.length > 0 && !isRecycleBin
-                                  ? 'text-zinc-300 hover:text-white'
-                                  : 'text-zinc-500 cursor-not-allowed'}`}
-                              title={t('toolbar.cut')}
-                            >
-                              <Scissors size={18} className="shrink-0" />
-                              <AnimatePresence>
-                                {!isToolbarCompact && (
-                                  <motion.span
-                                    initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                    exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    className="grid shrink-0 overflow-hidden"
-                                  >
-                                    <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 && !isRecycleBin ? 'font-bold' : 'font-medium'}`}>{t('toolbar.cut')}</span>
-                                    <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.cut')}</span>
-                                  </motion.span>
-                                )}
-                              </AnimatePresence>
-                            </button>
-                            <button
-                              onClick={() => handlePaste()}
-                              onContextMenu={handlePasteContextMenu}
-                              disabled={!canPaste || isRecycleBin}
-                              className={`flex items-center text-sm pl-3 pr-2 py-1.5 rounded-md transition-all duration-300 group/paste toolbar-btn whitespace-nowrap overflow-hidden
-                                        ${canPaste && !isRecycleBin
-                                  ? 'text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/10 hover:shadow-[0_0_15px_rgba(var(--accent-rgb),0.3)]'
-                                  : 'text-zinc-500 cursor-not-allowed opacity-50'}`}
-                              title={pasteTitle}
-                            >
-                              <PasteIcon size={18} className="shrink-0" />
-                              <AnimatePresence>
-                                {!isToolbarCompact && (
-                                  <motion.span
-                                    initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    animate={{ opacity: 1, width: 'auto', marginLeft: 10 }}
-                                    exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    className="grid shrink-0 text-zinc-100 group-hover/paste:text-[var(--accent-primary)] transition-colors overflow-hidden"
-                                  >
-                                    <span className={`col-start-1 row-start-1 ${canPaste && !isRecycleBin ? 'font-bold' : 'font-medium'}`}>{t('toolbar.paste')}</span>
-                                    <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.paste')}</span>
-                                  </motion.span>
-                                )}
-                              </AnimatePresence>
+                          </AnimatePresence>
+                        </button>
+                        <div className="h-3.5 w-px bg-white/5" />
+                        <button
+                          onClick={handleSelectAll}
+                          disabled={!currentTab || sortedFiles.length === 0}
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
+                                    ${currentTab && sortedFiles.length > 0
+                              ? 'text-zinc-100 hover:text-white'
+                              : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('context_menu.select_all')}
+                        >
+                          <CheckSquare size={18} className={`shrink-0 ${currentTab && sortedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"}`} />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && sortedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('context_menu.select_all')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('context_menu.select_all')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </button>
+                        <button
+                          onClick={() => currentTab?.selectedFiles.length > 0 && handleCopy(currentTab.selectedFiles)}
+                          disabled={!currentTab || currentTab.selectedFiles.length === 0}
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
+                                    ${currentTab && currentTab.selectedFiles.length > 0
+                              ? 'text-zinc-100 hover:text-white'
+                              : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('toolbar.copy')}
+                        >
+                          <Copy size={18} className={`shrink-0 ${currentTab && currentTab.selectedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"}`} />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('toolbar.copy')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.copy')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </button>
+                        <button
+                          onClick={() => currentTab?.selectedFiles.length > 0 && handleCut(currentTab.selectedFiles)}
+                          disabled={!currentTab || currentTab.selectedFiles.length === 0}
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
+                                    ${currentTab && currentTab.selectedFiles.length > 0
+                              ? 'text-zinc-300 hover:text-white'
+                              : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('toolbar.cut')}
+                        >
+                          <Scissors size={18} className="shrink-0" />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('toolbar.cut')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.cut')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </button>
+                        <button
+                          onClick={() => handlePaste()}
+                          onContextMenu={handlePasteContextMenu}
+                          disabled={!canPaste}
+                          className={`flex items-center text-sm pl-3 pr-2 py-1.5 rounded-md transition-all duration-300 group/paste toolbar-btn whitespace-nowrap overflow-hidden
+                                    ${canPaste
+                              ? 'text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/10 hover:shadow-[0_0_15px_rgba(var(--accent-rgb),0.3)]'
+                              : 'text-zinc-500 cursor-not-allowed opacity-50'}`}
+                          title={pasteTitle}
+                        >
+                          <PasteIcon size={18} className="shrink-0" />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 10 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 text-zinc-100 group-hover/paste:text-[var(--accent-primary)] transition-colors overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${canPaste ? 'font-bold' : 'font-medium'}`}>{t('toolbar.paste')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.paste')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
 
-                              {/* Content Indicator Chip */}
-                              {canPaste && !isRecycleBin && clipboardInfo && (
-                                <div className="flex items-center ml-1 animate-in fade-in slide-in-from-right-2 duration-300">
-                                  <div className="w-6 h-6 text-[var(--accent-primary)] flex items-center justify-center">
-                                    {clipboardInfo.has_image ? (
-                                      <ImageIcon size={20} strokeWidth={2.5} />
-                                    ) : clipboardInfo.file_count > 1 ? (
-                                      <FilesIcon size={20} strokeWidth={2.5} />
-                                    ) : (
-                                      <FileIcon size={20} strokeWidth={2.5} />
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </button>
-                            <div className="h-3.5 w-px bg-white/5" />
-                            <button
-                              onClick={() => currentTab && currentTab.selectedFiles.length > 0 && handleDelete(currentTab.selectedFiles, false)}
-                              disabled={!currentTab || currentTab.selectedFiles.length === 0}
-                              className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
-                                        ${currentTab && currentTab.selectedFiles.length > 0
-                                  ? 'text-red-400 hover:text-red-300'
-                                  : 'text-zinc-500 cursor-not-allowed'}`}
-                              title={t('toolbar.delete')}
-                            >
-                              <Trash size={18} className={`shrink-0 ${currentTab && currentTab.selectedFiles.length > 0 ? "text-red-500" : "text-zinc-500"}`} />
-                              <AnimatePresence>
-                                {!isToolbarCompact && (
-                                  <motion.span
-                                    initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                    exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    className="grid shrink-0 overflow-hidden"
-                                  >
-                                    <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('toolbar.delete')}</span>
-                                    <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.delete')}</span>
-                                  </motion.span>
+                          {/* Content Indicator Chip */}
+                          {canPaste && clipboardInfo && (
+                            <div className="flex items-center ml-1 animate-in fade-in slide-in-from-right-2 duration-300">
+                              <div className="w-6 h-6 text-[var(--accent-primary)] flex items-center justify-center">
+                                {clipboardInfo.has_image ? (
+                                  <ImageIcon size={20} strokeWidth={2.5} />
+                                ) : clipboardInfo.file_count > 1 ? (
+                                  <FilesIcon size={20} strokeWidth={2.5} />
+                                ) : (
+                                  <FileIcon size={20} strokeWidth={2.5} />
                                 )}
-                              </AnimatePresence>
-                            </button>
-                            <div className="h-3.5 w-px bg-white/5" />
-                            <button
-                              onClick={async () => {
-                                if (currentTab && !isRecycleBin) {
-                                  try {
-                                    await invoke('open_terminal', { path: currentTab.path });
-                                  } catch (err) {
-                                    updateTab(currentTab.id, { error: String(err) });
-                                  }
-                                }
-                              }}
-                              disabled={isRecycleBin}
-                              className={`flex items-center text-sm font-bold transition-all duration-300 group px-2 py-1.5 rounded-md whitespace-nowrap overflow-hidden
-                                ${isRecycleBin ? 'text-zinc-500 cursor-not-allowed opacity-50' : 'text-zinc-100 hover:text-white hover:bg-white/5'}`}
-                              title={t('toolbar.terminal')}
-                            >
-                              <Terminal size={18} className={`shrink-0 transition-all ${isRecycleBin ? "text-zinc-500" : "text-[var(--accent-primary)] group-hover:drop-shadow-[0_0_8px_var(--accent-primary)]"}`} />
-                              <AnimatePresence>
-                                {!isToolbarCompact && (
-                                  <motion.span
-                                    initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                    exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                    className="overflow-hidden"
-                                  >
-                                    {t('toolbar.terminal')}
-                                  </motion.span>
-                                )}
-                              </AnimatePresence>
-                            </button>
-                          </div>
-                        );
-                      })()}
+                              </div>
+                            </div>
+                          )}
+                        </button>
+                        <div className="h-3.5 w-px bg-white/5" />
+                        <button
+                          onClick={() => currentTab && currentTab.selectedFiles.length > 0 && handleDelete(currentTab.selectedFiles, false)}
+                          disabled={!currentTab || currentTab.selectedFiles.length === 0}
+                          className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
+                                    ${currentTab && currentTab.selectedFiles.length > 0
+                              ? 'text-red-400 hover:text-red-300'
+                              : 'text-zinc-500 cursor-not-allowed'}`}
+                          title={t('toolbar.delete')}
+                        >
+                          <Trash size={18} className={`shrink-0 ${currentTab && currentTab.selectedFiles.length > 0 ? "text-red-500" : "text-zinc-500"}`} />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="grid shrink-0 overflow-hidden"
+                              >
+                                <span className={`col-start-1 row-start-1 ${currentTab && currentTab.selectedFiles.length > 0 ? 'font-bold' : 'font-medium'}`}>{t('toolbar.delete')}</span>
+                                <span className="col-start-1 row-start-1 font-bold invisible" aria-hidden="true">{t('toolbar.delete')}</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </button>
+                        <div className="h-3.5 w-px bg-white/5" />
+                        <button
+                          onClick={async () => {
+                            if (currentTab) {
+                              try {
+                                await invoke('open_terminal', { path: currentTab.path });
+                              } catch (err) {
+                                updateTab(currentTab.id, { error: String(err) });
+                              }
+                            }
+                          }}
+                          className="flex items-center text-sm font-bold text-zinc-100 hover:text-white transition-all duration-300 group px-2 py-1.5 rounded-md hover:bg-white/5 whitespace-nowrap overflow-hidden"
+                          title={t('toolbar.terminal')}
+                        >
+                          <Terminal size={18} className="shrink-0 text-[var(--accent-primary)] group-hover:drop-shadow-[0_0_8px_var(--accent-primary)] transition-all" />
+                          <AnimatePresence>
+                            {!isToolbarCompact && (
+                              <motion.span
+                                initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                className="overflow-hidden"
+                              >
+                                {t('toolbar.terminal')}
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </button>
+                      </div>
 
                       <div className="flex items-center gap-1">
                         <button

@@ -1,3 +1,15 @@
+# 🚀 Quick Explorer v0.1.27
+*Changelog - March 11, 2026*
+
+## ✨ Scroll Precision & Stability
+- **🎯 Precise Restoration**: Fixed a critical race condition in Grid Mode where switching tabs would cause a major jump in position due to incorrect column calculations during initialization.
+- **🛡️ Restoration Shield**: Implemented a "safety window" during tab switching to prevent programmatic scrolls from being misinterpreted as user intent.
+- **🖱️ Natural Scroll Feel**: Reverted to a more permissive scroll detection logic that respects sub-row manual positions, eliminating the "forced jump" to the next row.
+- **⚡ Performance Polish**: Optimized scroll event handling to reduce CPU usage and eliminate "long task" warnings in the webview console.
+- **🐛 Bug Fixes**: Removed stray `setLoading` calls that caused reference errors in specific folder navigation scenarios.
+
+---
+
 # 🚀 Quick Explorer v0.1.26
 *Changelog - March 8, 2026*
 
@@ -258,4 +270,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.26*
+*Quick Explorer Project © 2026 - Versión 0.1.27*

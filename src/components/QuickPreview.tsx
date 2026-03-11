@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { Trash, RotateCw, Lock } from 'lucide-react';
+import { Trash, RotateCw, Lock, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { FileEntry } from '../types';
 import { useTranslation } from '../i18n/useTranslation';
 import { IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS, TEXT_EXTS } from '../utils/previewUtils';
@@ -27,14 +27,6 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     const [textContent, setTextContent] = useState<string | null>(null);
     const [isTruncated, setIsTruncated] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [scale, setScale] = useState(1.0);
-    const [showZoomIndicator, setShowZoomIndicator] = useState(false);
-    const [translate, setTranslate] = useState({ x: 0, y: 0 });
-    const [isDragging, setIsDragging] = useState(false);
-    const [rotation, setRotation] = useState(0);
-    const [mediaAspect, setMediaAspect] = useState(1);
-
     const containerRef = useRef<HTMLDivElement>(null);
     const lastScrollTime = useRef<number>(0);
     const zoomIndicatorTimer = useRef<number | undefined>(undefined);
@@ -44,6 +36,21 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     const textContentRef = useRef<HTMLDivElement>(null);
     const mediaRef = useRef<HTMLImageElement | HTMLVideoElement>(null);
     const lastRightClickTime = useRef<number>(0);
+    const clickTimer = useRef<number | null>(null);
+
+    const [isLoading, setIsLoading] = useState(true);
+    const [scale, setScale] = useState(1.0);
+    const [showZoomIndicator, setShowZoomIndicator] = useState(false);
+    const [translate, setTranslate] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const [rotation, setRotation] = useState(0);
+    const [mediaAspect, setMediaAspect] = useState(1);
+
+    // Video Controls State
+    const [isPlaying, setIsPlaying] = useState(true);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [volume, setVolume] = useState(videoSettings.current.muted ? 0 : videoSettings.current.volume);
 
     const ext = file.path.split('.').pop()?.toLowerCase() || '';
 
@@ -67,6 +74,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         setIsDragging(false);
         setRotation(0);
         setMediaAspect(1);
+        setVolume(videoSettings.current.muted ? 0 : videoSettings.current.volume);
 
         const loadContent = async () => {
             if (isText) {
@@ -130,10 +138,13 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     }, [isDragging]);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        // ALWAYS record the initial click position to differentiate clicks from drags later
+        mouseDownPos.current = { x: e.clientX, y: e.clientY };
+
         // Only start drag if clicking on the media itself, and we are zoomed
         if (scale > 1 && isZoomable) {
-            mouseDownPos.current = { x: e.clientX, y: e.clientY };
-            if (e.target instanceof HTMLImageElement || e.target instanceof HTMLVideoElement) {
+            const target = e.target as HTMLElement;
+            if (target instanceof HTMLImageElement || target instanceof HTMLVideoElement || target.id === 'video-shield') {
                 e.preventDefault(); // Prevent default image drag
                 setIsDragging(true);
                 dragStart.current = {
@@ -159,6 +170,12 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
     const handleDoubleClick = useCallback((e: React.MouseEvent) => {
         if (!isZoomable) return;
+
+        if (clickTimer.current) {
+            clearTimeout(clickTimer.current);
+            clickTimer.current = null;
+        }
+
         e.preventDefault();
         handleManualZoom(CLICK_ZOOM_STEP);
     }, [isZoomable, handleManualZoom]);
@@ -205,7 +222,13 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             }
         };
         window.addEventListener('keydown', handleKeyDown, { capture: true });
-        return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown, { capture: true });
+            if (clickTimer.current) {
+                clearTimeout(clickTimer.current);
+                clickTimer.current = null;
+            }
+        };
     }, [onClose, scale, triggerZoomIndicator, file.path]);
 
     const handleDelete = async (e: React.MouseEvent) => {
@@ -215,6 +238,12 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         } catch (error) {
             console.error("Error deleting file:", error);
         }
+    };
+
+    const formatTime = (seconds: number) => {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
     const getFileIcon = (fileName: string, isDir: boolean) => {
@@ -386,50 +415,180 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
         if (isVideo) {
             const src = convertFileSrc(file.path);
+
+            const handleTimeUpdate = () => {
+                if (mediaRef.current instanceof HTMLVideoElement) {
+                    setCurrentTime(mediaRef.current.currentTime);
+                }
+            };
+
+            const togglePlayPause = () => {
+                if (mediaRef.current instanceof HTMLVideoElement) {
+                    if (mediaRef.current.paused) {
+                        mediaRef.current.play().catch(console.error);
+                        setIsPlaying(true);
+                    } else {
+                        mediaRef.current.pause();
+                        setIsPlaying(false);
+                    }
+                }
+            };
+
+            const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+                const time = parseFloat(e.target.value);
+                setCurrentTime(time);
+                if (mediaRef.current instanceof HTMLVideoElement) {
+                    mediaRef.current.currentTime = time;
+                }
+            };
+
             return (
-                <video
-                    src={src}
-                    controls
-                    autoPlay
-                    loop
-                    onClickCapture={(e) => {
-                        if (scale > 1) {
-                            const dx = e.clientX - mouseDownPos.current.x;
-                            const dy = e.clientY - mouseDownPos.current.y;
-                            const distance = Math.sqrt(dx * dx + dy * dy);
-                            if (distance > 5) {
-                                e.stopPropagation();
-                                e.preventDefault();
-                            }
-                        }
-                    }}
-                    onVolumeChange={(e) => {
-                        videoSettings.current.muted = e.currentTarget.muted;
-                        videoSettings.current.volume = e.currentTarget.volume;
-                    }}
-                    ref={(el) => {
-                        if (el) {
-                            el.muted = videoSettings.current.muted;
-                            el.volume = videoSettings.current.volume;
-                        }
-                        mediaRef.current = el;
-                    }}
-                    onLoadedMetadata={(e) => setMediaAspect(e.currentTarget.videoWidth / e.currentTarget.videoHeight)}
-                    onDoubleClick={handleDoubleClick}
-                    onContextMenu={handleContextMenu}
-                    className="rounded drop-shadow-2xl bg-black/50"
-                    style={{
-                        height: '100%',
-                        objectFit: 'contain',
-                        transform: `scale(${scale * compScale}) translate(${translate.x / scale}px, ${translate.y / scale}px) rotate(${rotation}deg)`,
-                        transformOrigin: 'center center',
-                        transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        outline: 'none',
-                        cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
-                    }}
-                />
+                <>
+                    <div
+                        className="relative"
+                        style={{
+                            height: '100%',
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                            transform: `scale(${scale * compScale}) translate(${translate.x / scale}px, ${translate.y / scale}px) rotate(${rotation}deg)`,
+                            transformOrigin: 'center center',
+                            transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                        }}
+                    >
+                        <video
+                            src={src}
+                            autoPlay
+                            loop
+                            onPlay={() => setIsPlaying(true)}
+                            onPause={() => setIsPlaying(false)}
+                            onTimeUpdate={handleTimeUpdate}
+                            onDurationChange={(e) => setDuration(e.currentTarget.duration)}
+                            onVolumeChange={(e) => {
+                                const isMuted = e.currentTarget.muted;
+                                const currentVol = e.currentTarget.volume;
+                                videoSettings.current.muted = isMuted;
+                                videoSettings.current.volume = currentVol;
+                                // Visual state should be 0 if muted, otherwise numeric volume
+                                setVolume(isMuted ? 0 : currentVol);
+                            }}
+                            ref={(el) => {
+                                if (el) {
+                                    el.muted = videoSettings.current.muted;
+                                    el.volume = videoSettings.current.volume;
+                                }
+                                mediaRef.current = el;
+                            }}
+                            onLoadedMetadata={(e) => setMediaAspect(e.currentTarget.videoWidth / e.currentTarget.videoHeight)}
+                            className="rounded drop-shadow-2xl bg-black/50 overflow-hidden"
+                            style={{
+                                height: '100%',
+                                objectFit: 'contain',
+                                maxWidth: '100%',
+                                maxHeight: '100%',
+                                outline: 'none',
+                                cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
+                            }}
+                            onDoubleClick={handleDoubleClick}
+                            onContextMenu={handleContextMenu}
+                            onMouseDown={handleMouseDown}
+                            onClick={(e) => {
+                                // Calculate distance moved to differentiate between a drag and a simple click
+                                const dx = e.clientX - mouseDownPos.current.x;
+                                const dy = e.clientY - mouseDownPos.current.y;
+                                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                                // If distance is small enough (e.g. < 5px), treat as a click to pause/play
+                                // Use a timer to debounce the click and allow double-click for zoom without pausing
+                                if (distance <= 5) {
+                                    if (clickTimer.current) {
+                                        clearTimeout(clickTimer.current as any);
+                                        clickTimer.current = null;
+                                    } else {
+                                        clickTimer.current = setTimeout(() => {
+                                            togglePlayPause();
+                                            clickTimer.current = null;
+                                        }, 250);
+                                    }
+                                }
+                            }}
+                        />
+                    </div>
+
+                    {/* Custom Floating Video Controls */}
+                    <div
+                        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-black/40 rounded-2xl backdrop-blur-xl border border-white/10 shadow-2xl animate-in slide-in-from-bottom-5 duration-300"
+                        onMouseDown={(e) => e.stopPropagation()} // Prevent dragging the background when using controls
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                    >
+                        <button
+                            className="text-white hover:text-white/80 transition-colors drop-shadow-md outline-none"
+                            onClick={togglePlayPause}
+                        >
+                            {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
+                        </button>
+
+                        <div className="flex items-center gap-3 min-w-[300px] w-[40vw] max-w-[600px]">
+                            <span className="text-white/80 font-mono text-sm drop-shadow-md">
+                                {formatTime(currentTime)}
+                            </span>
+
+                            <div className="relative flex-1 group">
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max={duration || 100}
+                                    value={currentTime}
+                                    onChange={handleSeek}
+                                    className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer group-hover:bg-white/30 transition-colors drop-shadow-md outline-none"
+                                    style={{
+                                        background: `linear-gradient(to right, white ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.2) ${(currentTime / (duration || 1)) * 100}%)`
+                                    }}
+                                />
+                            </div>
+
+                            <span className="text-white/80 font-mono text-sm drop-shadow-md">
+                                {formatTime(duration)}
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 relative group w-24">
+                            <button
+                                className="text-white hover:text-white/80 transition-colors drop-shadow-md outline-none"
+                                onClick={() => {
+                                    if (mediaRef.current instanceof HTMLVideoElement) {
+                                        mediaRef.current.muted = !mediaRef.current.muted;
+                                        videoSettings.current.muted = mediaRef.current.muted;
+                                        setVolume(mediaRef.current.muted ? 0 : videoSettings.current.volume);
+                                    }
+                                }}
+                            >
+                                {volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                            </button>
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value={volume}
+                                onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    setVolume(val);
+                                    if (mediaRef.current instanceof HTMLVideoElement) {
+                                        mediaRef.current.volume = val;
+                                        mediaRef.current.muted = val === 0;
+                                        videoSettings.current.volume = val;
+                                        videoSettings.current.muted = val === 0;
+                                    }
+                                }}
+                                className="w-16 h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer group-hover:opacity-100 transition-all drop-shadow-md outline-none"
+                                style={{
+                                    background: `linear-gradient(to right, white ${volume * 100}%, rgba(255,255,255,0.2) ${volume * 100}%)`
+                                }}
+                            />
+                        </div>
+                    </div>
+                </>
             );
         }
 

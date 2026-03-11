@@ -25,9 +25,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetActiveWindow, GetAsyncKeyState, GetFocus, IsWindowEnabled, SetActiveWindow, VK_LBUTTON,
 };
 use windows::Win32::UI::Shell::{
-    IShellItem2, IShellItemImageFactory, SHCreateItemFromParsingName, SHQueryRecycleBinW,
-    SHQUERYRBINFO, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
+    IShellItem2, IShellItemImageFactory, SHCreateItemFromIDList, SHCreateItemFromParsingName,
+    SHQueryRecycleBinW, SHQUERYRBINFO, SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
 };
+use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, GetAncestor, GetClassNameW, GetForegroundWindow, IsWindowVisible,
     SetForegroundWindow, SetWindowPos, GA_ROOT, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
@@ -950,14 +951,37 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<Vec<u8>, String> {
             .chain(std::iter::once(0))
             .collect();
 
-        let shell_item: IShellItem2 =
+        let shell_item: IShellItem2 = if path.len() > 100 && !path.contains('\\') && !path.contains(':') {
+            // Likely a Base64 encoded PIDL (Recycle Bin item)
+            use base64::Engine;
+            if let Ok(pidl_bytes) = base64::engine::general_purpose::STANDARD.decode(path) {
+                match unsafe {
+                    SHCreateItemFromIDList::<IShellItem2>(pidl_bytes.as_ptr() as *const ITEMIDLIST)
+                } {
+                    Ok(si) => si,
+                    Err(_) => {
+                        CoUninitialize();
+                        return Err("Failed to create shell item from PIDL".to_string());
+                    }
+                }
+            } else {
+                match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
+                    Ok(si) => si,
+                    Err(_) => {
+                        CoUninitialize();
+                        return Err("Failed to create shell item".to_string());
+                    }
+                }
+            }
+        } else {
             match SHCreateItemFromParsingName(PCWSTR(path_wide.as_ptr()), None) {
                 Ok(si) => si,
                 Err(_) => {
                     CoUninitialize();
                     return Err("Failed to create shell item".to_string());
                 }
-            };
+            }
+        };
 
         let image_factory: IShellItemImageFactory = match shell_item.cast() {
             Ok(f) => f,
@@ -1507,6 +1531,11 @@ fn empty_recycle_bin() -> Result<(), String> {
     crate::sta_worker::StaWorker::global().empty_recycle_bin()
 }
 
+#[tauri::command]
+fn restore_items(paths: Vec<String>) -> Result<(), String> {
+    crate::sta_worker::StaWorker::global().restore_items(paths)
+}
+
 /// Window subclass procedure to intercept WM_DROPFILES for legacy drop handling
 
 #[tauri::command]
@@ -1691,15 +1720,20 @@ pub fn run() {
                 return;
             }
 
-            let ext = std::path::Path::new(&path)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            let is_video = [
-                "mp4", "mkv", "avi", "mov", "wmv", "webm", "flv", "mpg", "mpeg",
-            ]
-            .contains(&ext.as_str());
+            let is_pidl = path.len() > 100 && !path.contains('\\') && !path.contains(':');
+            let is_video = if is_pidl {
+                false // We don't try to detect video in PIDLs for now, shell thumbnail should handle it
+            } else {
+                let ext = std::path::Path::new(&path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                [
+                    "mp4", "mkv", "avi", "mov", "wmv", "webm", "flv", "mpg", "mpeg",
+                ]
+                .contains(&ext.as_str())
+            };
 
             let app_handle = app.app_handle().clone();
 
@@ -1782,6 +1816,7 @@ pub fn run() {
             debug_window_hierarchy,
             get_recycle_bin_status,
             empty_recycle_bin,
+            restore_items,
             save_clipboard_image,
             get_clipboard_text,
             open_terminal,

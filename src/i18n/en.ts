@@ -65,6 +65,7 @@ export const en: Translations = {
         empty_recycle_bin: 'Empty Recycle Bin',
         move_to: 'Move to',
         paste_and_go: 'Paste and go',
+        restore: 'Restore',
     },
     toolbar: {
         new_folder: 'New Folder',
@@ -83,6 +84,7 @@ export const en: Translations = {
         refresh: 'Refresh',
         search_placeholder: 'Search {count} items...',
         paste_image: 'Image',
+        restore: 'Restore',
     },
     footer: {
         items: 'items',

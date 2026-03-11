@@ -1,0 +1,69 @@
+warning: function `get_video_thumbnail` is never used
+   --> src\lib.rs:915:10
+    |
+915 | async fn get_video_thumbnail(
+    |          ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `get_thumbnail` is never used
+   --> src\lib.rs:927:10
+    |
+927 | async fn get_thumbnail(
+    |          ^^^^^^^^^^^^^
+
+warning: `d-speedexplorer` (lib) generated 2 warnings
+    Checking d-speedexplorer v0.1.26 (D:\SpeedExplorer\src-tauri)
+warning: unused imports: `PCWSTR` and `PWSTR`
+ --> src\bin\debug_restore.rs:1:28
+  |
+1 | use windows::core::{PCSTR, PCWSTR, PSTR, PWSTR};
+  |                            ^^^^^^        ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `CoCreateInstance`
+ --> src\bin\debug_restore.rs:3:5
+  |
+3 |     CoCreateInstance, CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED,
+  |     ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `SHCreateItemFromParsingName` and `SIGDN_DESKTOPABSOLUTEPARSING`
+ --> src\bin\debug_restore.rs:7:17
+  |
+7 |     IShellItem, SHCreateItemFromParsingName, SHGetKnownFolderItem, CMINVOKECOMMANDINFO, GCS_VERBA,
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+8 |     SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_NORMALDISPLAY,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0610]: `u32` is a primitive type and therefore doesn't have fields
+  --> src\bin\debug_restore.rs:82:43
+   |
+82 | ...                   GCS_VERBA.0 as u32,
+   |                                 ^
+
+error[E0308]: mismatched types
+     --> src\bin\debug_restore.rs:83:33
+      |
+   80 | ...                   let res = context_menu.GetCommandString(
+      |                                              ---------------- arguments to this method are incorrect
+...
+   83 | ...                       std::ptr::null_mut(),
+      |                           ^^^^^^^^^^^^^^^^^^^^ expected `Option<*const u32>`, found `*mut _`
+      |
+      = note:     expected enum `Option<*const u32>`
+              found raw pointer `*mut _`
+note: method defined here
+     --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\UI\Shell\mod.rs:15684:19
+      |
+15684 |     pub unsafe fn GetCommandString(&self, idcmd: usize, utype: u32, preserved: Option<*const u32>, pszname: windows_core::PSTR, cchmax: u...
+      |                   ^^^^^^^^^^^^^^^^
+help: try wrapping the expression in `Some`
+      |
+   83 |                                 Some(std::ptr::null_mut()),
+      |                                 +++++                    +
+
+Some errors have detailed explanations: E0308, E0610.
+For more information about an error, try `rustc --explain E0308`.
+warning: `d-speedexplorer` (bin "debug_restore") generated 3 warnings
+error: could not compile `d-speedexplorer` (bin "debug_restore") due to 2 previous errors; 3 warnings emitted

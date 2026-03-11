@@ -1,0 +1,72 @@
+    Checking d-speedexplorer v0.1.26 (D:\SpeedExplorer\src-tauri)
+warning: unused import: `SIGDN_DESKTOPABSOLUTEPARSING`
+  --> src\sta_worker.rs:28:45
+   |
+28 |     FOF_RENAMEONCOLLISION, KF_FLAG_DEFAULT, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_FILESYSPATH,
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `PCWSTR`
+   --> src\sta_worker.rs:477:32
+    |
+477 |     use windows::core::{PCSTR, PCWSTR};
+    |                                ^^^^^^
+
+error[E0308]: mismatched types
+    --> src\sta_worker.rs:492:40
+     |
+ 492 |                 SHCreateItemFromIDList(Some(pidl_bytes.as_ptr() as *const ITEMIDLIST))
+     |                 ---------------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `*const ITEMIDLIST`, found `Option<*const ITEMIDLIST>`
+     |                 |
+     |                 arguments to this function are incorrect
+     |
+     = note: expected raw pointer `*const ITEMIDLIST`
+                       found enum `std::option::Option<*const ITEMIDLIST>`
+note: function defined here
+    --> D:\Rust\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows-0.61.3\src\Windows\Win32\UI\Shell\mod.rs:2668:15
+     |
+2668 | pub unsafe fn SHCreateItemFromIDList<T>(pidl: *const Common::ITEMIDLIST) -> windows_core::Result<T>
+     |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unnecessary `unsafe` block
+   --> src\sta_worker.rs:577:46
+    |
+545 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+577 |                 let path = if let Ok(pidl) = unsafe { SHGetIDListFromObject(&item) } {
+    |                                              ^^^^^^ unnecessary `unsafe` block
+    |
+    = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+   --> src\sta_worker.rs:578:32
+    |
+545 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+578 |                     let size = unsafe { ILGetSize(Some(pidl as *const ITEMIDLIST)) };
+    |                                ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src\sta_worker.rs:580:25
+    |
+545 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+580 |                         unsafe { std::slice::from_raw_parts(pidl as *const u8, size as usize) };
+    |                         ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src\sta_worker.rs:582:21
+    |
+545 |     unsafe {
+    |     ------ because it's nested under this `unsafe` block
+...
+582 |                     unsafe { ILFree(Some(pidl as *const ITEMIDLIST)) };
+    |                     ^^^^^^ unnecessary `unsafe` block
+
+For more information about this error, try `rustc --explain E0308`.
+warning: `d-speedexplorer` (lib) generated 6 warnings
+error: could not compile `d-speedexplorer` (lib) due to 1 previous error; 6 warnings emitted

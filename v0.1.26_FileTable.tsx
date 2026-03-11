@@ -170,10 +170,7 @@ const FileTable = memo(({
                 if (isImage || isVideo) {
                     try {
                         const protocolUrl = `http://thumbnail.localhost/?path=${encodeURIComponent(primaryFile.path)}&s=256&m=${primaryFile.modified_timestamp}`;
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 150);
-                        const response = await fetch(protocolUrl, { signal: controller.signal });
-                        clearTimeout(timeoutId);
+                        const response = await fetch(protocolUrl);
                         if (response.ok) {
                             const blob = await response.blob();
                             thumbnailBase64 = await new Promise<string>((resolve) => {
@@ -183,7 +180,7 @@ const FileTable = memo(({
                             });
                         }
                     } catch {
-                        // Timeout or shell error: fall back to generic icon
+                        // Timeout or error: fall through to element/SVG fallback
                     }
                 }
             }
@@ -224,7 +221,6 @@ const FileTable = memo(({
     // Robust Scroll Restoration using Index
     const initialScrollIndexRef = useRef(initialScrollIndex);
     const restoredTabIdRef = useRef<string | null>(null);
-    const isRestoringRef = useRef(false);
     const [isReadyToRender, setIsReadyToRender] = useState(false);
 
     useEffect(() => {
@@ -238,7 +234,6 @@ const FileTable = memo(({
         }
 
         if (restoredTabIdRef.current === null && files.length > 0) {
-            isRestoringRef.current = true;
             const t = setTimeout(() => {
                 if (initialScrollIndexRef.current > 0) {
                     try {
@@ -253,11 +248,6 @@ const FileTable = memo(({
                 }
                 restoredTabIdRef.current = activeTabId;
                 setIsReadyToRender(true);
-
-                // Release shield after a short delay to allow browser to settle
-                setTimeout(() => {
-                    isRestoringRef.current = false;
-                }, 150);
             }, 0);
             return () => clearTimeout(t);
         } else if (files.length === 0) {
@@ -464,12 +454,6 @@ const FileTable = memo(({
 
     const scrollTimeoutRef = useRef<any>(null);
 
-    useEffect(() => {
-        return () => {
-            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-        };
-    }, []);
-
     if (files.length === 0) {
         return (
             <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]" onContextMenu={(e) => onContextMenu(e, null)}>
@@ -493,18 +477,13 @@ const FileTable = memo(({
             onScroll={(e) => {
                 const scrollTop = e.currentTarget.scrollTop;
                 if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-
-                // ESCUDO: Ignore programmatic scrolls during restoration
-                if (isRestoringRef.current) return;
-
                 scrollTimeoutRef.current = setTimeout(() => {
                     const virtualItems = rowVirtualizer.getVirtualItems();
-                    // REVERSION: Use center-based detection for "natural" manual scroll feel.
-                    // The "Restoration Shield" (isRestoringRef) already handles the drift.
+                    // Ignore overscan and sub-pixel rounding: find the first item where its vertical center is below the scroll top
                     const firstVisible = virtualItems.find(item => (item.start + (item.size / 2)) > scrollTop);
                     if (firstVisible) {
                         onScrollChange(firstVisible.index);
-                    } else if (scrollTop === 0) {
+                    } else {
                         onScrollChange(0);
                     }
                 }, 150);

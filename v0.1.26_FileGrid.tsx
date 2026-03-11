@@ -70,21 +70,21 @@ interface GridItemProps {
 
 const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem, onOpenPreview }: GridItemProps) => {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
     const [editValue, setEditValue] = useState("");
     const editInputRef = useRef<HTMLInputElement>(null);
     const requestedRef = useRef(false);
     const submittingRef = useRef(false);
     const itemRef = useRef<HTMLDivElement>(null);
     const [isVisible, setIsVisible] = useState(false);
-    const [isLoaded, setIsLoaded] = useState(false);
 
     useEffect(() => {
         // Reset on file change
         requestedRef.current = false;
         submittingRef.current = false;
         setThumbnail(null);
+        setLoading(false);
         setIsVisible(false);
-        setIsLoaded(false);
     }, [file.path, file.modified_timestamp]);
 
     useEffect(() => {
@@ -129,6 +129,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
         if (!isVisible || requestedRef.current || thumbnail || !shouldLoadThumbnail(file)) return;
 
         requestedRef.current = true;
+        setLoading(true);
 
         const url = `http://thumbnail.localhost/?path=${encodeURIComponent(file.path)}&s=256&m=${file.modified_timestamp}`;
         setThumbnail(url);
@@ -177,38 +178,15 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                 style={{ width: ITEM_SIZE, height: ITEM_SIZE }}
             >
                 <div className="w-28 h-28 flex items-center justify-center mb-2 relative">
-                    {/* Placeholder Layer (Minimalist: Icon or Skeleton) */}
-                    <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-500 ${isLoaded ? 'opacity-0' : 'opacity-100'}`}>
-                        {shouldLoadThumbnail(file) ? (
-                            // Subtle Skeleton Pulse for images/videos
-                            <div className="w-16 h-16 rounded-xl bg-white/5 animate-pulse" />
-                        ) : (
-                            // Normal icon for folders or non-thumbnail files
-                            <Icon
-                                size={80}
-                                className={`
-                                    ${file.is_dir ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}
-                                    group-hover:scale-110 transition-transform duration-200
-                                `}
-                                fill={file.is_dir ? 'rgba(var(--accent-rgb), 0.2)' : 'none'}
-                            />
-                        )}
-                    </div>
-
-                    {/* Thumbnail Layer */}
-                    {thumbnail && (
-                        <div className={`w-full h-full relative transition-all duration-500 ease-out transform ${isLoaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+                    {thumbnail ? (
+                        <>
                             <img
                                 src={thumbnail}
                                 alt={file.name}
                                 draggable={false}
                                 className="w-full h-full object-cover rounded-lg shadow-md"
-                                onLoad={() => {
-                                    setIsLoaded(true);
-                                }}
-                                onError={() => {
-                                    setIsLoaded(false);
-                                }}
+                                onLoad={() => setLoading(false)}
+                                onError={() => setLoading(false)}
                             />
                             {file.source && (
                                 <div
@@ -220,7 +198,18 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                                         }`}
                                 />
                             )}
-                        </div>
+                        </>
+                    ) : loading ? (
+                        <div className="w-12 h-12 rounded-lg bg-white/5 animate-pulse" />
+                    ) : (
+                        <Icon
+                            size={80}
+                            className={`
+                                ${file.is_dir ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}
+                                group-hover:scale-110 transition-transform
+                            `}
+                            fill={file.is_dir ? 'rgba(var(--accent-rgb), 0.2)' : 'none'}
+                        />
                     )}
 
                     {file.is_shortcut && (
@@ -304,7 +293,7 @@ export default function FileGrid({
 }: FileGridProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
-    const [containerWidth, setContainerWidth] = useState(0);
+    const [containerWidth, setContainerWidth] = useState(800);
     const selectedBeforeDownRef = useRef<boolean>(false);
 
     // Smart Reset: Only reset to top when navigating within the SAME tab
@@ -350,7 +339,6 @@ export default function FileGrid({
     // Robust Scroll Restoration using Index
     const initialScrollIndexRef = useRef(initialScrollIndex);
     const restoredTabIdRef = useRef<string | null>(null);
-    const isRestoringRef = useRef(false);
     const [isReadyToRender, setIsReadyToRender] = useState(false);
 
     useEffect(() => {
@@ -364,7 +352,6 @@ export default function FileGrid({
         }
 
         if (restoredTabIdRef.current === null && files.length > 0 && containerWidth > 0) {
-            isRestoringRef.current = true;
             const t = setTimeout(() => {
                 if (initialScrollIndexRef.current > 0) {
                     try {
@@ -380,11 +367,6 @@ export default function FileGrid({
                 }
                 restoredTabIdRef.current = activeTabId;
                 setIsReadyToRender(true);
-
-                // Release shield after a short delay to allow browser to settle
-                setTimeout(() => {
-                    isRestoringRef.current = false;
-                }, 150);
             }, 50);
             return () => clearTimeout(t);
         } else if (files.length === 0) {
@@ -486,10 +468,7 @@ export default function FileGrid({
                 if (IMAGE_EXTS.includes(ext) || VIDEO_EXTS.includes(ext)) {
                     try {
                         const url = `http://thumbnail.localhost/?path=${encodeURIComponent(primaryFile.path)}&s=256&m=${primaryFile.modified_timestamp}`;
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 150);
-                        const response = await fetch(url, { signal: controller.signal });
-                        clearTimeout(timeoutId);
+                        const response = await fetch(url);
                         if (response.ok) {
                             const blob = await response.blob();
                             thumbnailBase64 = await new Promise<string>((resolve) => {
@@ -499,7 +478,7 @@ export default function FileGrid({
                             });
                         }
                     } catch {
-                        // Timeout or shell error: fall back to generic icon
+                        // Fallback to non-thumbnail ghost
                     }
                 }
             }
@@ -614,12 +593,6 @@ export default function FileGrid({
 
     const scrollTimeoutRef = useRef<any>(null);
 
-    useEffect(() => {
-        return () => {
-            if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-        };
-    }, []);
-
     return (
         <div
             ref={containerRef}
@@ -630,27 +603,16 @@ export default function FileGrid({
             onScroll={(e) => {
                 const scrollTop = e.currentTarget.scrollTop;
                 if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-
-                // ESCUDO: Ignore programmatic scrolls during restoration
-                if (isRestoringRef.current) return;
-
                 scrollTimeoutRef.current = setTimeout(() => {
                     const virtualItems = rowVirtualizer.getVirtualItems();
-                    // REVERSION: Use center-based detection for "natural" manual scroll feel.
-                    // The "Restoration Shield" (isRestoringRef) already handles the drift.
+                    // Ignore overscan and sub-pixel rounding: find the first item where its vertical center is below the scroll top
                     const firstVisible = virtualItems.find(item => (item.start + (item.size / 2)) > scrollTop);
                     if (firstVisible) {
                         onScrollChange(firstVisible.index * columns);
-                    } else if (scrollTop === 0) {
+                    } else {
                         onScrollChange(0);
                     }
                 }, 150);
-            }}
-            onScrollCapture={() => {
-                // Optional: stop any pending initial scroll once user interacts
-                if (initialScrollIndexRef.current > 0) {
-                    initialScrollIndexRef.current = 0;
-                }
             }}
             onKeyDown={(e) => {
                 if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {

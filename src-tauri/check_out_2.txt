@@ -1,0 +1,42 @@
+    Checking d-speedexplorer v0.1.26 (D:\SpeedExplorer\src-tauri)
+error[E0433]: failed to resolve: use of undeclared type `Common`
+   --> src\sta_worker.rs:492:75
+    |
+492 |                 SHCreateItemFromIDList(Some(pidl_bytes.as_ptr() as *const Common::ITEMIDLIST))
+    |                                                                           ^^^^^^ use of undeclared type `Common`
+
+error[E0433]: failed to resolve: use of undeclared type `Common`
+   --> src\sta_worker.rs:578:71
+    |
+578 |                     let size = unsafe { ILGetSize(Some(pidl as *const Common::ITEMIDLIST)) };
+    |                                                                       ^^^^^^ use of undeclared type `Common`
+
+error[E0433]: failed to resolve: use of undeclared type `Common`
+   --> src\sta_worker.rs:582:57
+    |
+582 |                     unsafe { ILFree(Some(pidl as *const Common::ITEMIDLIST)) };
+    |                                                         ^^^^^^ use of undeclared type `Common`
+
+warning: unused import: `windows::Win32::UI::Shell::Common::ITEMIDLIST`
+  --> src\sta_worker.rs:23:5
+   |
+23 | use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `SIGDN_DESKTOPABSOLUTEPARSING`
+  --> src\sta_worker.rs:28:45
+   |
+28 |     FOF_RENAMEONCOLLISION, KF_FLAG_DEFAULT, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_FILESYSPATH,
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PCWSTR`
+   --> src\sta_worker.rs:477:32
+    |
+477 |     use windows::core::{PCSTR, PCWSTR};
+    |                                ^^^^^^
+
+For more information about this error, try `rustc --explain E0433`.
+warning: `d-speedexplorer` (lib) generated 3 warnings
+error: could not compile `d-speedexplorer` (lib) due to 3 previous errors; 3 warnings emitted
