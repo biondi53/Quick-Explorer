@@ -4,6 +4,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
 import ThisPCView from './components/ThisPCView';
+
+// Global singleton for extreme frontend performance
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 import { ask } from '@tauri-apps/plugin-dialog';
 import {
   Search,
@@ -811,16 +814,7 @@ export default function App() {
   const sortedFiles = useMemo(() => {
     if (!currentTab) return [];
 
-    const parseDate = (dateStr: string): number => {
-      if (!dateStr) return 0;
-      // Format: "dd/mm/yyyy HH:MM"
-      const [datePart, timePart] = dateStr.split(' ');
-      const [day, month, year] = datePart.split('/').map(Number);
-      const [hours, minutes] = (timePart || '00:00').split(':').map(Number);
-      return new Date(year, month - 1, day, hours, minutes).getTime();
-    };
-
-    const filtered = currentTab.files.filter(f =>
+        const filtered = currentTab.files.filter(f =>
       f.name.toLowerCase().includes((currentTab.searchQuery || '').toLowerCase())
     );
 
@@ -831,13 +825,14 @@ export default function App() {
 
       const { column, direction } = currentTab.sortConfig || defaultSortConfig;
       let comparison = 0;
-
       if (column === 'size') {
         comparison = a.size - b.size;
       } else if (column === 'created_at' || column === 'modified_at') {
-        comparison = parseDate(a[column]) - parseDate(b[column]);
+        // Rust already provides high-performance unix timestamps
+        comparison = (a.modified_timestamp || 0) - (b.modified_timestamp || 0);
       } else {
-        comparison = String(a[column]).localeCompare(String(b[column]));
+        // O(1) instant locale comparison via Intl singleton
+        comparison = collator.compare(String(a[column] || ''), String(b[column] || ''));
       }
       return direction === 'asc' ? comparison : -comparison;
     });
@@ -2463,3 +2458,5 @@ export default function App() {
     </div>
   );
 }
+
+

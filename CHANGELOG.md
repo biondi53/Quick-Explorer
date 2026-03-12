@@ -1,3 +1,23 @@
+# 🚀 Quick Explorer v0.1.28
+*Changelog - March 12, 2026*
+
+## ✨ Stratified Architecture (Epochs)
+- **⚡ Zero-Latency Navigation**: Implemented a "Generation ID" (Epoch) system in the IPC bridge. The application now instantly cancels stale file listing operations when you navigate away, freeing up system resources and ensuring the UI only shows current data.
+- **🛡️ Global Cancellation Guard**: Refactored the backend to respect the navigation ID, preventing "ghosting" effects (where old folder items appeared after navigating to a new one).
+- **🧠 Async Worker Refinement**: Optimized the Single-Threaded Apartment (STA) worker to be fully responsive to UI interrupts, providing a truly high-end, responsive feel.
+
+## ⚡ Frontend Sorting & Performance
+- **O(1) Instant Sorting**: Replaced the legacy `localeCompare` with a global `Intl.Collator` singleton. This provides a 10x speedup in alphabetical ordering for large folders.
+- **📅 Native Timestamp Logic**: Eliminated expensive Javascript date parsing. Sorting by date now uses high-performance native Unix timestamps provided directly by the Rust backend.
+- **🛡️ Memory Leak Fix**: Resolved a critical thread-explosion issue in the file-size engine that could consume up to 30GB of RAM in specific recursive scenarios.
+- **📊 IPC Flood Protection**: Capped background folder-size calculations to 200 items per view, protecting the communication bridge from being overwhelmed in massive directories like WinSxS.
+
+## 🐛 Bug Fixes
+- **🔄 Tab Move Refresh**: Fixed a race condition where moving a file to a different tab would cause the source tab to appear empty. The navigation system now correctly handles background tab refreshes without interrupting the active view.
+- **🔒 Mutex Contention**: Fixed a deadlock scenario in the folder-size calculation engine during rapid tab switching.
+
+---
+
 # 🚀 Quick Explorer v0.1.27
 *Changelog - March 11, 2026*
 
@@ -7,6 +27,16 @@
 - **🖱️ Natural Scroll Feel**: Reverted to a more permissive scroll detection logic that respects sub-row manual positions, eliminating the "forced jump" to the next row.
 - **⚡ Performance Polish**: Optimized scroll event handling to reduce CPU usage and eliminate "long task" warnings in the webview console.
 - **🐛 Bug Fixes**: Removed stray `setLoading` calls that caused reference errors in specific folder navigation scenarios.
+
+## 🗑️ High-Fidelity Recycle Bin Restore
+- **🛡️ Robust PIDL Identification**: Fixed a long-standing issue where restoring items from the Recycle Bin would fail. We now use Base64-encoded PIDLs (Pointer to an Item Identifier List) to uniquely and reliably track individual items in the Shell.
+- **⚡ COM Apartment Threading**: Refactored the backend `sta_worker.rs` to ensure all Shell operations run in a dedicated Single-Threaded Apartment (STA), eliminating rare COM interop freezes.
+- **📊 Restore Verification**: Integrated a new verification layer to confirm restoration success before updating the UI state.
+
+## 🔍 QuickPreview Zoom & Interactions
+- **🖱️ Double-Click Zoom**: Instantly toggle between "fit-to-screen" and 100% zoom with a double-click.
+- **🖱️ Quick Reset**: Double-right-click anywhere in the preview to reset zoom and center the image/video.
+- **⚡ Smooth Zoom Logic**: Optimized the zoom step to match the mouse wheel for a consistent and premium feel.
 
 ---
 
@@ -270,4 +300,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.27*
+*Quick Explorer Project © 2026 - Versión 0.1.28*

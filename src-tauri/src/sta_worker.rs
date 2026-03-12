@@ -182,6 +182,7 @@ pub enum StaCommand {
     ListFiles {
         path: String,
         show_hidden: bool,
+        nav_id: Option<String>,
         response: Sender<Result<Vec<FileEntry>, String>>,
     },
     EmptyRecycleBin {
@@ -253,9 +254,10 @@ impl StaWorker {
                     StaCommand::ListFiles {
                         path,
                         show_hidden,
+                        nav_id,
                         response,
                     } => {
-                        let result = list_files_impl(&path, show_hidden);
+                        let result = list_items_impl(&path, show_hidden, nav_id);
                         let _ = response.send(result);
                     }
                     StaCommand::EmptyRecycleBin { response } => {
@@ -322,12 +324,18 @@ impl StaWorker {
         StaWorker { sender: tx }
     }
 
-    pub fn list_files(&self, path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+    pub fn list_files(
+        &self,
+        path: String,
+        show_hidden: bool,
+        nav_id: Option<String>,
+    ) -> Result<Vec<FileEntry>, String> {
         let (tx, rx) = channel();
         self.sender
             .send(StaCommand::ListFiles {
                 path,
                 show_hidden,
+                nav_id,
                 response: tx,
             })
             .map_err(|e| format!("Failed to send command to STA worker: {}", e))?;
@@ -638,11 +646,35 @@ fn get_localized_name(name: &str) -> String {
     }
 }
 
-fn list_files_native(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+fn list_files_native(
+    path: &str,
+    show_hidden: bool,
+    nav_id: Option<String>,
+) -> Result<Vec<FileEntry>, String> {
     let entries =
         std::fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
-    let entries_vec: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+    let is_cancelled = || {
+        if let Some(id) = &nav_id {
+            if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
+                if let Ok(current_id) = mutex.lock() {
+                    return *current_id != *id;
+                }
+            }
+        }
+        false
+    };
+
+    let mut entries_vec = Vec::new();
+    for e in entries {
+        if is_cancelled() {
+            log::debug!("[STA-WORKER] Native read cancelled by navigation change (nav_id {:?})", nav_id);
+            break;
+        }
+        if let Ok(entry) = e {
+            entries_vec.push(entry);
+        }
+    }
 
     let files: Vec<FileEntry> = entries_vec
         .into_par_iter()
@@ -745,7 +777,24 @@ fn list_files_native(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, St
     Ok(files)
 }
 
-fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
+fn list_items_impl(
+    path: &str,
+    show_hidden: bool,
+    nav_id: Option<String>,
+) -> Result<Vec<FileEntry>, String> {
+    log::debug!("[STA-WORKER] list_items_impl called for path: {}", path);
+
+    let is_cancelled = || {
+        if let Some(id) = &nav_id {
+            if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
+                if let Ok(current_id) = mutex.lock() {
+                    return *current_id != *id;
+                }
+            }
+        }
+        false
+    };
+
     if path == "shell:RecycleBin" {
         return list_recycle_bin();
     }
@@ -846,7 +895,7 @@ fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, Stri
     // If it's a normal absolute path on disk, use the high-performance native reader.
     let path_obj = std::path::Path::new(path);
     if path_obj.is_absolute() && path_obj.exists() {
-        return list_files_native(path, show_hidden);
+        return list_files_native(path, show_hidden, nav_id);
     }
 
     // Fallback: Shell API (IShellItem) for virtual folders, drives, etc.
@@ -877,6 +926,9 @@ fn list_files_impl(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, Stri
         let mut item_opt: [Option<IShellItem>; 1] = [None];
 
         while enum_items.Next(&mut item_opt, Some(&mut fetched)).is_ok() && fetched > 0 {
+            if is_cancelled() {
+                break;
+            }
             if let Some(child_item) = item_opt[0].take() {
                 let name = child_item
                     .GetDisplayName(SIGDN_NORMALDISPLAY)

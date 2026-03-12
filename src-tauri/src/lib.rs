@@ -181,8 +181,19 @@ pub fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
 }
 
 #[tauri::command]
-async fn list_files(path: String, show_hidden: bool) -> Result<Vec<FileEntry>, String> {
-    crate::sta_worker::StaWorker::global().list_files(path, show_hidden)
+async fn list_files(
+    path: String,
+    show_hidden: bool,
+    nav_id: Option<String>,
+) -> Result<Vec<FileEntry>, String> {
+    if let Some(id) = &nav_id {
+        if let Some(mutex) = GLOBAL_NAV_ID.get() {
+            if let Ok(mut current_id) = mutex.lock() {
+                *current_id = id.clone();
+            }
+        }
+    }
+    crate::sta_worker::StaWorker::global().list_files(path, show_hidden, nav_id)
 }
 
 #[tauri::command]
@@ -1575,8 +1586,8 @@ async fn calculate_folder_size(path: String, nav_id: String) -> Result<(), Strin
         }
     }
 
-    // Launch background thread for deep calculation
-    std::thread::spawn(move || {
+    // Use tokio's thread pool to prevent unbounded thread creation crashes
+    tokio::task::spawn_blocking(move || {
         let start_time = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(1500);
 
@@ -1593,7 +1604,8 @@ async fn calculate_folder_size(path: String, nav_id: String) -> Result<(), Strin
             false
         };
 
-        let size = calculate_dir_size_recursive(std::path::Path::new(&path), &is_cancelled);
+        let mut iteration_count = 0;
+        let size = calculate_dir_size_recursive(std::path::Path::new(&path), &is_cancelled, &mut iteration_count);
 
         // Only emit if not cancelled by navigation
         let mut final_id_match = true;
@@ -1629,8 +1641,14 @@ async fn calculate_folder_size(path: String, nav_id: String) -> Result<(), Strin
     Ok(())
 }
 
-fn calculate_dir_size_recursive(path: &std::path::Path, is_cancelled: &dyn Fn() -> bool) -> u64 {
-    if is_cancelled() {
+fn calculate_dir_size_recursive(
+    path: &std::path::Path,
+    is_cancelled: &dyn Fn() -> bool,
+    iteration_count: &mut usize,
+) -> u64 {
+    *iteration_count += 1;
+    // Only check the Mutex every 1000 items to prevent massive CPU contention
+    if *iteration_count % 1000 == 0 && is_cancelled() {
         return 0;
     }
 
@@ -1640,17 +1658,15 @@ fn calculate_dir_size_recursive(path: &std::path::Path, is_cancelled: &dyn Fn() 
 
     let mut total_size = 0;
     if let Ok(entries) = std::fs::read_dir(path) {
-        // Collect entries to process in parallel via Rayon if path is shallow,
-        // but for deep recursion it's better to stay simple or use par_bridge.
-        // To keep it safe and cancellable, we'll do a simple loop and check cancellation.
         for entry in entries.filter_map(|e| e.ok()) {
-            if is_cancelled() {
+            *iteration_count += 1;
+            if *iteration_count % 1000 == 0 && is_cancelled() {
                 break;
             }
             let metadata = entry.metadata();
             if let Ok(meta) = metadata {
                 if meta.is_dir() {
-                    total_size += calculate_dir_size_recursive(&entry.path(), is_cancelled);
+                    total_size += calculate_dir_size_recursive(&entry.path(), is_cancelled, iteration_count);
                 } else {
                     total_size += meta.len();
                 }

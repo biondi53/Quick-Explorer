@@ -158,7 +158,14 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         }, 15000);
 
         try {
-            let result = await invoke<FileEntry[]>('list_files', { path, showHidden: showHidden ?? showHiddenFiles });
+            // Only pass navId if this is the active tab, so we don't overwrite the global
+            // cancellation token in Rust during background tab refreshes (like move-to actions).
+            const isActiveTab = tabId === activeTabIdRef.current;
+            let result = await invoke<FileEntry[]>('list_files', { 
+                path, 
+                showHidden: showHidden ?? showHiddenFiles, 
+                ...(isActiveTab ? { navId: String(currentGenId) } : {})
+            });
             clearTimeout(safetyTimeout);
 
             // Pre-populate with cached folder sizes
@@ -212,16 +219,21 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                 } : t);
             });
 
-            // Trigger folder size calculations for all directories in the result
+            // Trigger folder size calculations for up to 200 directories
+            // to prevent IPC flooding and massive memory leaks on huge directories (like WinSxS)
             const targetNavId = (pendingUpdates as any)?.navId || String(currentGenId);
-
-            result.forEach(file => {
-                if (file.is_dir) {
-                    const cached = getCachedSize(file.path);
-                    if (!cached) {
-                        invoke('calculate_folder_size', { path: file.path, navId: targetNavId }).catch(console.error);
-                    }
+            
+            const dirsToCalc = result.filter(f => f.is_dir && !getCachedSize(f.path));
+            if (dirsToCalc.length > 200) {
+                console.warn(`[Performance] Directory has ${dirsToCalc.length} subfolders. Capping size calculation to 200 to save RAM.`);
+            }
+            
+            dirsToCalc.slice(0, 200).forEach(file => {
+                const sizePayload: any = { path: file.path };
+                if (isActiveTab) {
+                    sizePayload.navId = targetNavId;
                 }
+                invoke('calculate_folder_size', sizePayload).catch(console.error);
             });
 
         } catch (err) {
