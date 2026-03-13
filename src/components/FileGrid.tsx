@@ -36,6 +36,7 @@ interface FileGridProps {
     onScrollChange: (index: number) => void;
     activeTabId: string;
     onOpenPreview?: (file: FileEntry) => void;
+    onVisibleFilesChange?: (indices: number[]) => void;
 }
 
 const ITEM_SIZE = 160;
@@ -69,6 +70,7 @@ interface GridItemProps {
 }
 
 const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem, onOpenPreview }: GridItemProps) => {
+    const { t } = useTranslation();
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [editValue, setEditValue] = useState("");
     const editInputRef = useRef<HTMLInputElement>(null);
@@ -265,15 +267,25 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                         }}
                     />
                 ) : (
-                    <span
-                        className={`
-                            text-[11px] text-center leading-tight line-clamp-2 w-full px-1 mt-1
-                            ${isSelected ? 'text-white font-medium' : 'text-[var(--text-dim)]'}
-                        `}
-                        title={file.name}
-                    >
-                        {file.name}
-                    </span>
+                    <>
+                        <span
+                            className={`
+                                text-[11px] text-center leading-tight line-clamp-2 w-full px-1 mt-1
+                                ${isSelected ? 'text-white font-medium' : 'text-[var(--text-dim)]'}
+                            `}
+                            title={file.name}
+                        >
+                            {file.name}
+                        </span>
+                        {file.is_calculating_size && (
+                            <div className="relative overflow-hidden rounded px-2 py-0.5 mt-1 max-w-[90%] inline-flex items-center justify-center">
+                                <div className="absolute inset-0 animate-progress-indeterminate rounded bg-black/5"></div>
+                                <span className="relative z-10 text-[var(--accent-primary)] text-[9px] uppercase font-bold tracking-wide opacity-90 animate-pulse text-center w-full">
+                                    {t('preview.calculating') || 'Calculando...'}
+                                </span>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </GlowCard>
@@ -300,7 +312,8 @@ export default function FileGrid({
     initialScrollIndex,
     onScrollChange,
     activeTabId,
-    onOpenPreview
+    onOpenPreview,
+    onVisibleFilesChange
 }: FileGridProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -444,6 +457,27 @@ export default function FileGrid({
             lastScrolledFileRef.current = null;
         }
     }, [lastSelectedFile, files, columns, rowVirtualizer, forceScrollToSelected, activeTabId]);
+    
+    // Visibility Tracking
+    const visibleRows = rowVirtualizer.getVirtualItems();
+    const visibleIndices = useMemo(() => {
+        const indices: number[] = [];
+        visibleRows.forEach(row => {
+            const startIdx = row.index * columns;
+            for (let i = 0; i < columns; i++) {
+                if (startIdx + i < files.length) {
+                    indices.push(startIdx + i);
+                }
+            }
+        });
+        return indices;
+    }, [visibleRows, columns, files.length]);
+
+    useEffect(() => {
+        if (onVisibleFilesChange) {
+            onVisibleFilesChange(visibleIndices);
+        }
+    }, [visibleIndices, onVisibleFilesChange]);
 
     const handleContainerClick = useCallback((e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {

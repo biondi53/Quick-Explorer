@@ -7,6 +7,7 @@ export type DiskInfo = GeneratedDiskInfo;
 export type FileEntry = GeneratedFileEntry & {
     thumbnail?: string | null;
     source?: 'native' | 'ffmpeg' | null;
+    is_calculating_size?: boolean;
 };
 export type ClipboardInfo = GeneratedClipboardInfo;
 export type RecycleBinStatus = GeneratedRecycleBinStatus;
@@ -52,6 +53,7 @@ export interface Tab {
     generationId: number;
     scrollIndex?: number;
     lastLoadTime?: number;
+    visibleIndices: number[];
 }
 
 

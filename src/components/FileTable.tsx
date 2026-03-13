@@ -44,6 +44,7 @@ interface FileTableProps {
     onScrollChange: (index: number) => void;
     activeTabId: string;
     onOpenPreview?: (file: FileEntry) => void;
+    onVisibleFilesChange?: (indices: number[]) => void;
 }
 
 const ITEM_HEIGHT = 42;
@@ -53,7 +54,7 @@ const COLUMN_CONFIG: Record<SortColumn, { key: string, width: string, minWidth?:
     modified_at: { key: 'files.date_modified', width: '110px' },
     created_at: { key: 'files.date_created', width: '110px' },
     file_type: { key: 'files.type', width: '80px' },
-    size: { key: 'files.size', width: '60px', align: 'right' }
+    size: { key: 'files.size', width: '90px', align: 'right' }
 };
 
 interface ColumnMenuProps {
@@ -125,7 +126,8 @@ const FileTable = memo(({
     initialScrollIndex,
     onScrollChange,
     activeTabId,
-    onOpenPreview
+    onOpenPreview,
+    onVisibleFilesChange
 }: FileTableProps) => {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -275,7 +277,10 @@ const FileTable = memo(({
                 return 'minmax(0, 1fr)';
             }
             const customWidth = columnWidths[col];
-            if (customWidth) return `${customWidth}px`;
+            if (customWidth) {
+                if (col === 'size' && customWidth < 90) return '90px';
+                return `${customWidth}px`;
+            }
             return config.width;
         }).join(' ');
     }, [visibleColumns, columnWidths]);
@@ -434,6 +439,16 @@ const FileTable = memo(({
         lastResetTabIdRef.current = activeTabId;
         lastResetPathRef.current = currentPath;
     }, [currentPath, activeTabId, rowVirtualizer]);
+    
+    // Visibility Tracking
+    const visibleItems = rowVirtualizer.getVirtualItems();
+    const visibleIndices = useMemo(() => visibleItems.map(item => item.index), [visibleItems]);
+
+    useEffect(() => {
+        if (onVisibleFilesChange) {
+            onVisibleFilesChange(visibleIndices);
+        }
+    }, [visibleIndices, onVisibleFilesChange]);
 
     // Reset submitting ref when renaming path changes
     useEffect(() => {
@@ -809,7 +824,18 @@ const FileTable = memo(({
                                                             ? `${file.file_type.replace(' File', '')} ${t('files.file').toLowerCase()}`
                                                             : file.file_type === 'File' ? t('files.file') : file.file_type
                                             )}
-                                            {col === 'size' && file.formatted_size}
+                                            {col === 'size' && (
+                                                file.is_calculating_size ? (
+                                                    <div className="relative overflow-hidden rounded px-1 py-0.5 inline-flex items-center justify-center min-w-[75px]">
+                                                        <div className="absolute inset-0 animate-progress-indeterminate rounded bg-black/5"></div>
+                                                        <span className="relative z-10 text-[var(--accent-primary)] text-[10px] uppercase font-bold tracking-wide opacity-90 animate-pulse w-full text-center">
+                                                            {t('preview.calculating') || 'Calculando...'}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    file.formatted_size
+                                                )
+                                            )}
                                         </span>
                                     )}
                                 </div>

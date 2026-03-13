@@ -2,6 +2,7 @@ export interface CacheEntry {
     size: number;
     formatted_size: string;
     timestamp: number;
+    last_modified?: string; // ISO string or similar timestamp from the OS
 }
 
 type CacheStore = Record<string, CacheEntry>;
@@ -31,7 +32,7 @@ export const getCachedSize = (path: string): CacheEntry | null => {
     }
 };
 
-export const setCachedSize = (path: string, size: number, formatted_size: string): void => {
+export const setCachedSize = (path: string, size: number, formatted_size: string, last_modified?: string): void => {
     try {
         const raw = localStorage.getItem(CACHE_KEY);
         let store: CacheStore = {};
@@ -43,7 +44,8 @@ export const setCachedSize = (path: string, size: number, formatted_size: string
         store[path] = {
             size,
             formatted_size,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            last_modified
         };
 
         localStorage.setItem(CACHE_KEY, JSON.stringify(store));

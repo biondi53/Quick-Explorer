@@ -619,6 +619,7 @@ fn list_recycle_bin() -> Result<Vec<FileEntry>, String> {
                     is_shortcut: false,
                     disk_info: None,
                     modified_timestamp: 0,
+                    created_timestamp: 0,
                     dimensions: None,
                 });
             }
@@ -753,6 +754,10 @@ fn list_files_native(
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs() as i64,
+                    created_timestamp: created_at
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64,
                     dimensions: None,
                 })
             } else {
@@ -768,6 +773,7 @@ fn list_files_native(
                     is_shortcut: false,
                     disk_info: None,
                     modified_timestamp: 0,
+                    created_timestamp: 0,
                     dimensions: None,
                 })
             }
@@ -786,10 +792,9 @@ fn list_items_impl(
 
     let is_cancelled = || {
         if let Some(id) = &nav_id {
-            if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
-                if let Ok(current_id) = mutex.lock() {
-                    return *current_id != *id;
-                }
+            let mutex = crate::GLOBAL_NAV_ID.get_or_init(|| std::sync::Mutex::new(String::new()));
+            if let Ok(current_id) = mutex.lock() {
+                return *current_id != *id;
             }
         }
         false
@@ -836,6 +841,7 @@ fn list_items_impl(
                             used: total_number_of_bytes - total_number_of_free_bytes,
                             free: total_number_of_free_bytes,
                             is_system,
+                            is_ssd: crate::is_ssd(&drive_path),
                         })
                     } else {
                         None
@@ -880,6 +886,7 @@ fn list_items_impl(
                     is_shortcut: false,
                     disk_info,
                     modified_timestamp: 0,
+                    created_timestamp: 0,
                     dimensions: None,
                 });
             }
@@ -1016,6 +1023,10 @@ fn list_items_impl(
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs() as i64,
+                        created_timestamp: created_at
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64,
                         dimensions: None,
                     });
                 } else {
@@ -1031,6 +1042,7 @@ fn list_items_impl(
                         is_shortcut: false,
                         disk_info: None,
                         modified_timestamp: 0,
+                        created_timestamp: 0,
                         dimensions: None,
                     });
                 }

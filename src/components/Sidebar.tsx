@@ -243,6 +243,7 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
                                                                     is_shortcut: false,
                                                                     disk_info: item.disk_info || null,
                                                                     modified_timestamp: 0,
+                                                                    created_timestamp: 0,
                                                                     dimensions: null
                                                                 };
                                                                 onRenameSubmit?.(mockFile, newName);

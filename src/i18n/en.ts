@@ -85,6 +85,8 @@ export const en: Translations = {
         search_placeholder: 'Search {count} items...',
         paste_image: 'Image',
         restore: 'Restore',
+        calculate_sizes: 'Calculate folder sizes',
+        clear_cache: 'Clear size cache',
     },
     footer: {
         items: 'items',
@@ -107,7 +109,9 @@ export const en: Translations = {
         type: 'Type',
         size: 'Size',
         loading: 'Loading preview...',
+        calculating: 'Calculating...',
         error_title: 'Preview Error',
+        error_loading: 'Error loading file',
         truncated: 'Preview Truncated',
         empty_file: 'Empty file',
         move_to_trash: 'Move to Trash',

@@ -29,7 +29,9 @@ import {
   Terminal,
   ChevronRight,
   PanelRight,
-  RotateCcw
+  RotateCcw,
+  Scale,
+  Eraser
 } from 'lucide-react';
 import { isPreviewable } from './utils/previewUtils';
 
@@ -180,8 +182,24 @@ export default function App() {
     handleSort: hookHandleSort,
     handleSelectAll: hookHandleSelectAll,
     handleClearSelection: hookHandleClearSelection,
+    updateVisibleIndices,
+    triggerSizeCalculation,
+    clearSizeCache,
     // reorderTabs
   } = useTabs(defaultSortConfig, showHiddenFiles, quickAccessConfig);
+
+  // === Stable callbacks to prevent infinite render loops ===
+  const handleVisibleFilesChange = useCallback((indices: number[]) => {
+    if (currentTab) {
+      updateVisibleIndices(currentTab.id, indices);
+    }
+  }, [currentTab?.id, updateVisibleIndices]);
+
+  const handleScrollChange = useCallback((index: number) => {
+    if (currentTab) {
+      updateTab(currentTab.id, { scrollIndex: index });
+    }
+  }, [currentTab?.id, updateTab]);
 
   // === Drag & Drop Refs (to decouple from React re-renders) ===
   const currentPathRef = useRef(currentTab?.path);
@@ -814,7 +832,7 @@ export default function App() {
   const sortedFiles = useMemo(() => {
     if (!currentTab) return [];
 
-        const filtered = currentTab.files.filter(f =>
+    const filtered = currentTab.files.filter(f =>
       f.name.toLowerCase().includes((currentTab.searchQuery || '').toLowerCase())
     );
 
@@ -825,15 +843,24 @@ export default function App() {
 
       const { column, direction } = currentTab.sortConfig || defaultSortConfig;
       let comparison = 0;
+
       if (column === 'size') {
         comparison = a.size - b.size;
-      } else if (column === 'created_at' || column === 'modified_at') {
-        // Rust already provides high-performance unix timestamps
+      } else if (column === 'modified_at') {
         comparison = (a.modified_timestamp || 0) - (b.modified_timestamp || 0);
+      } else if (column === 'created_at') {
+        // @ts-ignore - Field was added to backend and TS bindings
+        comparison = (a.created_timestamp || 0) - (b.created_timestamp || 0);
       } else {
         // O(1) instant locale comparison via Intl singleton
         comparison = collator.compare(String(a[column] || ''), String(b[column] || ''));
       }
+
+      // STABILITY FALLBACK: If values are equal, sort by name
+      if (comparison === 0 && column !== 'name') {
+        comparison = collator.compare(a.name, b.name);
+      }
+
       return direction === 'asc' ? comparison : -comparison;
     });
   }, [currentTab?.files, currentTab?.searchQuery, currentTab?.sortConfig, defaultSortConfig]);
@@ -1400,6 +1427,7 @@ export default function App() {
       is_shortcut: false,
       disk_info: null,
       modified_timestamp: 0,
+      created_timestamp: 0,
       dimensions: null
     };
     setContextMenu({ x: e.clientX, y: e.clientY, file: mockFile, fromSidebar: true });
@@ -2092,7 +2120,7 @@ export default function App() {
                             </button>
                             <div className="h-3.5 w-px bg-white/5" />
                             <button
-                              onClick={() => currentTab && currentTab.selectedFiles.length > 0 && handleDelete(currentTab.selectedFiles, false)}
+                              onClick={(e) => currentTab && currentTab.selectedFiles.length > 0 && handleDelete(currentTab.selectedFiles, e.shiftKey)}
                               disabled={!currentTab || currentTab.selectedFiles.length === 0}
                               className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
                                         ${currentTab && currentTab.selectedFiles.length > 0
@@ -2150,6 +2178,21 @@ export default function App() {
                       })()}
 
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={triggerSizeCalculation}
+                          className="p-1.5 rounded-md transition-all hover:bg-white/5 text-zinc-400 hover:text-[var(--accent-primary)]"
+                          title={t('toolbar.calculate_sizes')}
+                        >
+                          <Scale size={16} />
+                        </button>
+                        <button
+                          onClick={clearSizeCache}
+                          className="p-1.5 rounded-md transition-all hover:bg-white/5 text-zinc-400 hover:text-red-400"
+                          title={t('toolbar.clear_cache')}
+                        >
+                          <Eraser size={16} />
+                        </button>
+                        <div className="h-3.5 w-px bg-white/5 mx-1" />
                         <button
                           onClick={() => currentTab && updateTab(currentTab.id, { viewMode: 'list' })}
                           className={`p-1.5 rounded-md transition-all ${currentTab?.viewMode === 'list' ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : 'hover:bg-white/5 text-zinc-400'}`}
@@ -2253,13 +2296,10 @@ export default function App() {
                             onInternalDragEnd={onInternalDragEnd}
                             forceScrollToSelected={forceScrollToSelected}
                             initialScrollIndex={currentTab?.scrollIndex || 0}
-                            onScrollChange={(index) => {
-                              if (currentTab) {
-                                updateTab(currentTab.id, { scrollIndex: index });
-                              }
-                            }}
+                            onScrollChange={handleScrollChange}
                             activeTabId={activeTabId}
                             onOpenPreview={handleOpenPreview}
+                            onVisibleFilesChange={handleVisibleFilesChange}
                           />
                         ) : (
                           <FileTable
@@ -2314,13 +2354,10 @@ export default function App() {
                             onInternalDragEnd={onInternalDragEnd}
                             forceScrollToSelected={forceScrollToSelected}
                             initialScrollIndex={currentTab?.scrollIndex || 0}
-                            onScrollChange={(index) => {
-                              if (currentTab) {
-                                updateTab(currentTab.id, { scrollIndex: index });
-                              }
-                            }}
+                            onScrollChange={handleScrollChange}
                             activeTabId={activeTabId}
                             onOpenPreview={handleOpenPreview}
+                            onVisibleFilesChange={handleVisibleFilesChange}
                           />
                         )}
                       </motion.div>

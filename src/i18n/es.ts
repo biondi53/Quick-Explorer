@@ -85,6 +85,8 @@ export const es: Translations = {
         search_placeholder: 'Buscar en {count} elementos...',
         paste_image: 'Imagen',
         restore: 'Restaurar',
+        calculate_sizes: 'Calcular tamaños de carpetas',
+        clear_cache: 'Limpiar caché de tamaños',
     },
     footer: {
         items: 'elementos',
@@ -102,7 +104,9 @@ export const es: Translations = {
         delete_conf_title: 'Quick Explorer',
         delete_conf_msg: '¿Estás seguro de que quieres eliminar {name}?',
         loading: 'Cargando vista previa...',
+        calculating: 'Calculando...',
         error_title: 'Error de vista previa',
+        error_loading: 'Error al cargar el archivo',
         truncated: 'Vista previa truncada',
         empty_file: 'Archivo vacío',
         move_to_trash: 'Mover a la papelera',

@@ -65,7 +65,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                 style={{ width }}
                 onContextMenu={(e) => e.preventDefault()}
             >
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-transparent to-[var(--accent-primary)]/5">
+                <div key="multiple-selection" className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-transparent to-[var(--accent-primary)]/5">
                     <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-8 shadow-[0_0_50px_rgba(99,102,241,0.15)] relative group transition-transform duration-500">
                         <div className="absolute -inset-4 bg-[var(--accent-primary)]/10 rounded-full blur-3xl opacity-40"></div>
                         <div className="relative">
@@ -94,6 +94,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
             onContextMenu={(e) => e.preventDefault()}
         >
             <div
+                key="single-selection"
                 className="flex-1 overflow-y-auto p-6 space-y-8 flex flex-col items-center"
             >
                 {/* Details Section */}
@@ -148,7 +149,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                 </div>
 
                 {/* Preview Section */}
-                <div className="w-full pt-8 border-t border-white/10 flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="w-full pt-8 flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="w-full flex-1 flex flex-col items-center justify-center min-h-[160px]">
                         {fileType !== 'none' ? (
                             <div className="relative group w-full flex justify-center">

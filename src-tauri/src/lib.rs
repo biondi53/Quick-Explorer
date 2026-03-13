@@ -68,6 +68,7 @@ pub struct DiskInfo {
     #[ts(type = "number")]
     pub free: u64,
     pub is_system: bool,
+    pub is_ssd: bool,
 }
 
 #[derive(Serialize, Default, Clone, TS)]
@@ -96,6 +97,8 @@ pub struct FileEntry {
     pub disk_info: Option<DiskInfo>,
     #[ts(type = "number")]
     pub modified_timestamp: i64,
+    #[ts(type = "number")]
+    pub created_timestamp: i64,
     pub dimensions: Option<String>,
 }
 
@@ -110,6 +113,10 @@ pub struct FolderSizeUpdate {
 }
 
 pub static GLOBAL_NAV_ID: OnceLock<std::sync::Mutex<String>> = OnceLock::new();
+
+fn get_nav_id_mutex() -> &'static std::sync::Mutex<String> {
+    GLOBAL_NAV_ID.get_or_init(|| std::sync::Mutex::new(String::new()))
+}
 
 pub fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     let metadata = path.metadata().map_err(|e| e.to_string())?;
@@ -176,6 +183,10 @@ pub fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64,
+        created_timestamp: created_at
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64,
         dimensions: None,
     })
 }
@@ -187,10 +198,8 @@ async fn list_files(
     nav_id: Option<String>,
 ) -> Result<Vec<FileEntry>, String> {
     if let Some(id) = &nav_id {
-        if let Some(mutex) = GLOBAL_NAV_ID.get() {
-            if let Ok(mut current_id) = mutex.lock() {
-                *current_id = id.clone();
-            }
+        if let Ok(mut current_id) = get_nav_id_mutex().lock() {
+            *current_id = id.clone();
         }
     }
     crate::sta_worker::StaWorker::global().list_files(path, show_hidden, nav_id)
@@ -1463,6 +1472,69 @@ async fn check_diagnostics() -> serde_json::Value {
     result
 }
 
+pub fn is_ssd(path: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+        use windows::Win32::System::IO::DeviceIoControl;
+        use windows::Win32::System::Ioctl::{
+            IOCTL_STORAGE_QUERY_PROPERTY, STORAGE_PROPERTY_QUERY, 
+            DEVICE_SEEK_PENALTY_DESCRIPTOR,
+            STORAGE_PROPERTY_ID, STORAGE_QUERY_TYPE
+        };
+
+        // Normalize path to drive root, e.g., "C:\Users\..." -> "\\.\C:"
+        let drive_letter = path.chars().next().unwrap_or('C');
+        let volume_path = format!("\\\\.\\{}:", drive_letter);
+        let volume_path_wide: Vec<u16> = volume_path.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let handle_result = CreateFileW(
+            windows::core::PCWSTR(volume_path_wide.as_ptr()),
+            0, // No access needed for query
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        );
+
+        if let Ok(handle) = handle_result {
+            if handle.is_invalid() {
+                return true; 
+            }
+
+            let mut query = STORAGE_PROPERTY_QUERY {
+                PropertyId: STORAGE_PROPERTY_ID(7), // StorageDeviceSeekPenaltyProperty
+                QueryType: STORAGE_QUERY_TYPE(0),    // PropertyStandardQuery
+                AdditionalParameters: [0; 1],
+            };
+
+            let mut descriptor = DEVICE_SEEK_PENALTY_DESCRIPTOR::default();
+            let mut bytes_returned = 0;
+
+            let result = DeviceIoControl(
+                handle,
+                IOCTL_STORAGE_QUERY_PROPERTY,
+                Some(&query as *const _ as *const _),
+                std::mem::size_of::<STORAGE_PROPERTY_QUERY>() as u32,
+                Some(&mut descriptor as *mut _ as *mut _),
+                std::mem::size_of::<DEVICE_SEEK_PENALTY_DESCRIPTOR>() as u32,
+                Some(&mut bytes_returned),
+                None,
+            );
+
+            let _ = CloseHandle(handle);
+
+            if result.is_ok() {
+                // IncursSeekPenalty being false means it's an SSD (no seek penalty)
+                return !descriptor.IncursSeekPenalty;
+            }
+        }
+    }
+    true // Default to SSD if detection fails
+}
+
 #[tauri::command]
 async fn debug_window_hierarchy(window: tauri::Window) -> Vec<serde_json::Value> {
     let mut results = Vec::new();
@@ -1562,94 +1634,139 @@ fn get_dropped_file_paths() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn cancel_folder_size_calculations(nav_id: String) {
-    if let Some(mutex) = GLOBAL_NAV_ID.get() {
-        if let Ok(mut current_id) = mutex.lock() {
-            *current_id = nav_id;
-            log::debug!("[RUST] Navigation ID updated to: {}", current_id);
-        }
+    if let Ok(mut current_id) = get_nav_id_mutex().lock() {
+        *current_id = nav_id;
+        log::debug!("[RUST] Navigation ID updated to: {}", current_id);
     }
 }
 
 #[tauri::command]
-async fn calculate_folder_size(path: String, nav_id: String) -> Result<(), String> {
-    let app_handle = APP_HANDLE
-        .get()
-        .ok_or("App handle not initialized")?
-        .clone();
+async fn set_taskbar_progress(app_handle: tauri::AppHandle, is_active: bool) -> Result<(), String> {
+    use tauri::window::{ProgressBarState, ProgressBarStatus};
+    if let Some(window) = app_handle.get_webview_window("main") {
+        if is_active {
+            let _ = window.set_progress_bar(ProgressBarState {
+                progress: None,
+                status: Some(ProgressBarStatus::Indeterminate),
+            });
+        } else {
+            let _ = window.set_progress_bar(ProgressBarState {
+                progress: None,
+                status: Some(ProgressBarStatus::None),
+            });
+        }
+    }
+    Ok(())
+}
 
+#[tauri::command]
+async fn calculate_folder_size(app_handle: tauri::AppHandle, path: String, nav_id: String) -> Result<(), String> {
     // Check if this nav_id is still valid
-    if let Some(mutex) = GLOBAL_NAV_ID.get() {
-        if let Ok(current_id) = mutex.lock() {
-            if *current_id != nav_id {
-                return Ok(()); // Navigation already changed
-            }
+    if let Ok(current_id) = get_nav_id_mutex().lock() {
+        if *current_id != nav_id {
+            return Ok(()); // Navigation already changed
         }
     }
 
-    // Use tokio's thread pool to prevent unbounded thread creation crashes
-    tokio::task::spawn_blocking(move || {
-        let start_time = std::time::Instant::now();
-        let timeout = std::time::Duration::from_millis(1500);
+    let ssd_status = is_ssd(&path);
 
-        // Cancellation check closure
-        let is_cancelled = || {
-            if start_time.elapsed() > timeout {
-                return true;
-            }
-            if let Some(mutex) = GLOBAL_NAV_ID.get() {
-                if let Ok(current_id) = mutex.lock() {
-                    return *current_id != nav_id;
-                }
-            }
-            false
+    // Use tokio's thread pool to prevent unbounded thread creation crashes
+    tauri::async_runtime::spawn(async move {
+        // Acquire permit based on drive type
+        let permit = if ssd_status {
+            let limit = app_handle.state::<FolderSizeSSDLimit>();
+            limit.0.clone().acquire_owned().await.ok()
+        } else {
+            let limit = app_handle.state::<FolderSizeHDDLimit>();
+            limit.0.clone().acquire_owned().await.ok()
         };
 
-        let mut iteration_count = 0;
-        let size = calculate_dir_size_recursive(std::path::Path::new(&path), &is_cancelled, &mut iteration_count);
+        if let Some(permit) = permit {
+            tokio::task::spawn_blocking(move || {
+                let start_time = std::time::Instant::now();
+                let timeout = std::time::Duration::from_millis(30000);
+                
+                // Re-check navigation ID inside the thread
+                if let Ok(current_id) = get_nav_id_mutex().lock() {
+                    if *current_id != nav_id {
+                        return; // Navigation already changed
+                    }
+                }
 
-        // Only emit if not cancelled by navigation
-        let mut final_id_match = true;
-        if let Some(mutex) = GLOBAL_NAV_ID.get() {
-            if let Ok(current_id) = mutex.lock() {
-                final_id_match = *current_id == nav_id;
-            }
-        }
+                // Two separate cancellation checks:
+                // - is_nav_cancelled: navigation changed → stay silent
+                // - is_timed_out: 30s elapsed → report partial results
+                let is_nav_cancelled = || -> bool {
+                    if let Ok(current_id) = get_nav_id_mutex().lock() {
+                        return *current_id != nav_id;
+                    }
+                    false
+                };
+                let is_timed_out = || start_time.elapsed() > timeout;
 
-        if final_id_match {
-            let formatted_size = if size < 1024 {
-                format!("{} B", size)
-            } else if size < 1024 * 1024 {
-                format!("{:.1} KB", size as f64 / 1024.0)
-            } else if size < 1024 * 1024 * 1024 {
-                format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
-            } else {
-                format!("{:.2} GB", size as f64 / (1024.0 * 1024.0 * 1024.0))
-            };
+                // Combined cancellation for the recursive walk (kept for clarity)
 
-            let _ = app_handle.emit(
-                "folder-size-calculated",
-                FolderSizeUpdate {
-                    path: path.clone(),
-                    req_id: nav_id,
-                    size,
-                    formatted_size,
-                },
-            );
+                let mut iteration_count = 0;
+                let size = calculate_dir_size_recursive(std::path::Path::new(&path), &is_nav_cancelled, &is_timed_out, &mut iteration_count);
+
+                // Check final navigation state
+                if is_nav_cancelled() {
+                    // Navigation changed while we were scanning → discard silently
+                    drop(permit);
+                    return;
+                }
+
+                // Whether we timed out or finished normally, emit results.
+                // If timed out, the size is partial so we prefix with ">"
+                let timed_out = is_timed_out();
+                let formatted_size = {
+                    let raw = if size < 1024 {
+                        format!("{} B", size)
+                    } else if size < 1024 * 1024 {
+                        format!("{:.1} KB", size as f64 / 1024.0)
+                    } else if size < 1024 * 1024 * 1024 {
+                        format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+                    } else {
+                        format!("{:.2} GB", size as f64 / (1024.0 * 1024.0 * 1024.0))
+                    };
+                    if timed_out {
+                        format!("> {}", raw)
+                    } else {
+                        raw
+                    }
+                };
+
+                let _ = app_handle.emit(
+                    "folder-size-calculated",
+                    FolderSizeUpdate {
+                        path: path.clone(),
+                        req_id: nav_id,
+                        size,
+                        formatted_size,
+                    },
+                );
+                
+                // Permit is dropped here
+                drop(permit);
+            });
         }
     });
 
     Ok(())
 }
 
+
 fn calculate_dir_size_recursive(
     path: &std::path::Path,
-    is_cancelled: &dyn Fn() -> bool,
+    is_nav_cancelled: &dyn Fn() -> bool,
+    is_timed_out: &dyn Fn() -> bool,
     iteration_count: &mut usize,
 ) -> u64 {
     *iteration_count += 1;
-    // Only check the Mutex every 1000 items to prevent massive CPU contention
-    if *iteration_count % 1000 == 0 && is_cancelled() {
-        return 0;
+    // Check every 1000 items to reduce Mutex contention
+    if *iteration_count % 1000 == 0 {
+        if is_nav_cancelled() { return 0; }
+        if is_timed_out() { return 0; } // 0 here: no total_size yet at this level entry
     }
 
     if path.is_file() {
@@ -1660,13 +1777,23 @@ fn calculate_dir_size_recursive(
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.filter_map(|e| e.ok()) {
             *iteration_count += 1;
-            if *iteration_count % 1000 == 0 && is_cancelled() {
-                break;
+            if *iteration_count % 200 == 0 {
+                if is_nav_cancelled() {
+                    return 0; // Nav cancel: discard — 0 signals abort to parent
+                }
+                if is_timed_out() {
+                    return total_size; // Timeout: return what we counted so far
+                }
             }
             let metadata = entry.metadata();
             if let Ok(meta) = metadata {
                 if meta.is_dir() {
-                    total_size += calculate_dir_size_recursive(&entry.path(), is_cancelled, iteration_count);
+                    let sub_size = calculate_dir_size_recursive(&entry.path(), is_nav_cancelled, is_timed_out, iteration_count);
+                    // If sub returned 0 and nav was cancelled, propagate the abort signal
+                    if sub_size == 0 && is_nav_cancelled() {
+                        return 0;
+                    }
+                    total_size += sub_size;
                 } else {
                     total_size += meta.len();
                 }
@@ -1677,6 +1804,8 @@ fn calculate_dir_size_recursive(
 }
 
 struct ThumbnailConcurrencyLimit(tokio::sync::Semaphore);
+struct FolderSizeHDDLimit(std::sync::Arc<tokio::sync::Semaphore>);
+struct FolderSizeSSDLimit(std::sync::Arc<tokio::sync::Semaphore>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -1691,6 +1820,8 @@ pub fn run() {
         ))))
         .manage(ClipboardCache(std::sync::Mutex::new(None)))
         .manage(ThumbnailConcurrencyLimit(tokio::sync::Semaphore::new(4)))
+        .manage(FolderSizeHDDLimit(std::sync::Arc::new(tokio::sync::Semaphore::new(1))))
+        .manage(FolderSizeSSDLimit(std::sync::Arc::new(tokio::sync::Semaphore::new(8))))
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Focused(focused) = event {
                 log::info!("!!! [RUST] Window focused: {}", focused);
@@ -1842,7 +1973,8 @@ pub fn run() {
             extraction::extract_archive,
             read_preview_text,
             calculate_folder_size,
-            cancel_folder_size_calculations
+            cancel_folder_size_calculations,
+            set_taskbar_progress
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -26,6 +26,7 @@ const createTab = (path: string = '', defaultSort?: SortConfig): Tab => ({
     generationId: 0,
     scrollIndex: 0,
     lastLoadTime: 0,
+    visibleIndices: [],
 });
 
 export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean, quickAccessConfig: QuickAccessConfig) => {
@@ -37,7 +38,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                     ...t,
                     sortConfig: t.sortConfig || initialSortConfig,
                     generationId: t.generationId || 0,
-                    scrollIndex: t.scrollIndex || 0
+                    scrollIndex: t.scrollIndex || 0,
+                    visibleIndices: []
                 }));
             }
         } catch (e) { }
@@ -106,15 +108,24 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                 // Find if the tab contains this path and the request ID matches
                 const fileIndex = tab.files.findIndex(f => f.path === update.path);
                 if (fileIndex !== -1) {
-                    // Save to persistent cache
-                    setCachedSize(update.path, update.size, update.formatted_size);
+                    const file = tab.files[fileIndex];
+                    // Save to persistent cache with the folder's modification date
+                    setCachedSize(update.path, update.size, update.formatted_size, file.modified_at);
 
                     const newFiles = [...tab.files];
                     newFiles[fileIndex] = {
                         ...newFiles[fileIndex],
                         size: update.size,
-                        formatted_size: update.formatted_size
+                        formatted_size: update.formatted_size,
+                        is_calculating_size: false
                     };
+
+                    // Check if any other files are still calculating
+                    const stillCalculating = newFiles.some(f => f.is_calculating_size);
+                    if (!stillCalculating) {
+                        invoke('set_taskbar_progress', { isActive: false }).catch(console.error);
+                    }
+
                     return { ...tab, files: newFiles };
                 }
                 return tab;
@@ -219,22 +230,8 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                 } : t);
             });
 
-            // Trigger folder size calculations for up to 200 directories
-            // to prevent IPC flooding and massive memory leaks on huge directories (like WinSxS)
-            const targetNavId = (pendingUpdates as any)?.navId || String(currentGenId);
-            
-            const dirsToCalc = result.filter(f => f.is_dir && !getCachedSize(f.path));
-            if (dirsToCalc.length > 200) {
-                console.warn(`[Performance] Directory has ${dirsToCalc.length} subfolders. Capping size calculation to 200 to save RAM.`);
-            }
-            
-            dirsToCalc.slice(0, 200).forEach(file => {
-                const sizePayload: any = { path: file.path };
-                if (isActiveTab) {
-                    sizePayload.navId = targetNavId;
-                }
-                invoke('calculate_folder_size', sizePayload).catch(console.error);
-            });
+            // Trigger folder size calculations: MOVED to dynamic visibility-based effect
+            // Logic removed from list_files success to protect HDDs and improve performance.
 
         } catch (err) {
             clearTimeout(safetyTimeout);
@@ -518,6 +515,91 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    const updateVisibleIndices = useCallback((tabId: string, indices: number[]) => {
+        setTabs(prev => prev.map(t => {
+            if (t.id === tabId) {
+                // Quick shallow comparison to avoid ripples
+                if (t.visibleIndices.length === indices.length && t.visibleIndices[0] === indices[0] && t.visibleIndices[indices.length - 1] === indices[indices.length - 1]) {
+                    return t;
+                }
+                return { ...t, visibleIndices: indices };
+            }
+            return t;
+        }));
+    }, [setTabs]);
+
+    // MANUAL FOLDER SIZE CALCULATION
+    // All directories in the current tab are calculated on demand via toolbar button.
+    const triggerSizeCalculation = useCallback(() => {
+        const currentTab = tabsRef.current.find(t => t.id === activeTabIdRef.current);
+        if (!currentTab || currentTab.loading || currentTab.files.length === 0) return;
+
+        const dirs = currentTab.files.filter(f => {
+            if (!f || !f.is_dir) return false;
+            const normalizedPath = f.path.replace(/\//g, '\\');
+            const cached = getCachedSize(normalizedPath);
+            
+            // OPTION A IMPROVED: 
+            // 1. If not in cache, calculate.
+            // 2. If in cache but size is 0 (failed or cancelled before), recalculate.
+            // 3. If in cache but current modified_at is DIFFERENT from cached last_modified, recalculate.
+            if (!cached || cached.size === 0) return true;
+            if (cached.last_modified !== f.modified_at) return true;
+            
+            return false;
+        });
+
+        if (dirs.length === 0) return;
+
+        // Update the nav ID in Rust so any stale previous calculations are cancelled
+        invoke('cancel_folder_size_calculations', {
+            navId: String(currentTab.generationId)
+        }).catch(console.error);
+
+        // Mark calculating state
+        const pathsToCalculate = new Set(dirs.map(d => d.path));
+        setTabs(prev => prev.map(t => {
+            if (t.id === activeTabIdRef.current) {
+                return {
+                    ...t,
+                    files: t.files.map(f => pathsToCalculate.has(f.path) ? { ...f, is_calculating_size: true } : f)
+                };
+            }
+            return t;
+        }));
+
+        invoke('set_taskbar_progress', { isActive: true }).catch(console.error);
+
+        dirs.forEach(file => {
+            const normalizedPath = file.path.replace(/\//g, '\\');
+            invoke('calculate_folder_size', {
+                path: normalizedPath,
+                navId: String(currentTab.generationId)
+            }).catch(console.error);
+        });
+    }, [getCachedSize, tabsRef]);
+
+    const clearSizeCache = useCallback(() => {
+        localStorage.removeItem('speedexplorer-folder-sizes');
+        // Force re-render so size column clears immediately
+        setTabs(prev => [...prev]);
+    }, [setTabs]);
+
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    useEffect(() => {
+        if (!activeTab || activeTab.loading) return;
+
+        // Sync the global cancellation token in Rust when navigating to a different folder
+        // or switching tabs. Using `path` (not `generationId`) so that auto-refresh events
+        // do NOT cancel ongoing size calculations for the same folder.
+        invoke('cancel_folder_size_calculations', { 
+            navId: String(activeTab.generationId) 
+        }).catch(console.error);
+        
+        // Also ensure taskbar progress is cleared on navigation
+        invoke('set_taskbar_progress', { isActive: false }).catch(console.error);
+    }, [activeTabId, activeTab?.path]);
+
     return {
         tabs,
         activeTabId,
@@ -536,6 +618,9 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         handleSort,
         handleSelectAll,
         handleClearSelection,
-        reorderTabs
+        reorderTabs,
+        updateVisibleIndices,
+        triggerSizeCalculation,
+        clearSizeCache,
     };
 };

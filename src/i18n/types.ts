@@ -85,6 +85,8 @@ export interface Translations {
         search_placeholder: string;
         paste_image: string;
         restore: string;
+        calculate_sizes: string;
+        clear_cache: string;
     };
     footer: {
         items: string;
@@ -108,7 +110,9 @@ export interface Translations {
         type: string;
         size: string;
         loading: string;
+        calculating: string;
         error_title: string;
+        error_loading: string;
         truncated: string;
         empty_file: string;
         move_to_trash: string;

@@ -1,3 +1,23 @@
+# 🚀 Quick Explorer v0.1.29
+*Changelog - March 13, 2026*
+
+## ✨ Folder Size UX & System Indicators
+- **📊 Indeterminate Progress Bar**: Added a sleek, CSS-animated gradient sweep in the size column and grid view. Users now have immediate visual feedback when "Calculando..." (Calculating...) is in progress, eliminating the "silent operations" feel.
+- **🟢 Native Taskbar Progress**: Integrated with Windows 11 taskbar APIs; the application icon now pulses with a green indeterminate progress bar during background calculations, matching the system's decompression style.
+- **🛡️ Smart Timeout & Partial Weight**: Refactored the calculation engine to respect a 30-second skip window. Instead of staying silent on timeouts, it now reports partial sizes prefixed with `>` (e.g., `> 2.1 GB`), allowing users to see progress in massive directories.
+- **🌍 Accurate Translations**: Corrected internationalization issues where "Calculando..." would fall back to framework names. Added full support for English and Spanish strings in all calculation-related states.
+
+## ⚡ Stability & HDD Protection
+- **🎯 Precise Navigation Cancellation**: Implemented Lazy Mutex initialization for the navigation tracker. This ensures background disk operations are terminated instantly when you switch tabs, even from the application's first launch.
+- **🛡️ HDD Seek Penalty Shield**: Optimized recursive walks on standard hard drives to prevent head contention, keeping the drive silent and responsive.
+- **🗑️ Shift-Click Permanent Delete**: The toolbar's delete button now respects the `Shift` key. Holding Shift while clicking "Eliminar" skips the confirmation dialog and deletes the item permanently, matching standard Windows shortcuts.
+
+## 🐛 Bug Fixes
+- **📊 Size Column Truncation**: Enforced a minimum 90px width for the size column to prevent "Calculando..." text from being cut off by previous user layout preferences.
+- **🔄 Timeout Ghosting**: Fixed a race condition where the progress indicator would stay active indefinitely if Rust hit an internal scan timeout.
+
+---
+
 # 🚀 Quick Explorer v0.1.28
 *Changelog - March 12, 2026*
 
@@ -300,4 +320,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.28*
+*Quick Explorer Project © 2026 - Versión 0.1.29*
