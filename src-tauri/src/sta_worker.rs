@@ -222,6 +222,13 @@ pub enum StaCommand {
         paths: Vec<String>,
         response: Sender<Result<(), String>>,
     },
+    RecursiveSearch {
+        path: String,
+        query: String,
+        nav_id: String,
+        window: tauri::Window,
+        response: Sender<Result<(), String>>,
+    },
 }
 
 pub struct StaWorker {
@@ -311,6 +318,16 @@ impl StaWorker {
                     }
                     StaCommand::RestoreItems { paths, response } => {
                         let result = restore_items_impl(paths);
+                        let _ = response.send(result);
+                    }
+                    StaCommand::RecursiveSearch {
+                        path,
+                        query,
+                        nav_id,
+                        window,
+                        response,
+                    } => {
+                        let result = recursive_search_impl(path, query, nav_id, window);
                         let _ = response.send(result);
                     }
                 }
@@ -461,6 +478,28 @@ impl StaWorker {
 
         rx.recv()
             .map_err(|e| format!("Failed to receive restore response from STA worker: {}", e))?
+    }
+
+    pub async fn recursive_search(
+        &self,
+        path: String,
+        query: String,
+        nav_id: String,
+        window: tauri::Window,
+    ) -> Result<(), String> {
+        let (tx, rx) = channel();
+        self.sender
+            .send(StaCommand::RecursiveSearch {
+                path,
+                query,
+                nav_id,
+                window,
+                response: tx,
+            })
+            .map_err(|e| format!("Failed to send recursive search command: {}", e))?;
+
+        rx.recv()
+            .map_err(|e| format!("Failed to receive recursive search response: {}", e))?
     }
 }
 

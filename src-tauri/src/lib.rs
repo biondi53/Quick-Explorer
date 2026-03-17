@@ -112,6 +112,12 @@ pub struct FolderSizeUpdate {
     pub formatted_size: String,
 }
 
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct SearchMatch {
+    pub file: FileEntry,
+}
+
 pub static GLOBAL_NAV_ID: OnceLock<std::sync::Mutex<String>> = OnceLock::new();
 
 fn get_nav_id_mutex() -> &'static std::sync::Mutex<String> {
@@ -203,6 +209,18 @@ async fn list_files(
         }
     }
     crate::sta_worker::StaWorker::global().list_files(path, show_hidden, nav_id)
+}
+
+#[tauri::command]
+pub async fn recursive_search(
+    path: String,
+    query: String,
+    nav_id: String,
+    window: tauri::Window,
+) -> Result<(), String> {
+    crate::sta_worker::StaWorker::global()
+        .recursive_search(path, query, nav_id, window)
+        .await
 }
 
 #[tauri::command]
@@ -1943,6 +1961,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_files,
             read_file_base64,
+            recursive_search,
             show_item_properties,
             open_file,
             open_with,
