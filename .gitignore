@@ -33,3 +33,7 @@ src-tauri/dump.rdb
 
 # External Reference
 DO NOT TOUCH - FileExplorer EXAMPLE/
+
+# Superpowers / Worktrees
+.worktrees/
+.superpowers/
