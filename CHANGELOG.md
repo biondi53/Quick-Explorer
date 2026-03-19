@@ -1,3 +1,21 @@
+# 🚀 Quick Explorer v0.1.30
+*Changelog - March 19, 2026*
+
+## ✨ Recursive / Deep Search & Search UX
+- **🔍 Native Recursive Search**: Implemented a high-performance recursive search engine in Rust that allows searching through subdirectories with minimal CPU overhead.
+- **📊 Real-time Search Indicators**: Added a specialized status indicator in the UI showing "Searching...", "Indexing...", and real-time match counts.
+- **🛡️ IPC Bridge Stability**: Fixed race conditions and improved the reliability of the communication bridge between the search worker and the frontend.
+
+## ⚡ UI Performance & File Operations
+- **⚡ Instant UI updates for Search**: Integrated `removeItemsFromTabs` to provide zero-latency UI removal when deleting or moving files within search results.
+- **📊 Taskbar Progress Integration**: Refined taskbar progress reporting for heavy indexing operations.
+
+## 🐛 Bug Fixes & Refinements
+- **🛡️ Sidebar Pinned Folders**: Fixed a critical bug where pinned folders could disappear after certain merges by implementing robust system path resolution.
+- **🔄 Stale Search Cleanup**: Ensured that search states are correctly cleared when navigating between tabs or closing search views.
+
+---
+
 # 🚀 Quick Explorer v0.1.29
 *Changelog - March 13, 2026*
 
