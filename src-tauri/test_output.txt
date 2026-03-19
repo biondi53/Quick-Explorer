@@ -1,5 +1,4 @@
-    Blocking waiting for file lock on build directory
-    Checking d-speedexplorer v0.1.29 (D:\SpeedExplorer\.worktrees\recursive-search\src-tauri)
+   Compiling d-speedexplorer v0.1.29 (D:\SpeedExplorer\.worktrees\recursive-search\src-tauri)
 warning: unnecessary `unsafe` block
    --> src\lib.rs:985:23
     |
@@ -12,9 +11,9 @@ warning: unnecessary `unsafe` block
     = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src\lib.rs:1519:17
+    --> src\lib.rs:1514:17
      |
-1519 |             let mut query = STORAGE_PROPERTY_QUERY {
+1514 |             let mut query = STORAGE_PROPERTY_QUERY {
      |                 ----^^^^^
      |                 |
      |                 help: remove this `mut`
@@ -56,20 +55,37 @@ warning: method `remove_child` is never used
 573 |     fn remove_child(&mut self, key: KeyType) -> Option<Box<ARTNode>> {
     |        ^^^^^^^^^^^^
 
-warning: methods `remove`, `clear`, and `is_empty` are never used
-   --> src\search_engine\art_core.rs:773:12
+warning: methods `remove` and `clear` are never used
+   --> src\search_engine\art_core.rs:774:12
     |
 617 | impl ART {
     | -------- methods in this implementation
 ...
-773 |     pub fn remove(&mut self, _path: &str) {
+774 |     pub fn remove(&mut self, _path: &str) {
     |            ^^^^^^
 ...
-779 |     pub fn clear(&mut self) {
+780 |     pub fn clear(&mut self) {
     |            ^^^^^
-...
-785 |     pub fn is_empty(&self) -> bool { self.path_count == 0 }
-    |            ^^^^^^^^
 
-warning: `d-speedexplorer` (lib) generated 7 warnings (run `cargo fix --lib -p d-speedexplorer` to apply 1 suggestion)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.73s
+warning: `d-speedexplorer` (lib test) generated 7 warnings (run `cargo fix --lib -p d-speedexplorer --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.76s
+     Running unittests src\lib.rs (target\debug\deps\d_speedexplorer_lib-bd33f6670ea0fbd9.exe)
+
+running 3 tests
+test search_engine::art_core::tests::test_art_empty ... ok
+test search_engine::art_core::tests::test_art_insert_and_search ... After 'test', len: 1
+Split: node at depth 1 with prefix "est". match_len=1
+After 'team', len: 2
+Split: node at depth 1 with prefix "e". match_len=0
+After 'toaster', len: 3
+Search 'te' results: [("test", 1.0), ("team", 0.5)]
+Search 'toas' results: [("toaster", 0.8)]
+ok
+test search_engine::art_core::tests::test_serialization ... Split: node at depth 1 with prefix "est/path/to/file.txt". match_len=4
+Before serialization, len: 2
+After deserialization, len: 2
+Search 'test/path' results: [("test/path/to/file.txt", 1.0)]
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+

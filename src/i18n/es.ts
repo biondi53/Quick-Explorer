@@ -40,11 +40,13 @@ export const es: Translations = {
         free: 'disponible',
         free_of: 'disponible de',
         empty_folder: 'Esta carpeta está vacía',
+        no_search_results: 'No se encontraron resultados para tu búsqueda.',
+        indexing_hdd: 'Indexando HDD...'
     },
     context_menu: {
         open: 'Abrir',
         open_new_tab: 'Abrir en pestaña nueva',
-        open_location: 'Abrir ubicación del archivo',
+        open_location: 'Abrir ubicación',
         cut: 'Cortar',
         copy: 'Copiar',
         paste: 'Pegar',
@@ -87,6 +89,9 @@ export const es: Translations = {
         restore: 'Restaurar',
         calculate_sizes: 'Calcular tamaños de carpetas',
         clear_cache: 'Limpiar caché de tamaños',
+        deep_search: 'Búsqueda profunda (recursiva)',
+        deep_search_active: 'Buscando en segundo plano...',
+        refresh_locked: 'Refresco bloqueado durante búsqueda profunda',
     },
     footer: {
         items: 'elementos',
@@ -153,5 +158,13 @@ export const es: Translations = {
         toolbar_style_desc: 'Elige si la barra se colapsa automáticamente o permanece compacta.',
         toolbar_dynamic: 'Dinámico (Automático)',
         toolbar_compact: 'Compacto (Solo íconos)',
+    },
+    search: {
+        indexing: 'Indexando HDD...',
+        reindexing: 'Re-indexando...',
+        searching_status: 'Buscando...',
+        indexing_finished: 'Indexación finalizada',
+        reindexing_finished: 'Re-indexación finalizada',
+        search_finished: 'Búsqueda finalizada',
     },
 };

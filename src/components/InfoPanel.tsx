@@ -45,7 +45,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                 style={{ width }}
                 onContextMenu={(e) => e.preventDefault()}
             >
-                <Info size={48} className="opacity-10 mb-4" />
+                <Info size={48} className="mb-4" />
                 <p className="text-sm font-bold tracking-tight">{t('preview.select_prompt')}</p>
             </aside>
         );

@@ -56,11 +56,14 @@ import { useTabs } from './hooks/useTabs';
 import { /* Tab, */ SortConfig, SortColumn, FileEntry, QuickAccessConfig, ClipboardInfo, RecycleBinStatus, ToolbarMode } from './types';
 import SplashScreen from './components/SplashScreen';
 import { useTranslation } from './i18n/useTranslation';
-// getCurrentWindow moved to top imports
+import { DeepSearchButton } from './components/DeepSearchButton';
+import { cn } from './lib/utils';
+import { SearchStatusIndicator } from './components/SearchStatusIndicator';
 
 export default function App() {
   const { t } = useTranslation();
   const [isLoadingApp, setIsLoadingApp] = useState(true);
+  const [deepSearchDetailStatus, setDeepSearchDetailStatus] = useState<string>("");
   const finishLoading = useCallback(() => setIsLoadingApp(false), []);
 
   /* 
@@ -185,6 +188,8 @@ export default function App() {
     updateVisibleIndices,
     triggerSizeCalculation,
     clearSizeCache,
+    triggerDeepSearch,
+    removeItemsFromTabs,
     // reorderTabs
   } = useTabs(defaultSortConfig, showHiddenFiles, quickAccessConfig);
 
@@ -202,6 +207,7 @@ export default function App() {
   }, [currentTab?.id, updateTab]);
 
   // === Drag & Drop Refs (to decouple from React re-renders) ===
+  const currentTabRef = useRef(currentTab);
   const currentPathRef = useRef(currentTab?.path);
   const refreshCurrentTabRef = useRef(refreshCurrentTab);
   const dragCounterRef = useRef(0);
@@ -260,8 +266,9 @@ export default function App() {
 
   // Sync refs on every render (cheap operation, no side effects)
   useEffect(() => {
+    currentTabRef.current = currentTab;
     currentPathRef.current = currentTab?.path;
-  }, [currentTab?.path]);
+  }, [currentTab, currentTab?.path]);
 
   useEffect(() => {
     refreshCurrentTabRef.current = refreshCurrentTab;
@@ -280,6 +287,30 @@ export default function App() {
       unlisten.then(f => f());
     };
   }, []);
+
+  useEffect(() => {
+    const unlistenStatus = listen<string>('deep-search-detail-status', (event) => {
+      setDeepSearchDetailStatus(event.payload);
+    });
+
+    const unlistenReplace = listen<FileEntry[]>('deep-search-replace', (event) => {
+      // NOTE: Backend ensures nav_id matches before emitting this
+      if (currentTabRef.current) {
+        updateTab(currentTabRef.current.id, { files: event.payload });
+      }
+    });
+
+    return () => {
+      unlistenStatus.then(f => f());
+      unlistenReplace.then(f => f());
+    };
+  }, [updateTab]);
+
+  // RESET SEARCH STATUS ON NAVIGATION (v30.0)
+  // v32.0 (Breadcrumb Edge Case): generationId ensures it triggers even on "reload current path" clicks
+  useEffect(() => {
+    setDeepSearchDetailStatus("");
+  }, [currentTab?.id, currentTab?.path, currentTab?.generationId]);
 
   const onInternalDragEnd = useCallback((caller: string = 'unknown') => {
     // Plan v7.3: Protected Sticky Sessions.
@@ -864,6 +895,26 @@ export default function App() {
       return direction === 'asc' ? comparison : -comparison;
     });
   }, [currentTab?.files, currentTab?.searchQuery, currentTab?.sortConfig, defaultSortConfig]);
+  
+  // Auto-scroll to selection effect
+  useEffect(() => {
+    if (currentTab && !currentTab.loading && currentTab.shouldScrollToSelection && currentTab.selectedFiles.length > 0) {
+      const targetPath = currentTab.selectedFiles[0].path;
+      const index = sortedFiles.findIndex(f => f.path === targetPath);
+      
+      if (index !== -1) {
+        updateTab(currentTab.id, { 
+          scrollIndex: index,
+          shouldScrollToSelection: false 
+        });
+      } else {
+        updateTab(currentTab.id, { shouldScrollToSelection: false });
+      }
+    } else if (currentTab && !currentTab.loading && currentTab.shouldScrollToSelection) {
+      // If no selection but flag is set, reset it
+      updateTab(currentTab.id, { shouldScrollToSelection: false });
+    }
+  }, [currentTab?.loading, currentTab?.shouldScrollToSelection, currentTab?.selectedFiles, currentTab?.id, sortedFiles, updateTab]);
 
   /* Wrapper for Sort to also update global default locally */
   const handleSort = useCallback((column: SortColumn) => {
@@ -1044,17 +1095,21 @@ export default function App() {
       invalidateCachedSize(targetPath);
       lastCutPaths.forEach(p => invalidateCachedSize(p));
 
-      refreshCurrentTab();
-      refreshTabsViewing(targetPath);
+      // Single unified refresh: cover the destination path plus any cut source paths.
+      // Previously, separate calls to refreshCurrentTab() + refreshTabsViewing(targetPath)
+      // would fire two concurrent list_files calls for the same tab, with the second
+      // cancelling the first via the generationId mechanism, resulting in an empty file list.
+      const pathsToRefresh = Array.from(new Set([targetPath, ...lastCutPaths]));
+      refreshTabsViewing(pathsToRefresh);
       if (lastCutPaths.length > 0) {
-        refreshTabsViewing(lastCutPaths);
+        removeItemsFromTabs(lastCutPaths);
         setLastCutPaths([]);
       }
       checkClipboard();
     } catch (err: any) {
       updateTab(currentTab.id, { error: String(err) });
     }
-  }, [currentTab, updateTab, refreshCurrentTab, refreshTabsViewing, lastCutPaths, clipboardInfo, checkClipboard]);
+  }, [currentTab, updateTab, refreshTabsViewing, lastCutPaths, clipboardInfo, checkClipboard]);
 
   const handlePinFolder = useCallback((folder: FileEntry) => {
     setQuickAccessConfig(prev => {
@@ -1144,6 +1199,7 @@ export default function App() {
           return parent;
         })));
         refreshTabsViewing(parents);
+        removeItemsFromTabs(deletedPaths);
         parents.forEach(p => invalidateCachedSize(p));
         fetchRecycleBinStatus();
       } catch (err: any) {
@@ -1179,7 +1235,8 @@ export default function App() {
       const { targetPath, tabId } = data;
       if (selectedFiles.length === 0) return;
       try {
-        await invoke('move_items', { paths: selectedFiles.map(f => f.path), targetPath });
+        const movedPaths = selectedFiles.map(f => f.path);
+        await invoke('move_items', { paths: movedPaths, targetPath });
         const movedFolders = selectedFiles.filter(f => f.is_dir).map(f => f.path.toLowerCase());
         if (movedFolders.length > 0) {
           tabs.forEach(t => {
@@ -1191,6 +1248,7 @@ export default function App() {
           });
         }
         refreshCurrentTab();
+        removeItemsFromTabs(movedPaths);
         loadFilesForTab(tabId, targetPath);
       } catch (err: any) {
         updateTab(currentTab.id, { error: String(err) });
@@ -1238,7 +1296,10 @@ export default function App() {
         });
       } else {
         const parent = file.path.substring(0, file.path.lastIndexOf('\\'));
-        if (parent) navigateTo(parent);
+        if (parent) {
+          // Open location in a new tab and select the file
+          addTab(parent, true, [file.path]);
+        }
       }
     } else if (action === 'copy-path') {
       navigator.clipboard.writeText(file.path);
@@ -1318,11 +1379,16 @@ export default function App() {
         } else if (currentTab?.renamingPath) {
           handleRenameCancel();
           handled = true;
+        } else if (currentTab?.isDeepSearching || currentTab?.isDeepSearchResultsActive || (currentTab?.searchQuery && currentTab?.searchQuery.length > 0)) {
+          // Rule: If we are searching (deep or local), ESC returns to the current folder view and cancels backend tasks
+          setDeepSearchDetailStatus(""); // Ensure status is cleared
+          navigateTo(currentTab.path);
+          handled = true;
+        } else if (deepSearchDetailStatus) {
+          // If we are showing a "Finished" status but results are not active anymore (or we are in a normal folder)
+          setDeepSearchDetailStatus("");
+          handled = true;
         } else {
-          if (currentTab?.searchQuery) {
-            updateTab(currentTab.id, { searchQuery: '' });
-            handled = true;
-          }
           if (currentTab?.selectedFiles && currentTab.selectedFiles.length > 0) {
             handleClearSelection();
             handled = true;
@@ -1642,6 +1708,7 @@ export default function App() {
           if (parent.endsWith(':')) parent += '\\';
         }
         refreshTabsViewing([parent]);
+        removeItemsFromTabs([currentFile.path]);
         invalidateCachedSize(parent);
         fetchRecycleBinStatus();
 
@@ -1817,11 +1884,19 @@ export default function App() {
                   <ArrowUp size={18} />
                 </button>
                 <button
-                  onClick={() => refreshCurrentTab(false)}
-                  className="p-2 rounded-lg hover:bg-white/10 text-zinc-300 transition-all"
-                  title={t('toolbar.refresh')}
+                  onClick={() => {
+                    refreshCurrentTab(false);
+                  }}
+                  disabled={currentTab?.isDeepSearching || currentTab?.isDeepSearchResultsActive}
+                  className={cn(
+                    "p-2 rounded-lg transition-all",
+                    (currentTab?.isDeepSearching || currentTab?.isDeepSearchResultsActive) 
+                      ? "text-zinc-500 cursor-not-allowed opacity-50" 
+                      : "hover:bg-white/10 text-zinc-300"
+                  )}
+                  title={(currentTab?.isDeepSearching || currentTab?.isDeepSearchResultsActive) ? t('toolbar.refresh_locked') : t('toolbar.refresh')}
                 >
-                  <RotateCw size={18} className={currentTab?.loading ? 'animate-spin' : ''} />
+                  <RotateCw size={18} className={(currentTab?.loading && !currentTab?.isDeepSearching) ? 'animate-spin' : ''} />
                 </button>
               </div>
 
@@ -1883,16 +1958,20 @@ export default function App() {
                   className="bg-transparent text-sm text-white outline-none w-full placeholder:text-zinc-600"
                   placeholder={t('toolbar.search_placeholder', { count: String(currentTab?.files.length || 0) })}
                   value={currentTab?.searchQuery || ''}
-                  onChange={(e) => updateTab(currentTab.id, { searchQuery: e.target.value })}
+                  onChange={(e) => {
+                    const newValue = e.target.value;
+                    updateTab(currentTab.id, { 
+                      searchQuery: newValue,
+                      ...(newValue === '' ? { isDeepSearchResultsActive: false } : {})
+                    });
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && sortedFiles.length === 1) {
                       const file = sortedFiles[0];
                       if (file.is_dir) navigateTo(file.path);
                       else invoke('open_file', { path: file.path });
                     } else if (e.key === 'Escape') {
-                      if (currentTab?.searchQuery) {
-                        updateTab(currentTab.id, { searchQuery: '' });
-                      }
+                      // Let global handler handle it, but we blur to give focus back to the grid
                       e.currentTarget.blur();
                     }
                   }}
@@ -1906,6 +1985,15 @@ export default function App() {
                   }}
                 />
               </div>
+
+              {/* Deep Search Button */}
+              {currentTab?.searchQuery && (
+                <DeepSearchButton
+                  onDeepSearch={triggerDeepSearch}
+                  isSearching={currentTab.isDeepSearching || false}
+                  disabled={currentTab.loading}
+                />
+              )}
             </header>
 
             {/* Toolbar (Placeholder moved below) */}
@@ -1971,40 +2059,44 @@ export default function App() {
                                 </AnimatePresence>
                               </button>
                             ) : (
-                              <button
-                                onClick={async () => {
-                                  if (!currentTab || isRecycleBin) return;
-                                  try {
-                                    const folderName = await invoke<string>('create_folder', { parentPath: currentTab.path });
-                                    const newPath = currentTab.path.endsWith('\\') ? currentTab.path + folderName : currentTab.path + '\\' + folderName;
-                                    await loadFilesForTab(currentTab.id, currentTab.path, undefined, [newPath]);
-                                    updateTab(currentTab.id, { renamingPath: newPath });
-                                  } catch (err: any) {
-                                    updateTab(currentTab.id, { error: String(err) });
-                                  }
-                                }}
-                                disabled={isRecycleBin}
-                                className={`flex items-center text-sm font-bold transition-all duration-300 group px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
-                                  ${isRecycleBin ? 'text-zinc-500 cursor-not-allowed opacity-50' : 'text-zinc-100 hover:text-white'}`}
-                                title={t('toolbar.new_folder')}
-                              >
-                                <svg viewBox="0 0 24 24" fill={isRecycleBin ? "none" : "var(--accent-primary-20, rgba(var(--accent-rgb), 0.2))"} stroke={isRecycleBin ? "currentColor" : "var(--accent-primary)"} strokeWidth="2" className={`w-[18px] h-[18px] transition-all shrink-0 ${!isRecycleBin ? 'group-hover:drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)]' : ''}`}>
-                                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                                </svg>
-                                <AnimatePresence>
-                                  {!isToolbarCompact && (
-                                    <motion.span
-                                      initial={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                      animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
-                                      exit={{ opacity: 0, width: 0, marginLeft: 0 }}
-                                      className="overflow-hidden"
-                                    >
-                                      {t('toolbar.new_folder')}
-                                    </motion.span>
-                                  )}
-                                </AnimatePresence>
-                              </button>
-                            )}
+                               currentTab?.isDeepSearching || deepSearchDetailStatus || (currentTab?.searchQuery && currentTab.searchQuery.length > 0) ? (
+                                 <SearchStatusIndicator status={deepSearchDetailStatus || (currentTab?.isDeepSearching ? 'Searching...' : 'Search finished')} />
+                               ) : (
+                                 <button
+                                   onClick={async () => {
+                                     if (!currentTab || isRecycleBin) return;
+                                     try {
+                                       const folderName = await invoke<string>('create_folder', { parentPath: currentTab.path });
+                                       const newPath = currentTab.path.endsWith('\\') ? currentTab.path + folderName : currentTab.path + '\\' + folderName;
+                                       await loadFilesForTab(currentTab.id, currentTab.path, undefined, [newPath]);
+                                       updateTab(currentTab.id, { renamingPath: newPath });
+                                     } catch (err: any) {
+                                       updateTab(currentTab.id, { error: String(err) });
+                                     }
+                                   }}
+                                   disabled={isRecycleBin}
+                                   className={`flex items-center text-sm font-bold transition-all duration-300 group px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
+                                     ${isRecycleBin ? 'text-zinc-500 cursor-not-allowed opacity-50' : 'text-zinc-100 hover:text-white'}`}
+                                   title={t('toolbar.new_folder')}
+                                 >
+                                   <svg viewBox="0 0 24 24" fill={isRecycleBin ? "none" : "var(--accent-primary-20, rgba(var(--accent-rgb), 0.2))"} stroke={isRecycleBin ? "currentColor" : "var(--accent-primary)"} strokeWidth="2" className={`w-[18px] h-[18px] transition-all shrink-0 ${!isRecycleBin ? 'group-hover:drop-shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)]' : ''}`}>
+                                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                                   </svg>
+                                   <AnimatePresence>
+                                     {!isToolbarCompact && (
+                                       <motion.span
+                                         initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                         animate={{ opacity: 1, width: 'auto', marginLeft: 8 }}
+                                         exit={{ opacity: 0, width: 0, marginLeft: 0 }}
+                                         className="overflow-hidden"
+                                       >
+                                         {t('toolbar.new_folder')}
+                                       </motion.span>
+                                     )}
+                                   </AnimatePresence>
+                                 </button>
+                               )
+                             )}
                             <div className="h-3.5 w-px bg-white/5" />
                             <button
                               onClick={handleSelectAll}
@@ -2300,6 +2392,10 @@ export default function App() {
                             activeTabId={activeTabId}
                             onOpenPreview={handleOpenPreview}
                             onVisibleFilesChange={handleVisibleFilesChange}
+                            isDeepSearch={currentTab?.isDeepSearchResultsActive}
+                            isSearchActive={!!currentTab?.isDeepSearchResultsActive || (currentTab?.searchQuery !== '')}
+                            isDeepSearching={currentTab?.isDeepSearching}
+                            deepSearchStatus={currentTab?.deepSearchStatus}
                           />
                         ) : (
                           <FileTable
@@ -2358,6 +2454,10 @@ export default function App() {
                             activeTabId={activeTabId}
                             onOpenPreview={handleOpenPreview}
                             onVisibleFilesChange={handleVisibleFilesChange}
+                            isDeepSearch={currentTab?.isDeepSearchResultsActive}
+                            isSearchActive={!!currentTab?.isDeepSearchResultsActive || (currentTab?.searchQuery !== '')}
+                            isDeepSearching={currentTab?.isDeepSearching}
+                            deepSearchStatus={currentTab?.deepSearchStatus}
                           />
                         )}
                       </motion.div>
@@ -2403,6 +2503,7 @@ export default function App() {
               recycleBinStatus={recycleBinStatus}
               tabs={tabs}
               activeTabId={activeTabId}
+              isDeepSearch={currentTab?.isDeepSearchResultsActive}
             />
           )}
 

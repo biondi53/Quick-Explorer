@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Tab, SortConfig, FileEntry, SortColumn, QuickAccessConfig, FolderSizeUpdate } from '../types';
+import { Tab, SortConfig, FileEntry, SortColumn, QuickAccessConfig, FolderSizeUpdate, ListFilesResult } from '../types';
 import { getCachedSize, setCachedSize, clearExpiredEntries } from '../utils/folderSizeCache';
 
 const normalizePath = (p: string) => {
@@ -27,6 +27,10 @@ const createTab = (path: string = '', defaultSort?: SortConfig): Tab => ({
     scrollIndex: 0,
     lastLoadTime: 0,
     visibleIndices: [],
+    isDeepSearching: false,
+    isDeepSearchResultsActive: false,
+    deepSearchMatchCount: 0,
+    deepSearchStatus: '',
 });
 
 export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean, quickAccessConfig: QuickAccessConfig) => {
@@ -39,6 +43,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                     sortConfig: t.sortConfig || initialSortConfig,
                     generationId: t.generationId || 0,
                     scrollIndex: t.scrollIndex || 0,
+                    isDeepSearchResultsActive: t.isDeepSearchResultsActive || false,
                     visibleIndices: []
                 }));
             }
@@ -137,11 +142,53 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         };
     }, [setTabs]);
 
+    // Recursive Search Listeners
+    useEffect(() => {
+        const unlistenFound = listen<FileEntry[]>('deep-search-result', (event) => {
+            const matches = event.payload;
+            setTabs(prev => prev.map(tab => {
+                if (tab.id === activeTabIdRef.current && tab.isDeepSearching) {
+                    return {
+                        ...tab,
+                        files: [...tab.files, ...matches],
+                        deepSearchMatchCount: (tab.deepSearchMatchCount || 0) + matches.length
+                    };
+                }
+                return tab;
+            }));
+        });
+
+        const unlistenStatus = listen<string>('deep-search-status', (event) => {
+            const status = event.payload;
+            setTabs(prev => prev.map(tab => {
+                if (tab.id === activeTabIdRef.current && tab.isDeepSearching) {
+                    return { ...tab, deepSearchStatus: status };
+                }
+                return tab;
+            }));
+        });
+
+        const unlistenFinished = listen('deep-search-finished', () => {
+            setTabs(prev => prev.map(tab => {
+                if (tab.id === activeTabIdRef.current) {
+                    return { ...tab, isDeepSearching: false, deepSearchStatus: '' };
+                }
+                return tab;
+            }));
+        });
+
+        return () => {
+            unlistenFound.then(u => u());
+            unlistenStatus.then(u => u());
+            unlistenFinished.then(u => u());
+        };
+    }, [setTabs]);
+
     const currentTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
     const updateTab = useCallback((tabId: string, updates: Partial<Tab>) => {
         setTabs(prev => prev.map(t => t.id === tabId ? { ...t, ...updates } : t));
-    }, []);
+    }, [setTabs]);
 
     const loadFilesForTab = useCallback(async (tabId: string, path: string, showHidden?: boolean, pathsToSelect?: string[], expectedGenerationId?: number, pendingUpdates?: Partial<Tab>, retryDirection?: 'back' | 'forward' | null, jumpOriginPath?: string) => {
         // If expectedGenerationId is provided, we only want to proceed if it matches the current tab's ID.
@@ -155,7 +202,13 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         const targetTab = tabsRef.current.find(t => t.id === tabId);
         const currentGenId = expectedGenerationId !== undefined ? expectedGenerationId : (targetTab?.generationId ?? 0);
 
-        updateTab(tabId, { loading: true, error: null, lastLoadTime: Date.now() });
+        updateTab(tabId, { 
+            loading: true, 
+            error: null, 
+            lastLoadTime: Date.now(),
+            isDeepSearchResultsActive: false,
+            shouldScrollToSelection: !!pathsToSelect
+        });
 
         // Safety Timeout: If loading takes more than 15 seconds, force clear it.
         const safetyTimeout = setTimeout(() => {
@@ -172,7 +225,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             // Only pass navId if this is the active tab, so we don't overwrite the global
             // cancellation token in Rust during background tab refreshes (like move-to actions).
             const isActiveTab = tabId === activeTabIdRef.current;
-            let result = await invoke<FileEntry[]>('list_files', { 
+            const { entries, expanded_path } = await invoke<ListFilesResult>('list_files', { 
                 path, 
                 showHidden: showHidden ?? showHiddenFiles, 
                 ...(isActiveTab ? { navId: String(currentGenId) } : {})
@@ -180,7 +233,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             clearTimeout(safetyTimeout);
 
             // Pre-populate with cached folder sizes
-            result = result.map(file => {
+            let result = entries.map((file: FileEntry) => {
                 if (file.is_dir) {
                     const cached = getCachedSize(file.path);
                     if (cached) {
@@ -206,13 +259,13 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
 
                 if (pathsToSelect && pathsToSelect.length > 0) {
                     const normalizedToSelect = pathsToSelect.map(normalizePath);
-                    selectedFiles = result.filter(f => normalizedToSelect.includes(normalizePath(f.path)));
+                    selectedFiles = result.filter((f: FileEntry) => normalizedToSelect.includes(normalizePath(f.path)));
                     if (selectedFiles.length > 0) {
                         lastSelectedFile = selectedFiles[selectedFiles.length - 1];
                     }
                 } else if (currentTabState.selectedFiles.length > 0) {
                     const currentSelectedPaths = currentTabState.selectedFiles.map(f => normalizePath(f.path));
-                    selectedFiles = result.filter(f => currentSelectedPaths.includes(normalizePath(f.path)));
+                    selectedFiles = result.filter((f: FileEntry) => currentSelectedPaths.includes(normalizePath(f.path)));
                     if (selectedFiles.length > 0) {
                         const lastPath = currentTabState.lastSelectedFile ? normalizePath(currentTabState.lastSelectedFile.path) : null;
                         lastSelectedFile = selectedFiles.find(f => normalizePath(f.path) === lastPath) || selectedFiles[0];
@@ -223,7 +276,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
                     ...t,
                     ...(pendingUpdates || {}),
                     files: result,
-                    path,
+                    path: expanded_path,
                     selectedFiles,
                     lastSelectedFile,
                     loading: false
@@ -317,7 +370,9 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             selectedFiles: [],
             lastSelectedFile: null,
             scrollIndex: 0,
-            error: null
+            error: null,
+            isDeepSearchResultsActive: false,
+            isDeepSearching: false
         };
 
         if (!isSamePath) {
@@ -329,8 +384,9 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
 
         const currentNavId = String(nextGenId);
         invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
+        invoke('cancel_deep_search').catch(console.error);
 
-        updateTab(currentTab.id, { loading: true, generationId: nextGenId });
+        updateTab(currentTab.id, { loading: true, generationId: nextGenId, isDeepSearching: false, isDeepSearchResultsActive: false });
         loadFilesForTab(currentTab.id, path, undefined, undefined, nextGenId, { ...pendingUpdates, navId: currentNavId } as any);
     }, [currentTab, updateTab, loadFilesForTab]);
 
@@ -354,11 +410,13 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             generationId: nextGenId,
             selectedFiles: [],
             lastSelectedFile: null,
-            scrollIndex: 0
+            scrollIndex: 0,
+            isDeepSearchResultsActive: false
         };
 
         const currentNavId = String(nextGenId);
         invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
+        invoke('cancel_deep_search').catch(console.error);
 
         updateTab(tab.id, { loading: true, generationId: nextGenId });
         loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, { ...pendingUpdates, navId: currentNavId } as any, 'back', tab.path);
@@ -384,11 +442,13 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             generationId: nextGenId,
             selectedFiles: [],
             lastSelectedFile: null,
-            scrollIndex: 0
+            scrollIndex: 0,
+            isDeepSearchResultsActive: false
         };
 
         const currentNavId = String(nextGenId);
         invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
+        invoke('cancel_deep_search').catch(console.error);
 
         updateTab(tab.id, { loading: true, generationId: nextGenId });
         loadFilesForTab(tab.id, newPath, undefined, undefined, nextGenId, { ...pendingUpdates, navId: currentNavId } as any, 'forward', tab.path);
@@ -423,12 +483,15 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         const targetTab = currentTabs.find(t => t.id === currentActiveId);
 
         if (targetTab) {
+            if (targetTab.isDeepSearching || targetTab.isDeepSearchResultsActive) {
+                return;
+            }
+
             // FILTER: If this is an auto-refresh (focus/resize) AND we navigated very recently,
             // ignore it to prevent race conditions or "stickiness" to old states.
             if (isAutoRefresh) {
                 const timeSinceNav = Date.now() - lastNavigationTimeRef.current;
                 if (timeSinceNav < 2000) {
-                    console.log(`[Refresh] Auto-refresh ignored (Cooldown active: ${timeSinceNav}ms < 2000ms)`);
                     return;
                 }
             }
@@ -438,19 +501,20 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
             const nextGenId = targetTab.generationId + 1;
             const currentNavId = String(nextGenId);
             invoke('cancel_folder_size_calculations', { navId: currentNavId }).catch(console.error);
+            invoke('cancel_deep_search').catch(console.error);
 
             updateTab(targetTab.id, { generationId: nextGenId });
             loadFilesForTab(targetTab.id, targetTab.path, undefined, undefined, nextGenId, { navId: currentNavId } as any);
         }
     }, [loadFilesForTab, updateTab]);
 
-    const addTab = useCallback((path: string = '', shouldFocus: boolean = true) => {
+    const addTab = useCallback((path: string = '', shouldFocus: boolean = true, pathsToSelect?: string[]) => {
         const newTab = createTab(path, initialSortConfig);
         setTabs(prev => [...prev, newTab]);
         if (shouldFocus) {
             setActiveTabId(newTab.id);
         }
-        loadFilesForTab(newTab.id, path);
+        loadFilesForTab(newTab.id, path, undefined, pathsToSelect);
     }, [loadFilesForTab, initialSortConfig]);
 
     const closeTab = useCallback(async (tabId: string) => {
@@ -585,9 +649,33 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         setTabs(prev => [...prev]);
     }, [setTabs]);
 
+    const removeItemsFromTabs = useCallback((pathsToRemove: string[]) => {
+        const normalizedPaths = pathsToRemove.map(normalizePath);
+        
+        setTabs(prev => prev.map(tab => {
+            // Filter out files that match exactly or are inside a deleted folder
+            const newFiles = tab.files.filter(f => {
+                const normFPath = normalizePath(f.path);
+                return !normalizedPaths.some(p => normFPath === p || normFPath.startsWith(p + '/'));
+            });
+
+            if (newFiles.length === tab.files.length) return tab;
+            
+            return {
+                ...tab,
+                files: newFiles,
+                selectedFiles: tab.selectedFiles.filter(f => {
+                    const normFPath = normalizePath(f.path);
+                    return !normalizedPaths.some(p => normFPath === p || normFPath.startsWith(p + '/'));
+                }),
+                lastSelectedFile: tab.lastSelectedFile && !normalizedPaths.some(p => normalizePath(tab.lastSelectedFile!.path) === p || normalizePath(tab.lastSelectedFile!.path).startsWith(p + '/')) ? tab.lastSelectedFile : null
+            };
+        }));
+    }, [setTabs]);
+
     const activeTab = tabs.find(t => t.id === activeTabId);
     useEffect(() => {
-        if (!activeTab || activeTab.loading) return;
+        if (!activeTab) return;
 
         // Sync the global cancellation token in Rust when navigating to a different folder
         // or switching tabs. Using `path` (not `generationId`) so that auto-refresh events
@@ -595,6 +683,9 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         invoke('cancel_folder_size_calculations', { 
             navId: String(activeTab.generationId) 
         }).catch(console.error);
+
+        // Also cancel any deep search when navigating or switching tabs
+        invoke('cancel_deep_search').catch(console.error);
         
         // Also ensure taskbar progress is cleared on navigation
         invoke('set_taskbar_progress', { isActive: false }).catch(console.error);
@@ -615,6 +706,7 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         goUp,
         refreshCurrentTab,
         refreshTabsViewing,
+        removeItemsFromTabs,
         handleSort,
         handleSelectAll,
         handleClearSelection,
@@ -622,5 +714,30 @@ export const useTabs = (initialSortConfig: SortConfig, showHiddenFiles: boolean,
         updateVisibleIndices,
         triggerSizeCalculation,
         clearSizeCache,
+        triggerDeepSearch: useCallback(async () => {
+            if (!currentTab || !currentTab.searchQuery || currentTab.loading || currentTab.isDeepSearching) return;
+
+            const nextGenId = currentTab.generationId + 1;
+            updateTab(currentTab.id, {
+                isDeepSearching: true,
+                isDeepSearchResultsActive: true,
+                deepSearchMatchCount: 0,
+                deepSearchStatus: '',
+                files: [], // Clear current files to show search results
+                generationId: nextGenId
+            });
+
+            try {
+                await invoke('run_recursive_search', {
+                    path: currentTab.path,
+                    query: currentTab.searchQuery,
+                    navId: String(nextGenId)
+                });
+                console.log(`[DeepSearch] Backend call successful for navId: ${nextGenId}`);
+            } catch (err) {
+                console.error('Deep search failed:', err);
+                updateTab(currentTab.id, { isDeepSearching: false, error: String(err) });
+            }
+        }, [currentTab, updateTab]),
     };
 };

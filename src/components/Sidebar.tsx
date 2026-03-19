@@ -54,8 +54,8 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
     const [drives, setDrives] = useState<FileEntry[]>([]);
 
     const refreshDrives = () => {
-        invoke<FileEntry[]>('list_files', { path: '', showHidden: false })
-            .then(setDrives)
+        invoke<{ entries: FileEntry[]; expanded_path: string }>('list_files', { path: '', showHidden: false })
+            .then(({ entries }) => setDrives(entries))
             .catch(console.error);
     };
 
@@ -85,7 +85,7 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
                 if (recycleBinStatus.is_empty) {
                     return <Trash size={18} className="transition-colors duration-500" />;
                 } else {
-                    return <Trash2 size={18} className="text-[var(--accent-primary)] animate-pulse filter drop-shadow-[0_0_3px_var(--accent-primary)] transition-all duration-500" />;
+                    return <Trash2 size={18} className="text-[var(--accent-primary)] transition-all duration-500" />;
                 }
             }
             default: return <ChevronRight size={18} />;

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronUp, ChevronDown, Check } from 'lucide-react';
+import { ChevronUp, ChevronDown, Check, SearchX, Search } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 import { useTranslation } from '../i18n/useTranslation';
 import { isPreviewable } from '../utils/previewUtils';
@@ -45,6 +45,10 @@ interface FileTableProps {
     activeTabId: string;
     onOpenPreview?: (file: FileEntry) => void;
     onVisibleFilesChange?: (indices: number[]) => void;
+    isDeepSearch?: boolean;
+    isSearchActive?: boolean;
+    isDeepSearching?: boolean;
+    deepSearchStatus?: string;
 }
 
 const ITEM_HEIGHT = 42;
@@ -127,7 +131,11 @@ const FileTable = memo(({
     onScrollChange,
     activeTabId,
     onOpenPreview,
-    onVisibleFilesChange
+    onVisibleFilesChange,
+    isDeepSearch,
+    isSearchActive,
+    isDeepSearching,
+    deepSearchStatus
 }: FileTableProps) => {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -489,10 +497,21 @@ const FileTable = memo(({
         return (
             <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]" onContextMenu={(e) => onContextMenu(e, null)}>
                 {(() => {
+                    if (isDeepSearching) {
+                        return <Search size={80} className="animate-pulse mb-4 text-[var(--accent-primary)]" />;
+                    }
+                    if (isSearchActive) {
+                        return <SearchX size={80} className="mb-4" />;
+                    }
                     const FolderIcon = getIconComponent({ name: '', is_dir: true, is_shortcut: false });
-                    return <FolderIcon size={48} className="opacity-10 mb-4" />;
+                    return <FolderIcon size={80} className="mb-4" />;
                 })()}
-                <p className="text-sm">{t('files.empty_folder')}</p>
+                <p className="text-lg font-bold">
+                    {isDeepSearching 
+                        ? (deepSearchStatus && deepSearchStatus !== 'Search ready' ? `${t('toolbar.deep_search_active')} (${deepSearchStatus === 'Indexing HDD...' ? t('files.indexing_hdd') : deepSearchStatus})` : t('toolbar.deep_search_active'))
+                        : (isSearchActive ? t('files.no_search_results') : t('files.empty_folder'))
+                    }
+                </p>
             </div>
         );
     }
@@ -808,7 +827,14 @@ const FileTable = memo(({
                                                     }}
                                                 />
                                             ) : (
-                                                <span className={`text-sm truncate transition-colors ${isSelected ? 'text-white font-bold' : 'text-[var(--text-dim)] font-medium group-hover:text-white'}`}>{file.name}</span>
+                                                <span className={`text-sm truncate transition-colors ${isSelected ? 'text-white font-bold' : 'text-[var(--text-dim)] font-medium group-hover:text-white'}`}>
+                                                    {file.name}
+                                                    {isDeepSearch && (
+                                                        <span className="ml-2 opacity-50 text-[10px] font-normal leading-none">
+                                                            ({file.path.substring(0, file.path.lastIndexOf('\\'))})
+                                                        </span>
+                                                    )}
+                                                </span>
                                             )}
                                         </div>
                                     ) : (

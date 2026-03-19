@@ -3,7 +3,9 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 
 import {
     Link as LinkIcon,
-    Play
+    Play,
+    SearchX,
+    Search
 } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 import { useTranslation } from '../i18n/useTranslation';
@@ -37,6 +39,10 @@ interface FileGridProps {
     activeTabId: string;
     onOpenPreview?: (file: FileEntry) => void;
     onVisibleFilesChange?: (indices: number[]) => void;
+    isDeepSearch?: boolean;
+    isSearchActive?: boolean;
+    isDeepSearching?: boolean;
+    deepSearchStatus?: string;
 }
 
 const ITEM_SIZE = 160;
@@ -67,9 +73,10 @@ interface GridItemProps {
     onRenameCancel: () => void;
     isClipboardItem: boolean;
     onOpenPreview?: (file: FileEntry) => void;
+    isDeepSearch?: boolean;
 }
 
-const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem, onOpenPreview }: GridItemProps) => {
+const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenInNewTab, onContextMenu, isRenaming, onRenameSubmit, onRenameCancel, isClipboardItem, onOpenPreview, isDeepSearch }: GridItemProps) => {
     const { t } = useTranslation();
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [editValue, setEditValue] = useState("");
@@ -276,6 +283,11 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                             title={file.name}
                         >
                             {file.name}
+                            {isDeepSearch && (
+                                <div className="text-[9px] opacity-40 truncate px-1 mt-0.5" title={file.path}>
+                                    {file.path.substring(0, file.path.lastIndexOf('\\'))}
+                                </div>
+                            )}
                         </span>
                         {file.is_calculating_size && (
                             <div className="relative overflow-hidden rounded px-2 py-0.5 mt-1 max-w-[90%] inline-flex items-center justify-center">
@@ -313,7 +325,11 @@ export default function FileGrid({
     onScrollChange,
     activeTabId,
     onOpenPreview,
-    onVisibleFilesChange
+    onVisibleFilesChange,
+    isDeepSearch,
+    isSearchActive,
+    isDeepSearching,
+    deepSearchStatus
 }: FileGridProps) {
     const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -759,12 +775,23 @@ export default function FileGrid({
             }}
         >
             {files.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-[var(--text-muted)] opacity-50 space-y-4">
+                <div className="h-full flex flex-col items-center justify-center text-[var(--text-muted)] space-y-4">
                     {(() => {
+                        if (isDeepSearching) {
+                            return <Search size={80} className="animate-pulse text-[var(--accent-primary)] mb-4" />;
+                        }
+                        if (isSearchActive) {
+                            return <SearchX size={80} />;
+                        }
                         const FolderIcon = getIconComponent({ name: '', is_dir: true, is_shortcut: false });
-                        return <FolderIcon size={64} />;
+                        return <FolderIcon size={80} />;
                     })()}
-                    <p className="text-sm font-medium">{t('files.empty_folder')}</p>
+                    <p className="text-lg font-bold">
+                        {isDeepSearching 
+                            ? (deepSearchStatus && deepSearchStatus !== 'Search ready' ? `${t('toolbar.deep_search_active')} (${deepSearchStatus === 'Indexing HDD...' ? t('files.indexing_hdd') : deepSearchStatus})` : t('toolbar.deep_search_active'))
+                            : (isSearchActive ? t('files.no_search_results') : t('files.empty_folder'))
+                        }
+                    </p>
                 </div>
             ) : (
                 <div
@@ -805,6 +832,7 @@ export default function FileGrid({
                                         onRenameCancel={onRenameCancel}
                                         isClipboardItem={clipboardInfo?.paths.includes(file.path) || false}
                                         onOpenPreview={onOpenPreview}
+                                        isDeepSearch={isDeepSearch}
                                     />
                                 ))}
                             </div>

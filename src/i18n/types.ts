@@ -40,6 +40,8 @@ export interface Translations {
         free: string;
         free_of: string;
         empty_folder: string;
+        no_search_results: string;
+        indexing_hdd: string;
     };
     context_menu: {
         open: string;
@@ -87,6 +89,9 @@ export interface Translations {
         restore: string;
         calculate_sizes: string;
         clear_cache: string;
+        deep_search: string;
+        deep_search_active: string;
+        refresh_locked: string;
     };
     footer: {
         items: string;
@@ -153,5 +158,13 @@ export interface Translations {
         toolbar_style_desc: string;
         toolbar_dynamic: string;
         toolbar_compact: string;
+    };
+    search: {
+        indexing: string;
+        reindexing: string;
+        searching_status: string;
+        indexing_finished: string;
+        reindexing_finished: string;
+        search_finished: string;
     };
 }

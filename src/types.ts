@@ -12,6 +12,11 @@ export type FileEntry = GeneratedFileEntry & {
 export type ClipboardInfo = GeneratedClipboardInfo;
 export type RecycleBinStatus = GeneratedRecycleBinStatus;
 
+export interface ListFilesResult {
+    entries: FileEntry[];
+    expanded_path: string;
+}
+
 declare global {
     interface Window {
         __SPEED_EXPLORER_DND_LOCK: boolean;
@@ -54,6 +59,11 @@ export interface Tab {
     scrollIndex?: number;
     lastLoadTime?: number;
     visibleIndices: number[];
+    isDeepSearching?: boolean;
+    isDeepSearchResultsActive?: boolean;
+    deepSearchMatchCount?: number;
+    deepSearchStatus?: string;
+    shouldScrollToSelection?: boolean;
 }
 
 

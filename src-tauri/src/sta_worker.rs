@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::{
     mpsc::{channel, Sender},
-    OnceLock,
+    Arc, OnceLock,
 };
 use std::thread;
 use std::time::SystemTime;
@@ -327,8 +327,28 @@ impl StaWorker {
                         window,
                         response,
                     } => {
-                        let result = recursive_search_impl(path, query, nav_id, window);
-                        let _ = response.send(result);
+                        // Commit the nav_id atomically BEFORE spawning the thread.
+                        // This ensures the cancellation flag is set in a deterministic,
+                        // known state BEFORE the thread starts AND before Ok(()) is returned
+                        // to the caller. This prevents race conditions where ESC or
+                        // size-calculation side-effects could flip the flag prematurely.
+                        if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
+                            if let Ok(mut current_id) = mutex.lock() {
+                                *current_id = nav_id.clone();
+                            }
+                        }
+
+                        // Also reset the dedicated search cancellation flag for this new search.
+                        use std::sync::atomic::Ordering;
+                        crate::SEARCH_CANCELLED.store(false, Ordering::SeqCst);
+
+                        // Immediately free the STA Worker so it can process other commands
+                        // (e.g. ListFiles for ESC/refresh) while the search runs in background.
+                        // Indexing is pure file I/O and does NOT require the COM/STA thread.
+                        let _ = response.send(Ok(()));
+                        std::thread::spawn(move || {
+                            let _ = recursive_search_impl(path, query, nav_id, window);
+                        });
                     }
                 }
             }
@@ -829,11 +849,12 @@ fn list_items_impl(
 ) -> Result<Vec<FileEntry>, String> {
     log::debug!("[STA-WORKER] list_items_impl called for path: {}", path);
 
-    let is_cancelled = || {
+    let _is_cancelled = || {
         if let Some(id) = &nav_id {
-            let mutex = crate::GLOBAL_NAV_ID.get_or_init(|| std::sync::Mutex::new(String::new()));
-            if let Ok(current_id) = mutex.lock() {
-                return *current_id != *id;
+            if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
+                if let Ok(current_id) = mutex.lock() {
+                    return *current_id != *id;
+                }
             }
         }
         false
@@ -937,15 +958,37 @@ fn list_items_impl(
         // ... drives logic exists ... (already correctly handled above)
     }
 
-    // LEVEL 1 OPTIMIZATION: Bifurcation
-    // If it's a normal absolute path on disk, use the high-performance native reader.
     let path_obj = std::path::Path::new(path);
-    if path_obj.is_absolute() && path_obj.exists() {
-        return list_files_native(path, show_hidden, nav_id);
-    }
+    let results = if path_obj.is_absolute() && path_obj.exists() {
+        list_files_native(path, show_hidden, nav_id)
+    } else {
+        self::list_items_shell_fallback(path, show_hidden, nav_id)
+    };
 
-    // Fallback: Shell API (IShellItem) for virtual folders, drives, etc.
+    if let Ok(ref files) = results {
+        crate::search_engine::index_manager::IndexManager::global().update_folder_entries(path, files);
+    }
+    
+    results
+}
+
+fn list_items_shell_fallback(
+    path: &str,
+    show_hidden: bool,
+    nav_id: Option<String>,
+) -> Result<Vec<FileEntry>, String> {
     let mut files = Vec::new();
+    
+    let is_cancelled = || {
+        if let Some(id) = &nav_id {
+            if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
+                if let Ok(current_id) = mutex.lock() {
+                    return *current_id != *id;
+                }
+            }
+        }
+        false
+    };
 
     unsafe {
         let path_wide: Vec<u16> = OsStr::new(path)
@@ -1352,4 +1395,185 @@ fn paste_items_impl(
     }
 
     Ok(paths)
+}
+
+fn recursive_search_impl(
+    path: String,
+    query: String,
+    nav_id: String,
+    window: tauri::Window,
+) -> std::result::Result<(), String> {
+    log::debug!("[STA-WORKER] recursive_search_impl: path={}, query={}, nav_id={}", path, query, nav_id);
+
+    // NOTE: GLOBAL_NAV_ID is set by the STA Worker loop BEFORE this function is called
+    // in a spawned thread. Do NOT re-set it here, as that would create a race condition
+    // where a legitimate ESC cancellation signal could be overwritten.
+
+    let is_cancelled: Arc<dyn Fn() -> bool + Send + Sync> = {
+        let nav_id = nav_id.clone();
+        Arc::new(move || {
+            use std::sync::atomic::Ordering;
+            // Primary check: Has the search been explicitly cancelled (e.g. ESC)?
+            if crate::SEARCH_CANCELLED.load(Ordering::SeqCst) {
+                return true;
+            }
+
+            // Secondary check: Has the user navigated away from the original context?
+            if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
+                if let Ok(current_id) = mutex.lock() {
+                    return *current_id != nav_id;
+                }
+            }
+            false
+        })
+    };
+
+    let query_lower = query.to_lowercase();
+    let root_path_str = path.clone();
+    let root_path = std::path::PathBuf::from(path);
+
+    // Tiered Search Logic: SSD (Live jwalk) vs HDD (ART Index)
+    if !crate::is_ssd(&root_path_str) {
+        log::info!("[STA-WORKER] HDD detected for {}, using ART index strategy", root_path_str);
+        
+        // 1. Ensure indexed (Safe Indexing)
+        let index_manager = crate::search_engine::index_manager::IndexManager::global();
+        let just_indexed = match index_manager.ensure_indexed(root_path_str.clone(), nav_id.clone(), window.clone()) {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!("[STA-WORKER] HDD Indexing aborted or failed: {}", e);
+                let _ = window.emit("deep-search-finished", ());
+                return Ok(());
+            }
+        };
+
+        // 2. Perform search on the now-ready index
+        if !just_indexed {
+            let _ = window.emit("deep-search-detail-status", "Searching...");
+        }
+        let results = index_manager.search(&root_path_str, &query, &*is_cancelled);
+        log::debug!("[STA-WORKER] ART search returned {} raw results", results.len());
+
+        // 3. Stale-While-Revalidate: Trigger background refresh if index is old
+        // Pass the absolute paths of current results to detect changes later
+        let initial_paths: Vec<String> = results.iter().map(|(p, _)| p.clone()).collect();
+        index_manager.check_and_trigger_revalidation(
+            &root_path_str, 
+            &query, 
+            &nav_id, 
+            initial_paths, 
+            &window
+        );
+
+        let results_buffer = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let last_emit = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+
+        fn emit_results_art(
+            buffer: &std::sync::Arc<std::sync::Mutex<Vec<crate::FileEntry>>>,
+            last_emit: &std::sync::Arc<std::sync::Mutex<std::time::Instant>>,
+            window: &tauri::Window,
+            force: bool,
+        ) {
+            let mut buf = buffer.lock().unwrap();
+            let mut last = last_emit.lock().unwrap();
+            
+            if force || buf.len() >= 50 || last.elapsed().as_millis() >= 100 {
+                if !buf.is_empty() {
+                    let to_send = std::mem::take(&mut *buf);
+                    let _ = window.emit("deep-search-result", to_send);
+                    *last = std::time::Instant::now();
+                }
+            }
+        }
+
+        for (fpath, _score) in results {
+            use std::sync::atomic::Ordering;
+            if crate::SEARCH_CANCELLED.load(Ordering::SeqCst) { break; }
+
+            if let Some(mutex) = crate::GLOBAL_NAV_ID.get() {
+                if let Ok(current_id) = mutex.lock() {
+                    if *current_id != nav_id { break; }
+                }
+            }
+
+            let full_path = std::path::Path::new(&root_path_str).join(&fpath);
+            if let Ok(file_entry) = crate::get_file_entry(&full_path) {
+                results_buffer.lock().unwrap().push(file_entry);
+                emit_results_art(&results_buffer, &last_emit, &window, false);
+            }
+        }
+
+        emit_results_art(&results_buffer, &last_emit, &window, true);
+        if !just_indexed {
+            let _ = window.emit("deep-search-detail-status", "Search finished");
+        }
+        let _ = window.emit("deep-search-finished", ());
+        return Ok(());
+    }
+
+    log::info!("[STA-WORKER] SSD detected for {}, using live jwalk strategy", root_path_str);
+
+    rayon::spawn(move || {
+        use jwalk::WalkDir;
+        use std::sync::{Arc, Mutex};
+        use std::time::Instant;
+
+        let results_buffer = Arc::new(Mutex::new(Vec::new()));
+        let last_emit = Arc::new(Mutex::new(Instant::now()));
+
+        fn emit_results(
+            buffer: &Arc<Mutex<Vec<crate::FileEntry>>>,
+            last_emit: &Arc<Mutex<Instant>>,
+            window: &tauri::Window,
+            force: bool,
+        ) {
+            let mut buf = buffer.lock().unwrap();
+            let mut last = last_emit.lock().unwrap();
+            
+            if force || buf.len() >= 50 || last.elapsed().as_millis() >= 100 {
+                if !buf.is_empty() {
+                    let to_send = std::mem::take(&mut *buf);
+                    let _ = window.emit("deep-search-result", to_send);
+                    *last = Instant::now();
+                }
+            }
+        }
+
+        // Use jwalk for high-performance multithreaded directory traversal
+        let cancel_checker = Arc::clone(&is_cancelled);
+        for entry in WalkDir::new(&root_path)
+            .skip_hidden(false)
+            .process_read_dir(move |_, _, _, dir_entry_results| {
+                if cancel_checker() {
+                    // Abort the read if cancelled
+                    dir_entry_results.clear();
+                }
+            }) 
+        {
+            if is_cancelled() { break; }
+
+            match entry {
+                Ok(dir_entry) => {
+                    let path = dir_entry.path();
+                    let name = dir_entry.file_name().to_string_lossy().to_string();
+                    
+                    if name.to_lowercase().contains(&query_lower) {
+                        if let Ok(file_entry) = crate::get_file_entry(&path) {
+                            results_buffer.lock().unwrap().push(file_entry);
+                            emit_results(&results_buffer, &last_emit, &window, false);
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::warn!("[STA-WORKER] Walk error: {}", err);
+                }
+            }
+        }
+
+        emit_results(&results_buffer, &last_emit, &window, true);
+        let _ = window.emit("deep-search-finished", ());
+        log::debug!("[STA-WORKER] Recursive search finished (nav_id={})", nav_id);
+    });
+
+    Ok(())
 }
