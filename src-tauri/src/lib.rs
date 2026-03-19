@@ -37,6 +37,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 mod commands;
 mod drop_overlay;
 mod extraction;
+mod search_engine;
 mod sta_worker;
 
 pub static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -55,7 +56,7 @@ pub struct ClipboardInfo {
 
 pub struct ClipboardCache(std::sync::Mutex<Option<(u32, ClipboardInfo)>>);
 
-#[derive(Serialize, Clone, TS)]
+#[derive(Serialize, Clone, TS, Debug)]
 #[ts(export)]
 pub struct DiskInfo {
     #[serde(rename = "total_space")]
@@ -81,7 +82,7 @@ pub struct RecycleBinStatus {
     pub total_size: i64,
 }
 
-#[derive(Serialize, TS)]
+#[derive(Serialize, TS, Clone, Debug)]
 #[ts(export)]
 pub struct FileEntry {
     pub name: String,
@@ -112,7 +113,18 @@ pub struct FolderSizeUpdate {
     pub formatted_size: String,
 }
 
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct SearchMatch {
+    pub file: FileEntry,
+}
+
 pub static GLOBAL_NAV_ID: OnceLock<std::sync::Mutex<String>> = OnceLock::new();
+
+/// Dedicated cancellation flag for deep search / HDD indexing.
+/// Completely separate from GLOBAL_NAV_ID so that navigation and folder-size
+/// operations cannot accidentally un-cancel a running search.
+pub static SEARCH_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn get_nav_id_mutex() -> &'static std::sync::Mutex<String> {
     GLOBAL_NAV_ID.get_or_init(|| std::sync::Mutex::new(String::new()))
@@ -191,18 +203,74 @@ pub fn get_file_entry(path: &std::path::Path) -> Result<FileEntry, String> {
     })
 }
 
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub struct ListFilesResult {
+    pub entries: Vec<FileEntry>,
+    pub expanded_path: String,
+}
+
+pub fn expand_env_vars(path: &str) -> String {
+    if !path.contains('%') {
+        return path.to_string();
+    }
+
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
+    use windows::core::PCWSTR;
+
+    let wide_path: Vec<u16> = std::ffi::OsStr::new(path).encode_wide().chain(Some(0)).collect();
+    
+    unsafe {
+        // First call with None to get the required buffer size
+        let required_size = ExpandEnvironmentStringsW(
+            PCWSTR(wide_path.as_ptr()),
+            None
+        );
+
+        if required_size == 0 {
+            return path.to_string();
+        }
+
+        let mut buffer: Vec<u16> = vec![0u16; required_size as usize];
+        
+        // Second call with the buffer as a mutable slice
+        let result = ExpandEnvironmentStringsW(
+            PCWSTR(wide_path.as_ptr()),
+            Some(&mut buffer)
+        );
+
+        if result > 0 {
+            // result is the number of chars written including null terminator
+            let len = (result - 1) as usize;
+            return OsString::from_wide(&buffer[..len])
+                .to_string_lossy()
+                .into_owned();
+        }
+    }
+    
+    path.to_string()
+}
+
 #[tauri::command]
 async fn list_files(
     path: String,
     show_hidden: bool,
     nav_id: Option<String>,
-) -> Result<Vec<FileEntry>, String> {
+) -> Result<ListFilesResult, String> {
     if let Some(id) = &nav_id {
         if let Ok(mut current_id) = get_nav_id_mutex().lock() {
             *current_id = id.clone();
         }
     }
-    crate::sta_worker::StaWorker::global().list_files(path, show_hidden, nav_id)
+    let expanded_path = expand_env_vars(&path);
+    let entries = crate::sta_worker::StaWorker::global().list_files(expanded_path.clone(), show_hidden, nav_id)?;
+    
+    Ok(ListFilesResult {
+        entries,
+        expanded_path,
+    })
 }
 
 #[tauri::command]
@@ -252,7 +320,8 @@ async fn show_item_properties(window: tauri::Window, path: String) {
             Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW},
         };
 
-        let path_wide: Vec<u16> = std::ffi::OsStr::new(&path)
+        let expanded_path = expand_env_vars(&path);
+        let path_wide: Vec<u16> = std::ffi::OsStr::new(&expanded_path)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -289,7 +358,7 @@ fn open_file(
     path: String,
 ) -> Result<(), String> {
     opener
-        .open_path(path, None::<String>)
+        .open_path(expand_env_vars(&path), None::<String>)
         .map_err(|e: tauri_plugin_opener::Error| e.to_string())
 }
 
@@ -467,7 +536,7 @@ async fn delete_item(window: tauri::Window, path: String) -> Result<(), String> 
     harden_focus(root_hwnd);
 
     let _ =
-        crate::sta_worker::StaWorker::global().delete_items(vec![path], Some(root_hwnd.0 as isize));
+        crate::sta_worker::StaWorker::global().delete_items(vec![expand_env_vars(&path)], Some(root_hwnd.0 as isize));
 
     Ok(())
 }
@@ -482,7 +551,7 @@ async fn rename_item(
     harden_focus(root_hwnd);
 
     let _ = crate::sta_worker::StaWorker::global().rename_item(
-        old_path,
+        expand_env_vars(&old_path),
         new_name,
         Some(root_hwnd.0 as isize),
     );
@@ -516,7 +585,7 @@ async fn paste_items(window: tauri::Window, target_path: String) -> Result<(), S
 
     let _ = crate::sta_worker::StaWorker::global().paste_items(
         paths,
-        target_path,
+        expand_env_vars(&target_path),
         is_move,
         Some(root_hwnd.0 as isize),
     );
@@ -1484,8 +1553,26 @@ pub fn is_ssd(path: &str) -> bool {
             STORAGE_PROPERTY_ID, STORAGE_QUERY_TYPE
         };
 
-        // Normalize path to drive root, e.g., "C:\Users\..." -> "\\.\C:"
-        let drive_letter = path.chars().next().unwrap_or('C');
+        // Normalize path to drive root robustly
+        let drive_letter = {
+            let p = std::path::Path::new(path);
+            let mut comp = p.components();
+            let mut letter = 'C';
+            if let Some(std::path::Component::Prefix(prefix)) = comp.next() {
+                match prefix.kind() {
+                    std::path::Prefix::Disk(disk) | std::path::Prefix::VerbatimDisk(disk) => {
+                        letter = disk as char;
+                    }
+                    _ => {}
+                }
+            } else if let Some(c) = path.chars().next() {
+                if c.is_alphabetic() {
+                    letter = c;
+                }
+            }
+            letter
+        };
+
         let volume_path = format!("\\\\.\\{}:", drive_letter);
         let volume_path_wide: Vec<u16> = volume_path.encode_utf16().chain(std::iter::once(0)).collect();
 
@@ -1640,6 +1727,15 @@ fn cancel_folder_size_calculations(nav_id: String) {
     }
 }
 
+/// Signals any running deep search / HDD indexing to stop immediately.
+/// Uses a dedicated AtomicBool so it cannot be interfered with by navigation or folder-size operations.
+#[tauri::command]
+fn cancel_deep_search() {
+    use std::sync::atomic::Ordering;
+    crate::SEARCH_CANCELLED.store(true, Ordering::SeqCst);
+    eprintln!("[RUST-CRITICAL] Global SEARCH_CANCELLED set to TRUE");
+}
+
 #[tauri::command]
 async fn set_taskbar_progress(app_handle: tauri::AppHandle, is_active: bool) -> Result<(), String> {
     use tauri::window::{ProgressBarState, ProgressBarStatus};
@@ -1668,7 +1764,8 @@ async fn calculate_folder_size(app_handle: tauri::AppHandle, path: String, nav_i
         }
     }
 
-    let ssd_status = is_ssd(&path);
+    let expanded_path = expand_env_vars(&path);
+    let ssd_status = is_ssd(&expanded_path);
 
     // Use tokio's thread pool to prevent unbounded thread creation crashes
     tauri::async_runtime::spawn(async move {
@@ -1707,7 +1804,7 @@ async fn calculate_folder_size(app_handle: tauri::AppHandle, path: String, nav_i
                 // Combined cancellation for the recursive walk (kept for clarity)
 
                 let mut iteration_count = 0;
-                let size = calculate_dir_size_recursive(std::path::Path::new(&path), &is_nav_cancelled, &is_timed_out, &mut iteration_count);
+                let size = calculate_dir_size_recursive(std::path::Path::new(&expanded_path), &is_nav_cancelled, &is_timed_out, &mut iteration_count);
 
                 // Check final navigation state
                 if is_nav_cancelled() {
@@ -1943,6 +2040,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_files,
             read_file_base64,
+            commands::run_recursive_search,
             show_item_properties,
             open_file,
             open_with,
@@ -1974,6 +2072,7 @@ pub fn run() {
             read_preview_text,
             calculate_folder_size,
             cancel_folder_size_calculations,
+            cancel_deep_search,
             set_taskbar_progress
         ])
         .run(tauri::generate_context!())

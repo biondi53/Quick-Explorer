@@ -15,6 +15,7 @@ interface ContextMenuProps {
     recycleBinStatus: RecycleBinStatus;
     tabs: Tab[];
     activeTabId: string;
+    isDeepSearch?: boolean;
 }
 
 interface MenuItem {
@@ -28,7 +29,7 @@ interface MenuItem {
     hasSubmenu?: boolean;
 }
 
-export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClose, onAction, allowRename, fromSidebar, recycleBinStatus, tabs, activeTabId }: ContextMenuProps & { fromSidebar?: boolean }) {
+export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClose, onAction, allowRename, fromSidebar, recycleBinStatus, tabs, activeTabId, isDeepSearch }: ContextMenuProps & { fromSidebar?: boolean }) {
     const { t } = useTranslation();
     const menuRef = useRef<HTMLDivElement>(null);
     const [canPaste, setCanPaste] = useState(false);
@@ -123,8 +124,8 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
     ] : (file ? [
         { id: 'open', label: t('context_menu.open'), icon: <ExternalLink size={20} />, hidden: (fromSidebar && isSystemFolder) || isRecycleBin },
         { id: 'open-with', label: t('context_menu.open_with'), icon: <ExternalLink size={20} />, hidden: (fromSidebar && isSystemFolder) || file.is_dir || isDrive || isRecycleBin },
-        { id: 'open-location', label: t('context_menu.open_location'), icon: <FolderOpen size={20} />, hidden: (fromSidebar && isSystemFolder) || !file.is_shortcut || isDrive },
-        { id: 'rename', label: `${t('context_menu.rename')} (F2)`, icon: <Pencil size={20} />, hidden: fromSidebar || !allowRename || isDrive || isRecycleBin },
+        { id: 'open-location', label: t('context_menu.open_location'), icon: <FolderOpen size={20} />, hidden: (fromSidebar && isSystemFolder) || (!file.is_shortcut && !isDeepSearch) || isDrive },
+        { id: 'rename', label: `${t('context_menu.rename')} (F2)`, icon: <Pencil size={20} />, hidden: fromSidebar || !allowRename || isDrive || isRecycleBin || isDeepSearch },
         { id: 'restore', label: t('context_menu.restore'), icon: <RotateCcw size={20} />, hidden: !isRecycleBin || fromSidebar },
         { id: 'separator-0', type: 'separator', hidden: (fromSidebar && isSystemFolder) || isDrive },
         { id: 'copy', label: t('context_menu.copy'), icon: <Copy size={20} />, hidden: fromSidebar || isDrive || isRecycleBin },

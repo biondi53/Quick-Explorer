@@ -33,7 +33,7 @@ export default function ExplorerPanel({ initialPath = 'C:\\', onFileSelect }: Ex
         setLoading(true);
         try {
             setError(null);
-            const entries = await invoke<FileEntry[]>('list_files', { path });
+            const { entries } = await invoke<{ entries: FileEntry[]; expanded_path: string }>('list_files', { path });
             setFiles(entries);
         } catch (err) {
             setError(String(err));
