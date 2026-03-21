@@ -872,6 +872,20 @@ export default function App() {
       if (a.is_dir && !b.is_dir) return -1;
       if (!a.is_dir && b.is_dir) return 1;
 
+      // SPECIFIC DRIVE SORTING (v12.5): Ensure ThisPC matches Sidebar (C: first, then D, E...)
+      // Drives are uniquely identified by file_type === 'Drive'
+      const isADrive = a.file_type === 'Drive';
+      const isBDrive = b.file_type === 'Drive';
+      
+      if (isADrive && isBDrive) {
+        // 1. System Drive always first
+        if (a.disk_info?.is_system && !b.disk_info?.is_system) return -1;
+        if (!a.disk_info?.is_system && b.disk_info?.is_system) return 1;
+        
+        // 2. Alphabetical by path (C:\, D:\, etc.) to ignore labels/nicknames
+        return collator.compare(a.path, b.path);
+      }
+
       const { column, direction } = currentTab.sortConfig || defaultSortConfig;
       let comparison = 0;
 
@@ -1841,7 +1855,7 @@ export default function App() {
             />
 
             {/* Navigation Bar */}
-            <header className="h-14 border-b border-white/10 flex items-center px-4 gap-4 backdrop-blur-2xl">
+            <header className="h-14 flex items-center px-4 gap-4">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowSettings(true)}
@@ -1901,13 +1915,13 @@ export default function App() {
               </div>
 
               {/* Address Bar */}
-              <div className="flex-1 h-9 bg-white/5 border border-white/10 rounded-lg flex items-center px-3 relative group focus-within:border-[var(--accent-primary)] focus-within:ring-1 focus-within:ring-[var(--accent-primary)] transition-all">
+              <div className="flex-1 h-9 bg-white/[0.03] rounded-lg flex items-center px-3 relative group focus-within:bg-white/[0.06] transition-all">
                 {isEditingPath ? (
                   <form onSubmit={handlePathSubmit} className="flex-1 h-full">
                     <input
                       id="address-bar-input"
                       autoFocus
-                      className="w-full h-full bg-transparent text-sm text-white outline-none font-mono"
+                      className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-400 outline-none font-mono"
                       value={pathInput}
                       onChange={(e) => setPathInput(e.target.value)}
                       onBlur={() => setIsEditingPath(false)}
@@ -1949,13 +1963,13 @@ export default function App() {
 
               {/* Search Bar */}
               <div
-                className="h-9 bg-white/5 border border-white/10 rounded-lg flex items-center px-3 relative transition-all focus-within:border-[var(--accent-primary)]"
+                className="h-9 bg-white/[0.03] rounded-lg flex items-center px-3 relative transition-all focus-within:bg-white/[0.06]"
                 style={{ width: searchBarWidth }}
               >
-                <Search size={14} className="text-zinc-500 mr-2 shrink-0" />
+                <Search size={14} className="text-zinc-400 mr-2 shrink-0" />
                 <input
                   ref={searchInputRef}
-                  className="bg-transparent text-sm text-white outline-none w-full placeholder:text-zinc-600"
+                  className="bg-transparent text-sm text-white outline-none w-full placeholder:text-zinc-400"
                   placeholder={t('toolbar.search_placeholder', { count: String(currentTab?.files.length || 0) })}
                   value={currentTab?.searchQuery || ''}
                   onChange={(e) => {
@@ -1999,7 +2013,7 @@ export default function App() {
             {/* Toolbar (Placeholder moved below) */}
 
             {currentTab?.error && (
-              <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 text-xs text-red-400 flex items-center gap-2">
+              <div className="bg-red-500/10 px-4 py-2 text-xs text-red-400 flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                 {currentTab.error}
               </div>
@@ -2029,7 +2043,7 @@ export default function App() {
                 ) : (
                   <>
                     {/* Toolbar (Moved here) */}
-                    <div className="h-11 border-b border-white/10 flex items-center px-4 justify-between bg-white/[0.02]">
+                    <div className="h-11 flex items-center px-4 justify-between">
                       {(() => {
                         const isRecycleBin = currentTab?.path === 'shell:RecycleBin';
                         const hasSelection = currentTab && currentTab.selectedFiles.length > 0;
@@ -2103,8 +2117,9 @@ export default function App() {
                               disabled={!currentTab || sortedFiles.length === 0}
                               className={`flex items-center text-sm transition-all duration-300 px-2 py-1.5 rounded-md toolbar-btn whitespace-nowrap overflow-hidden
                                         ${currentTab && sortedFiles.length > 0
-                                  ? 'text-zinc-100 hover:text-white'
-                                  : 'text-zinc-500 cursor-not-allowed'}`}
+                                  ? 'bg-[var(--accent-primary)]/10 text-white font-bold'
+                                  : 'text-[var(--text-muted)] hover:bg-white/[0.05] hover:text-white'
+                              }`}
                               title={t('context_menu.select_all')}
                             >
                               <CheckSquare size={18} className={`shrink-0 ${currentTab && sortedFiles.length > 0 ? "text-[var(--accent-primary)]" : "text-zinc-500"}`} />

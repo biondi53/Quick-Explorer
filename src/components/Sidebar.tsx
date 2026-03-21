@@ -159,7 +159,7 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
 
     return (
         <aside
-            className="flex flex-col bg-[var(--bg-sidebar)] border-r border-white/10 backdrop-blur-2xl h-full select-none shadow-2xl"
+            className="flex flex-col bg-[var(--bg-sidebar)] h-full select-none"
             style={{ width }}
             onMouseEnter={() => {
                 onRefreshRecycleBin();
@@ -207,14 +207,14 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
                                             // item.path could be empty for 'home', so we should allow it if we want context menu on Home
                                             onContextMenu(e, item.path, item.label);
                                         }}
-                                        className={`w-full flex ${item.disk_info ? 'flex-col items-start gap-1' : 'items-center gap-3'} px-3 py-2 rounded-xl text-sm transition-all duration-200 group relative overflow-hidden no-drag
+                                        className={`w-full flex ${item.disk_info ? 'flex-col items-start gap-1' : 'items-center gap-3'} px-4 py-2.5 rounded-xl text-sm transition-all duration-200 group relative overflow-hidden
                     ${active
                                                 ? 'bg-[var(--accent-primary)]/10 text-white font-bold'
                                                 : 'text-[var(--text-muted)] hover:bg-white/[0.05] hover:text-white'}
                   `}
                                     >
                                         {active && (
-                                            <div className="absolute left-0 top-2 bottom-2 w-1 bg-[var(--accent-primary)] rounded-full shadow-[0_0_12px_var(--accent-primary)]" />
+                                            <div className="absolute left-0 top-3 bottom-3 w-1 bg-[var(--accent-primary)] rounded-full" />
                                         )}
                                         {renamingPath === item.path ? (
                                             <div className="flex items-center gap-3 w-full" onClick={e => e.stopPropagation()}>

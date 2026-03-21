@@ -15,7 +15,6 @@ import { startDrag } from '@crabnebula/tauri-plugin-drag';
 import { createGhostIcon } from '../utils/ghostIcon';
 import { DRAG_ICON_BASE64 } from '../utils/dragIcon';
 import { isPreviewable } from '../utils/previewUtils';
-import GlowCard from './ui/GlowCard';
 
 interface FileGridProps {
     files: FileEntry[];
@@ -146,16 +145,16 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
     const Icon = getIconComponent(file);
 
     return (
-        <GlowCard className="rounded-xl" glowColor="rgba(var(--accent-rgb), 0.15)">
+        <div className="rounded-xl">
             <div
                 ref={itemRef}
                 className={`
                     flex flex-col items-center justify-center p-2 rounded-xl cursor-default
-                    transition-all duration-150 group h-full w-full
+                    transition-all duration-200 group h-full w-full relative
                     ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
                     ${isSelected
-                        ? 'bg-[var(--accent-primary)]/20 ring-2 ring-[var(--accent-primary)]/50'
-                        : 'hover:bg-white/5'
+                        ? 'bg-[var(--accent-primary)]/10'
+                        : 'hover:bg-white/[0.04]'
                     }
                 `}
                 onMouseDown={(e) => {
@@ -211,7 +210,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                                 src={thumbnail}
                                 alt={file.name}
                                 draggable={false}
-                                className="w-full h-full object-cover rounded-lg shadow-md"
+                                className="w-full h-full object-cover rounded-lg"
                                 onLoad={() => {
                                     setIsLoaded(true);
                                 }}
@@ -233,14 +232,14 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                     )}
 
                     {file.is_shortcut && (
-                        <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center border border-zinc-600">
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#000105] rounded-full flex items-center justify-center">
                             <LinkIcon size={10} className="text-blue-400" />
                         </div>
                     )}
 
                     {/* Video Indicator */}
                     {!file.is_dir && VIDEO_EXTS.includes(file.name.split('.').pop()?.toLowerCase() || '') && (
-                        <div className="absolute bottom-1 right-1 bg-zinc-900/80 text-white p-1 rounded-full shadow-md border border-white/30 flex items-center justify-center backdrop-blur-sm">
+                        <div className="absolute bottom-1 right-1 bg-black/60 text-white p-1 rounded-full flex items-center justify-center backdrop-blur-sm">
                             <Play size={10} fill="currentColor" className="ml-[1px]" />
                         </div>
                     )}
@@ -276,9 +275,8 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                 ) : (
                     <>
                         <span
-                            className={`
-                                text-[11px] text-center leading-tight line-clamp-2 w-full px-1 mt-1
-                                ${isSelected ? 'text-white font-medium' : 'text-[var(--text-dim)]'}
+                            className={`text-xs font-semibold text-center truncate w-full px-1 transition-colors
+                                ${isSelected ? 'text-white' : 'text-[var(--text-dim)]'}
                             `}
                             title={file.name}
                         >
@@ -300,7 +298,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                     </>
                 )}
             </div>
-        </GlowCard>
+        </div>
     );
 });
 

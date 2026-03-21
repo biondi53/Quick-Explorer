@@ -49,7 +49,7 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
 
     return (
         <div
-            className="relative h-10 bg-[var(--bg-deep)] border-b border-white/10 backdrop-blur-3xl shadow-xl z-20"
+            className="relative h-10 bg-[var(--bg-deep)] z-20"
             style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(0, 1fr) auto auto',
@@ -117,10 +117,10 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                                     boxSizing: 'border-box',
                                     position: 'relative'
                                 }}
-                                className={`group flex items-center gap-1 h-full px-2 rounded-t-xl cursor-pointer transition-colors no-drag select-none
+                                className={`group flex items-center gap-1 h-full px-4 rounded-t-xl cursor-pointer transition-all no-drag select-none
                                     ${tab.id === activeTabId
-                                        ? 'bg-[var(--bg-surface)] text-white shadow-[0_-4px_20px_rgba(0,0,0,0.4)]'
-                                        : 'bg-black/20 text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300'}`}
+                                        ? 'bg-[var(--bg-surface)] text-white'
+                                        : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}`}
                             >
                                 {tab.id === activeTabId && (
                                     <motion.div
@@ -133,7 +133,6 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                                             right: 0,
                                             height: '2px',
                                             backgroundColor: 'var(--accent-primary)',
-                                            boxShadow: '0 0 10px var(--accent-primary)',
                                             zIndex: 10
                                         }}
                                     />

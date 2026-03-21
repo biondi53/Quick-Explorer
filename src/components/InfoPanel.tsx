@@ -41,7 +41,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
     if (selectedFiles.length === 0) {
         return (
             <aside
-                className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl items-center justify-center text-[var(--text-muted)] p-8 text-center"
+                className="flex flex-col bg-[var(--bg-surface)] items-center justify-center text-[var(--text-muted)] p-8 text-center"
                 style={{ width }}
                 onContextMenu={(e) => e.preventDefault()}
             >
@@ -61,12 +61,12 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
 
         return (
             <aside
-                className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl h-full select-none"
+                className="flex flex-col bg-[var(--bg-surface)] h-full select-none"
                 style={{ width }}
                 onContextMenu={(e) => e.preventDefault()}
             >
                 <div key="multiple-selection" className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gradient-to-b from-transparent to-[var(--accent-primary)]/5">
-                    <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-8 shadow-[0_0_50px_rgba(99,102,241,0.15)] relative group transition-transform duration-500">
+                    <div className="p-10 rounded-[2.5rem] bg-white/[0.04] mb-8 relative group transition-transform duration-500">
                         <div className="absolute -inset-4 bg-[var(--accent-primary)]/10 rounded-full blur-3xl opacity-40"></div>
                         <div className="relative">
                             <File size={64} className="text-[var(--accent-primary)] opacity-30 translate-x-3 -translate-y-3" />
@@ -89,7 +89,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
 
     return (
         <aside
-            className="flex flex-col bg-[var(--bg-surface)] border-l border-white/10 backdrop-blur-2xl h-full overflow-hidden select-none"
+            className="flex flex-col bg-[var(--bg-surface)] h-full overflow-hidden select-none"
             style={{ width }}
             onContextMenu={(e) => e.preventDefault()}
         >
@@ -154,13 +154,13 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                         {fileType !== 'none' ? (
                             <div className="relative group w-full flex justify-center">
                                 {isLoading ? (
-                                    <div className="w-full aspect-video bg-white/5 rounded-xl animate-pulse flex items-center justify-center border border-white/10 no-drag">
+                                    <div className="w-full aspect-video bg-white/5 rounded-xl animate-pulse flex items-center justify-center no-drag">
                                         <Loader2 size={32} className="animate-spin text-[var(--accent-primary)]" />
                                     </div>
                                 ) : previewUrl ? (
                                     <>
                                         <div className="absolute -inset-4 bg-[var(--accent-primary)]/20 rounded-full blur-3xl opacity-40"></div>
-                                        <div className="relative w-full mx-auto rounded-xl overflow-hidden shadow-2xl border border-white/10 group">
+                                        <div className="relative w-full mx-auto rounded-xl overflow-hidden group">
                                             <img
                                                 src={previewUrl}
                                                 className="w-full max-h-[45vh] h-auto object-contain bg-black/20 transition-transform duration-700"
@@ -185,7 +185,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                                     </>
                                 ) : (
                                     <div className="flex flex-col items-center text-zinc-500">
-                                        <div className="p-6 rounded-2xl bg-white/[0.04] mb-3 border border-white/5">
+                                        <div className="p-6 rounded-2xl bg-white/[0.04] mb-3">
                                             {fileType === 'video' ? <PlayCircle size={32} className="opacity-20" /> : <Eye size={32} className="opacity-20" />}
                                         </div>
                                         <p className="text-[10px] font-bold uppercase tracking-wider opacity-50">{t('preview.no_preview')}</p>
@@ -194,7 +194,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
                             </div>
                         ) : (
                             <div className="flex flex-col items-center text-[var(--text-muted)]">
-                                <div className="p-10 rounded-[2.5rem] bg-white/[0.04] border border-white/10 mb-6 relative group transform transition-transform duration-500">
+                                <div className="p-10 rounded-[2.5rem] bg-white/[0.04] mb-6 relative group transform transition-transform duration-500">
                                     <div className="absolute inset-0 bg-white/5 rounded-[2.5rem] blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                                     <div className="relative">
                                         {selectedFile.is_dir ? (
