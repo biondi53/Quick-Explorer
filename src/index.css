@@ -16,11 +16,12 @@
   --accent-rgb: 99, 102, 241;
   --accent-secondary: #06b6d4;
   --accent-glow: rgba(99, 102, 241, 0.5);
+  --text-main: #ffffff;
   --text-dim: #f8f9fa;
-  /* Slate-50 / Gray-50 */
-  --text-muted: #a1a1aa;
-  /* Zinc-400 */
+  --text-muted: #d1d1d6;
+  --text-disabled: #636366;
   --border-glow: transparent;
+
   --border-active: rgba(99, 102, 241, 0.7);
   --mica-bg: #000105;
 }

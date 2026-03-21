@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { HardDrive } from 'lucide-react';
 import { FileEntry } from '../types';
-import GlowCard from './ui/GlowCard';
 import { WindowsIcon } from './ui/WindowsIcon';
 import { useTranslation } from '../i18n/useTranslation';
 
@@ -64,10 +63,9 @@ export default function ThisPCView({
                             const isLowSpace = usagePercent > 90;
 
                             return (
-                                <GlowCard
+                                <div
                                     key={drive.path}
-                                    className="rounded-xl"
-                                    glowColor="rgba(var(--accent-rgb), 0.15)"
+                                    className="rounded-xl overflow-hidden"
                                 >
                                     <div
                                         onMouseDown={(e) => {
@@ -85,10 +83,10 @@ export default function ThisPCView({
                                             e.preventDefault();
                                             onContextMenu(e, drive);
                                         }}
-                                        className={`relative group/card flex items-center gap-4 p-4 rounded-xl transition-all duration-300 border overflow-hidden
+                                        className={`relative group/card flex items-center gap-4 p-4 rounded-xl transition-all duration-300 overflow-hidden
                                             ${selected
-                                                ? 'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)]/40 shadow-[0_0_20px_rgba(var(--accent-rgb),0.15)]'
-                                                : 'bg-white/[0.03] border-white/5 hover:border-white/10 hover:shadow-lg hover:shadow-black/20'
+                                                ? 'bg-[var(--accent-primary)]/10'
+                                                : 'bg-white/[0.03] hover:bg-white/[0.05]'
                                             }`}
                                     >
                                         {/* Dynamic Background Mesh */}
@@ -98,7 +96,7 @@ export default function ThisPCView({
                                                 <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-[var(--accent-secondary)]/5 rounded-full blur-3xl" />
                                             </div>
                                         )}
-                                        <div className="relative z-10 p-3 rounded-xl bg-zinc-800/50 shadow-inner flex items-center justify-center w-14 h-14">
+                                        <div className="relative z-10 p-3 rounded-xl bg-white/[0.02] flex items-center justify-center w-14 h-14">
                                             {info?.is_system ? (
                                                 <WindowsIcon size={36} className="text-[#00a4ef]" />
                                             ) : (
@@ -113,10 +111,10 @@ export default function ThisPCView({
                                             </div>
                                             {info && (
                                                 <>
-                                                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden shadow-inner">
+                                                    <div className="h-1.5 w-full bg-white/[0.05] rounded-full overflow-hidden">
                                                         <div
-                                                            className={`h-full transition-all duration-1000 ease-out rounded-full shadow-[0_0_8px_rgba(0,0,0,0.2)]
-                                                                ${isLowSpace ? 'bg-gradient-to-r from-rose-600 to-red-500' : 'bg-gradient-to-r from-[var(--accent-secondary)] to-[var(--accent-primary)]'}`}
+                                                            className={`h-full transition-all duration-1000 ease-out rounded-full
+                                                                ${isLowSpace ? 'bg-red-500' : 'bg-[var(--accent-primary)]'}`}
                                                             style={{ width: `${usagePercent}%` }}
                                                         />
                                                     </div>
@@ -128,7 +126,7 @@ export default function ThisPCView({
                                             )}
                                         </div>
                                     </div>
-                                </GlowCard>
+                                </div>
                             );
                         })}
                     </div>

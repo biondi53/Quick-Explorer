@@ -95,9 +95,9 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
     };
 
     return (
-        <div className="flex-1 flex bg-[#0b0b0b] animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+        <div className="flex-1 flex bg-[var(--bg-deep)] animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
             {/* Settings Sidebar */}
-            <aside className="w-64 border-r border-white/5 bg-[#141414]/50 backdrop-blur-3xl flex flex-col p-4 z-10">
+            <aside className="w-64 bg-white/[0.02] backdrop-blur-3xl flex flex-col p-4 z-10">
                 <div className="flex items-center gap-3 px-3 py-4 mb-6">
                     <Settings size={20} className="text-[var(--text-dim)]" />
                     <h2 className="text-lg font-bold text-white tracking-tight">{t('settings.title')}</h2>
@@ -119,7 +119,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                         {activeSection === 'general' && (
                             <motion.div
                                 layoutId="activeSetting"
-                                className="absolute inset-0 bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20 rounded-xl -z-10"
+                                className="absolute inset-0 bg-[var(--accent-primary)]/10 rounded-xl -z-10"
                                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
                             />
                         )}
@@ -139,7 +139,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                         {activeSection === 'quick-access' && (
                             <motion.div
                                 layoutId="activeSetting"
-                                className="absolute inset-0 bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20 rounded-xl -z-10"
+                                className="absolute inset-0 bg-[var(--accent-primary)]/10 rounded-xl -z-10"
                                 transition={{ type: "spring", stiffness: 500, damping: 30 }}
                             />
                         )}
@@ -173,7 +173,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                             <select
                                                 value={localLanguage}
                                                 onChange={(e) => setLocalLanguage(e.target.value as Language)}
-                                                className="flex-1 bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/30 transition-all cursor-pointer"
+                                                className="flex-1 bg-white/[0.03] rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:bg-white/[0.06] transition-all cursor-pointer"
                                             >
                                                 <option value="auto" className="bg-zinc-900">{t('settings.auto')}</option>
                                                 <option value="es" className="bg-zinc-900">{t('settings.spanish')}</option>
@@ -187,7 +187,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                         <select
                                             value={localSortConfig.column}
                                             onChange={(e) => setLocalSortConfig({ ...localSortConfig, column: e.target.value as SortColumn })}
-                                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/30 transition-all cursor-pointer"
+                                            className="w-full bg-white/[0.03] rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:bg-white/[0.06] transition-all cursor-pointer"
                                         >
                                             <option value="name" className="bg-zinc-900">{t('files.name')}</option>
                                             <option value="modified_at" className="bg-zinc-900">{t('files.date_modified')}</option>
@@ -201,7 +201,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                         <select
                                             value={localSortConfig.direction}
                                             onChange={(e) => setLocalSortConfig({ ...localSortConfig, direction: e.target.value as SortDirection })}
-                                            className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/30 transition-all cursor-pointer"
+                                            className="w-full bg-white/[0.03] rounded-xl px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:bg-white/[0.06] transition-all cursor-pointer"
                                         >
                                             <option value="asc" className="bg-zinc-900">{t('settings.ascending')}</option>
                                             <option value="desc" className="bg-zinc-900">{t('settings.descending')}</option>
@@ -253,7 +253,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                     <div className="grid gap-2 pt-2">
                                         <label className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-widest pl-1">{t('settings.toolbar_style')}</label>
                                         <p className="text-[10px] text-[var(--text-muted)] pl-1 mb-1">{t('settings.toolbar_style_desc')}</p>
-                                        <div className="flex bg-white/[0.03] border border-white/10 rounded-xl p-1 gap-1">
+                                        <div className="flex bg-white/[0.03] rounded-xl p-1 gap-1">
                                             <button
                                                 onClick={() => setLocalToolbarMode('dynamic')}
                                                 className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all
@@ -311,9 +311,9 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                         <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest pl-1">{t('settings.fixed_items')}</h3>
                                         <p className="text-xs text-[var(--text-muted)] pl-1 border-l-2 border-[var(--accent-primary)]/30">{t('settings.fixed_items_desc')}</p>
                                     </div>
-                                    <div className="grid gap-3 bg-white/[0.02] border border-white/5 rounded-2xl p-4 shadow-inner">
+                                    <div className="grid gap-3 bg-white/[0.02] rounded-2xl p-4">
                                         {systemFolders.map((folder) => (
-                                            <div key={folder.id} className="group flex items-center gap-4 bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all rounded-xl p-3">
+                                            <div key={folder.id} className="group flex items-center gap-4 bg-white/[0.03] transition-all rounded-xl p-3">
                                                 <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/5 text-[var(--text-dim)] group-hover:text-[var(--accent-primary)] group-hover:bg-[var(--accent-primary)]/10 transition-colors">
                                                     {getIcon(folder.id)}
                                                 </div>
@@ -327,7 +327,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                                         <div className="flex items-center gap-2">
                                                             <button
                                                                 onClick={() => toggleFolder(folder.id)}
-                                                                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-black ${folder.enabled ? 'bg-[var(--accent-primary)] shadow-[0_0_15px_var(--accent-glow)]' : 'bg-zinc-700'}`}
+                                                                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] ${folder.enabled ? 'bg-[var(--accent-primary)]' : 'bg-zinc-700'}`}
                                                             >
                                                                 <span className={`absolute h-4 w-4 rounded-full bg-white shadow-md transition-all duration-300 ease-spring ${folder.enabled ? 'left-[24px]' : 'left-[4px]'}`} />
                                                             </button>
@@ -339,8 +339,8 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                                         onChange={(e) => updatePath(folder.id, e.target.value)}
                                                         disabled={folder.id === 'recycle-bin' || folder.id === 'home'}
                                                         title={folder.id === 'recycle-bin' || folder.id === 'home' ? "This path is managed by the system" : ""}
-                                                        className={`w-full bg-black/20 border border-white/5 rounded-lg px-3 py-1.5 text-xs transition-all font-mono
-                                                            ${(folder.id === 'recycle-bin' || folder.id === 'home') ? 'text-zinc-600 cursor-not-allowed opacity-50' : 'text-zinc-400 focus:outline-none focus:border-[var(--accent-primary)]/50'}`}
+                                                        className={`w-full bg-black/20 rounded-lg px-3 py-1.5 text-xs transition-all font-mono
+                                                            ${(folder.id === 'recycle-bin' || folder.id === 'home') ? 'text-zinc-600 cursor-not-allowed opacity-50' : 'text-zinc-400 focus:outline-none focus:bg-white/5'}`}
                                                         placeholder="Path not set"
                                                     />
                                                 </div>
@@ -359,13 +359,13 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                                     </div>
                                     <div className="space-y-3">
                                         {customFolders.length > 0 ? customFolders.map((folder) => (
-                                            <div key={folder.id} className="grid gap-2 bg-white/[0.02] border border-white/5 rounded-xl p-4">
+                                            <div key={folder.id} className="grid gap-2 bg-white/[0.02] rounded-xl p-4">
                                                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest pl-1">{folder.name}</label>
                                                 <input
                                                     type="text"
                                                     value={folder.path}
                                                     onChange={(e) => updatePath(folder.id, e.target.value)}
-                                                    className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/30 transition-all font-mono"
+                                                    className="w-full bg-white/[0.03] rounded-xl px-4 py-2.5 text-sm text-zinc-200 focus:outline-none focus:bg-white/5 transition-all font-mono"
                                                     placeholder="Enter full path..."
                                                 />
                                             </div>
@@ -383,7 +383,7 @@ export default function SettingsPanel({ config, sortConfig, showHiddenFiles, aut
                 </AnimatePresence>
 
                 {/* Action Footer */}
-                <footer className="p-10 flex items-center justify-start gap-3 bg-[#0b0b0b]/40 backdrop-blur-md border-t border-white/5 mt-auto z-20">
+                <footer className="p-10 flex items-center justify-start gap-3 bg-[var(--bg-deep)]/40 backdrop-blur-md mt-auto z-20">
                     <button
                         onClick={() => handleSave(true)}
                         className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[var(--accent-primary)] hover:opacity-90 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-[rgba(var(--accent-rgb),0.2)] active:scale-95"

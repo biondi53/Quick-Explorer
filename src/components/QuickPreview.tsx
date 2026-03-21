@@ -313,14 +313,14 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     };
 
     const renderFallback = (f: FileEntry) => (
-        <div className="bg-white/5 p-10 rounded-2xl border border-white/10 backdrop-blur-md flex flex-col items-center gap-4 max-w-md w-full shadow-2xl transform transition-transform duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white/[0.04] p-10 rounded-2xl backdrop-blur-xl flex flex-col items-center gap-4 max-w-md w-full transform transition-transform duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
             <div className="text-8xl mb-4 drop-shadow-lg">{getFileIcon(f.name, f.is_dir)}</div>
             <h2 className="text-white font-bold text-2xl text-center break-all mb-2 leading-tight">{f.name}</h2>
 
             <div className="w-full space-y-3 mt-4 text-sm text-white/70">
-                <div className="flex justify-between border-b border-white/5 pb-2">
-                    <span className="text-white/50">{t('preview.type')}</span>
-                    <span>{file.is_dir
+                <div className="flex justify-between border-b border-white/[0.03] pb-2">
+                    <span className="text-white/40">{t('preview.type')}</span>
+                    <span className="font-semibold text-white/90">{file.is_dir
                         ? t('files.folder')
                         : file.is_shortcut
                             ? t('preview.shortcut')
@@ -330,14 +330,14 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                     }</span>
                 </div>
                 {!f.is_dir && (
-                    <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-white/50">{t('preview.size')}</span>
-                        <span>{f.formatted_size}</span>
+                    <div className="flex justify-between border-b border-white/[0.03] pb-2">
+                        <span className="text-white/40">{t('preview.size')}</span>
+                        <span className="font-semibold text-white/90">{f.formatted_size}</span>
                     </div>
                 )}
-                <div className="flex justify-between pb-2">
-                    <span className="text-white/50">{t('preview.modified')}</span>
-                    <span>{f.modified_at}</span>
+                <div className="flex justify-between pt-1">
+                    <span className="text-white/40">{t('preview.modified')}</span>
+                    <span className="font-semibold text-white/90">{f.modified_at}</span>
                 </div>
             </div>
         </div>
@@ -358,7 +358,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
             if (isAccessDenied) {
                 return (
-                    <div className="bg-white/5 p-10 rounded-2xl border border-white/10 backdrop-blur-md flex flex-col items-center gap-4 max-w-md w-full shadow-2xl transform transition-transform duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-white/[0.04] p-10 rounded-2xl backdrop-blur-xl flex flex-col items-center gap-4 max-w-md w-full transform transition-transform duration-300 cursor-default" onClick={(e) => e.stopPropagation()}>
                         <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
                             <Lock size={40} className="text-red-400" />
                         </div>
@@ -379,7 +379,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             }
 
             return (
-                <div className="text-red-400 bg-red-400/10 p-6 rounded-lg border border-red-400/20">
+                <div className="text-red-400 bg-red-400/5 p-6 rounded-lg">
                     <h3 className="text-lg font-bold mb-2">{t('preview.error_title')}</h3>
                     <p>{error}</p>
                 </div>
@@ -396,7 +396,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                     onLoad={(e) => setMediaAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
                     onDoubleClick={handleDoubleClick}
                     onContextMenu={handleContextMenu}
-                    className="rounded drop-shadow-2xl"
+                    className="rounded"
                     style={{
                         height: '100%',
                         transform: `scale(${scale * compScale}) translate(${translate.x / scale}px, ${translate.y / scale}px) rotate(${rotation}deg)`,
@@ -479,7 +479,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                                 mediaRef.current = el;
                             }}
                             onLoadedMetadata={(e) => setMediaAspect(e.currentTarget.videoWidth / e.currentTarget.videoHeight)}
-                            className="rounded drop-shadow-2xl bg-black/50 overflow-hidden"
+                            className="rounded bg-black/50 overflow-hidden"
                             style={{
                                 height: '100%',
                                 objectFit: 'contain',
@@ -516,7 +516,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
                     {/* Custom Floating Video Controls */}
                     <div
-                        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-black/40 rounded-2xl backdrop-blur-xl border border-white/10 shadow-2xl animate-in slide-in-from-bottom-5 duration-300"
+                        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-black/60 rounded-2xl backdrop-blur-2xl animate-in slide-in-from-bottom-5 duration-300"
                         onMouseDown={(e) => e.stopPropagation()} // Prevent dragging the background when using controls
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
@@ -595,7 +595,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         if (isAudio) {
             const src = convertFileSrc(file.path);
             return (
-                <div className="bg-white/5 p-8 rounded-xl border border-white/10 backdrop-blur-md flex flex-col items-center gap-6 min-w-[300px]">
+                <div className="bg-white/[0.04] p-8 rounded-xl backdrop-blur-xl flex flex-col items-center gap-6 min-w-[300px]">
                     <div className="text-6xl">🎵</div>
                     <p className="text-white font-medium text-lg leading-tight text-center break-all">{file.name}</p>
                     <audio src={src} controls autoPlay loop className="w-full" />
@@ -606,7 +606,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         if (isText && textContent !== null) {
             return (
                 <div
-                    className="w-full max-w-5xl h-full max-h-[85vh] flex flex-col bg-[#1e1e1e] rounded-xl border border-white/10 shadow-2xl overflow-hidden cursor-default"
+                    className="w-full max-w-5xl h-full max-h-[85vh] flex flex-col bg-[#05060f] rounded-xl overflow-hidden cursor-default"
                     onClick={(e) => e.stopPropagation()}
                     onWheel={(e) => {
                         if (textContentRef.current) {
@@ -618,7 +618,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                         }
                     }}
                 >
-                    <div className="bg-black/40 border-b border-white/5 px-4 py-2 flex justify-end items-center text-sm font-mono text-white/70">
+                    <div className="bg-black/20 px-4 py-2 flex justify-end items-center text-sm font-mono text-white/50">
                         {isTruncated && <span className="text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded text-xs">{t('preview.truncated')}</span>}
                     </div>
                     <div
@@ -637,7 +637,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
     return (
         <div
-            className="fixed inset-0 z-[9999] overflow-hidden flex items-center justify-center bg-black/60 backdrop-blur-sm p-8 animate-in fade-in duration-200"
+            className="fixed inset-0 z-[9999] overflow-hidden flex items-center justify-center bg-black/80 backdrop-blur-sm p-8 animate-in fade-in duration-200"
             onMouseDown={(e) => {
                 handleMouseDown(e);
                 handleBackdropClick(e);
@@ -648,7 +648,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             onWheel={handleWheel}
             onAuxClick={handleAuxClick}
         >
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/40 rounded-xl backdrop-blur-md border border-white/10 shadow-xl animate-in zoom-in-95 duration-200">
+            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/60 rounded-xl backdrop-blur-md animate-in zoom-in-95 duration-200">
                 <span className="text-white/90 font-medium text-lg pointer-events-none select-none drop-shadow-md">
                     {file.name}
                 </span>
@@ -658,15 +658,15 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                             e.stopPropagation();
                             setRotation(r => r + 90);
                         }}
-                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all duration-200 border border-white/5 backdrop-blur-sm outline-none"
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all duration-200 backdrop-blur-sm outline-none"
                         title={t('preview.rotate')}
                     >
                         <RotateCw size={18} />
                     </button>
                 )}
-                <button
-                    onClick={handleDelete}
-                    className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/80 text-white/70 hover:text-white transition-all duration-200 border border-white/5 hover:border-red-400/50 backdrop-blur-sm outline-none"
+                    <button
+                        onClick={handleDelete}
+                        className="p-1.5 rounded-lg bg-white/5 hover:bg-red-500/80 text-white/70 hover:text-white transition-all duration-200 backdrop-blur-sm outline-none"
                     title={t('preview.move_to_trash')}
                 >
                     <Trash size={18} />
@@ -682,7 +682,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
                 {/* Zoom indicator */}
                 {isZoomable && (
                     <div
-                        className="absolute bottom-4 right-4 z-10 px-3 py-1.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg text-white/90 text-sm font-mono select-none pointer-events-none transition-opacity duration-300"
+                        className="absolute bottom-4 right-4 z-10 px-3 py-1.5 bg-black/80 backdrop-blur-md rounded-lg text-white/90 text-sm font-mono select-none pointer-events-none transition-opacity duration-300"
                         style={{ opacity: showZoomIndicator ? 1 : 0 }}
                     >
                         {Math.round(scale * 100)}%

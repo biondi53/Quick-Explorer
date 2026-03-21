@@ -86,7 +86,7 @@ const ColumnMenu = ({ x, y, visibleColumns, onToggle, onClose }: ColumnMenuProps
     return (
         <div
             ref={menuRef}
-            className="fixed z-[100] w-64 bg-[#0f111a]/95 backdrop-blur-3xl border border-white/10 rounded-xl py-2 shadow-[0_10px_35px_rgba(0,0,0,0.7)] animate-in fade-in zoom-in-95 duration-100"
+            className="fixed z-[100] w-64 bg-[#05060f]/98 backdrop-blur-3xl rounded-xl py-2 shadow-[0_10px_40px_rgba(0,0,0,0.8)] animate-in fade-in zoom-in-95 duration-100"
             style={{ left: x, top: y }}
         >
             <div className="px-3 mb-2 text-[11px] font-black text-[var(--text-muted)] uppercase tracking-widest">{t('settings.visible_columns')}</div>
@@ -628,7 +628,7 @@ const FileTable = memo(({
         >
             {/* Table Header */}
             <div
-                className="sticky top-0 bg-[var(--bg-deep)]/80 backdrop-blur-2xl z-20 border-b border-white/10 px-2 h-11 shrink-0 grid items-center gap-2"
+                className="sticky top-0 bg-[var(--bg-deep)] z-20 px-2 h-11 shrink-0 grid items-center gap-2"
                 style={{ gridTemplateColumns: gridTemplate }}
                 onContextMenu={handleHeaderContextMenu}
             >
@@ -675,9 +675,9 @@ const FileTable = memo(({
                     return (
                         <div
                             key={file.path}
-                            className={`grid items-center h-[42px] px-2 file-row group cursor-default border-b border-white/[0.02] transition-opacity duration-300 gap-2
+                            className={`grid items-center h-[42px] px-2 file-row group cursor-default transition-all duration-200 gap-2
                                 ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
-                                ${isSelected ? 'bg-[var(--accent-primary)]/15 border-l-2 border-l-[var(--accent-primary)]' : 'hover:bg-white/[0.04]'}`}
+                                ${isSelected ? 'bg-[var(--accent-primary)]/10 text-white' : 'hover:bg-white/[0.04] text-[var(--text-dim)]'}`}
                             style={{
                                 gridTemplateColumns: gridTemplate,
                                 position: 'absolute',
@@ -795,7 +795,7 @@ const FileTable = memo(({
                                             <div className="flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center">
                                                 {(() => {
                                                     const IconComponent = getIconComponent(file);
-                                                    return <IconComponent size={16} className={`${file.is_dir ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'} ${isSelected ? 'text-white' : 'group-hover:text-white'}`} fill={file.is_dir ? 'rgba(var(--accent-rgb), 0.2)' : 'none'} />;
+                                                    return <IconComponent size={16} className={`${file.is_dir ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'} ${isSelected ? 'text-white' : 'group-hover:text-white'} transition-colors duration-200`} />;
                                                 })()}
                                             </div>
                                             {renamingPath === file.path ? (

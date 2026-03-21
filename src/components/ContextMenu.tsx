@@ -180,12 +180,12 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
     return (
         <div
             ref={menuRef}
-            className="fixed z-50 w-64 bg-[#0f111a]/95 backdrop-blur-3xl border border-white/10 rounded-xl py-1.5 shadow-[0_10px_35px_rgba(0,0,0,0.7),0_0_15px_var(--accent-glow)] animate-in fade-in zoom-in-95 duration-100 ease-out select-none transition-opacity"
+            className="fixed z-50 w-64 bg-[#05060f]/98 backdrop-blur-3xl rounded-xl py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.9)] animate-in fade-in zoom-in-95 duration-100 ease-out select-none transition-opacity"
             style={{ left: pos.left, top: pos.top, opacity: pos.opacity }}
         >
             {items.filter(item => !item.hidden).map((item, idx) => (
                 item.type === 'separator' ? (
-                    <div key={`sep-${idx}`} className="h-px bg-white/5 my-1 mx-2" />
+                    <div key={`sep-${idx}`} className="h-px bg-white/[0.03] my-1 mx-4" />
                 ) : (
                     <div key={item.id} className="relative group/item"
                         onMouseEnter={() => item.hasSubmenu && !item.disabled && setActiveSubmenu(item.id || null)}
@@ -227,7 +227,7 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
                         {/* Submenu */}
                         {item.hasSubmenu && activeSubmenu === item.id && (
                             <div
-                                className="absolute left-[calc(100%-4px)] top-0 w-64 bg-[#0f111a]/95 backdrop-blur-3xl border border-white/10 rounded-xl py-1.5 shadow-[0_10px_35px_rgba(0,0,0,0.7),0_0_15px_var(--accent-glow)] animate-in fade-in slide-in-from-left-2 duration-100"
+                                className="absolute left-[calc(100%-4px)] top-0 w-64 bg-[#05060f]/98 backdrop-blur-3xl rounded-xl py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.9)] animate-in fade-in slide-in-from-left-2 duration-100"
                             >
                                 {otherTabs.map(tab => (
                                     <button
