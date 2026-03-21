@@ -1,3 +1,22 @@
+# 🚀 Quick Explorer v0.1.31
+*Changelog - March 20, 2026*
+
+## ✨ Native Recursive Search (Feature Complete)
+- **🔍 ART-Core Indexing**: Finalized the integration of the Adaptive Radix Tree (ART) engine in Rust, providing O(k) search performance across massive directory structures.
+- **📊 Live Search Feedback**: Successfully implemented real-time status updates ("Searching...", "Indexing...") and match counts in the toolbar and file list.
+- **🛡️ IPC Robustness**: Hardened the communication layer between the search worker and the UI, ensuring stable results even during rapid navigation.
+
+## 🎨 UI/UX Refinement (Minimalist UI)
+- **⚡ Fluid Tab Animation**: Optimized new tab opening by removing the width expansion delay. Tab names are now instantly legible, providing a significantly snappier feel.
+- **💎 Design Polish**: Eliminated redundant borders, heavy shadows, and glows in the TabBar and panels for a cleaner, more focused aesthetic.
+- **🖱️ Precision Navigation**: Improved scroll restoration and address bar behavior during tab switching and search result interaction.
+
+## 🐛 Bug Fixes
+- **🔄 Navigation Race Conditions**: Fixed a bug where rapid tab switching could lead to indeterminate loading states.
+- **🎨 Style Consistency**: Resolved CSS conflicts in `index.css` to ensure uniform spacing and colors across all views.
+
+---
+
 # 🚀 Quick Explorer v0.1.30
 *Changelog - March 19, 2026*
 

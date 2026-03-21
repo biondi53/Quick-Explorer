@@ -92,10 +92,10 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                             <motion.div
                                 key={tab.id}
                                 layout
-                                initial={{ opacity: 0, scale: 0.9, width: 0 }}
-                                animate={{ opacity: 1, scale: 1, width: 130 }}
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.9, width: 0 }}
-                                transition={{ type: "spring", stiffness: 500, damping: 30, opacity: { duration: 0.2 } }}
+                                transition={{ type: "spring", stiffness: 500, damping: 30, opacity: { duration: 0.15 } }}
                                 data-tab-id={tab.id}
                                 onClick={() => onTabClick(tab.id)}
                                 onMouseDown={(e) => {
