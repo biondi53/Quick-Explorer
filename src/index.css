@@ -6,23 +6,23 @@
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
-  background-color: #0b0e1c;
+  background-color: #000105;
 
-  /* Default (Deep Neon) - Distinct Navy Blue */
-  --bg-deep: #0b0e1c;
-  --bg-surface: rgba(20, 24, 40, 0.7);
-  --bg-sidebar: rgba(13, 16, 28, 0.6);
+  /* Default (Deep Black) - Absolute Minimalism */
+  --bg-deep: #000105;
+  --bg-surface: #0a0b14;
+  --bg-sidebar: #000105;
   --accent-primary: #6366f1;
   --accent-rgb: 99, 102, 241;
   --accent-secondary: #06b6d4;
   --accent-glow: rgba(99, 102, 241, 0.5);
-  --text-dim: #e2e8f0;
-  /* Slate-200 (was #cbd5e1 / Slate-300) */
-  --text-muted: #cbd5e1;
-  /* Slate-300 (was #94a3b8 / Slate-400) */
-  --border-glow: rgba(255, 255, 255, 0.15);
+  --text-dim: #f8f9fa;
+  /* Slate-50 / Gray-50 */
+  --text-muted: #a1a1aa;
+  /* Zinc-400 */
+  --border-glow: transparent;
   --border-active: rgba(99, 102, 241, 0.7);
-  --mica-bg: rgba(11, 14, 28, 0.6);
+  --mica-bg: #000105;
 }
 
 /* 2. Theme Overrides */
