@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
-import { Trash, RotateCw, Lock, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { Trash, RotateCw, Lock, Play, Pause, Volume2, VolumeX, ExternalLink } from 'lucide-react';
 import { FileEntry } from '../types';
 import { useTranslation } from '../i18n/useTranslation';
 import { IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS, TEXT_EXTS } from '../utils/previewUtils';
@@ -516,7 +516,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
 
                     {/* Custom Floating Video Controls */}
                     <div
-                        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-black/60 rounded-2xl backdrop-blur-2xl animate-in slide-in-from-bottom-5 duration-300"
+                        className="fixed bottom-8 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 px-6 py-3 bg-black/20 hover:bg-black/80 transition-all border border-white/10 hover:border-white/20 rounded-2xl backdrop-blur-none hover:backdrop-blur-md animate-in slide-in-from-bottom-5 duration-300"
                         onMouseDown={(e) => e.stopPropagation()} // Prevent dragging the background when using controls
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
@@ -648,10 +648,24 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
             onWheel={handleWheel}
             onAuxClick={handleAuxClick}
         >
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/60 rounded-xl backdrop-blur-md animate-in zoom-in-95 duration-200">
+            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 px-4 py-2 bg-black/20 hover:bg-black/80 transition-all border border-white/10 hover:border-white/20 rounded-xl backdrop-blur-none hover:backdrop-blur-sm animate-in zoom-in-95 duration-200">
                 <span className="text-white/90 font-medium text-lg pointer-events-none select-none drop-shadow-md">
                     {file.name}
                 </span>
+                <button
+                    onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                            await invoke('open_with', { path: file.path });
+                        } catch (err) {
+                            console.error("Error al abrir con otra aplicación:", err);
+                        }
+                    }}
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-all duration-200 backdrop-blur-sm outline-none"
+                    title={t('context_menu.open_with')}
+                >
+                    <ExternalLink size={18} />
+                </button>
                 {isZoomable && (
                     <button
                         onClick={(e) => {

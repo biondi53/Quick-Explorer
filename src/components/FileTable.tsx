@@ -677,7 +677,7 @@ const FileTable = memo(({
                             key={file.path}
                             className={`grid items-center h-[42px] px-2 file-row group cursor-default transition-all duration-200 gap-2
                                 ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
-                                ${isSelected ? 'bg-[var(--accent-primary)]/10 text-white' : 'hover:bg-white/[0.04] text-[var(--text-dim)]'}`}
+                                ${isSelected ? 'bg-[var(--accent-primary)]/15 ring-1 ring-[var(--accent-primary)]/25 ring-inset text-white' : 'hover:bg-white/[0.04] text-[var(--text-dim)] ring-0 ring-transparent'}`}
                             style={{
                                 gridTemplateColumns: gridTemplate,
                                 position: 'absolute',

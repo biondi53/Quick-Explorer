@@ -209,8 +209,8 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
                                         }}
                                         className={`w-full flex ${item.disk_info ? 'flex-col items-start gap-1' : 'items-center gap-3'} px-4 py-2.5 rounded-xl text-sm transition-all duration-200 group relative overflow-hidden
                     ${active
-                                                ? 'bg-[var(--accent-primary)]/10 text-white font-bold'
-                                                : 'text-[var(--text-muted)] hover:bg-white/[0.05] hover:text-white'}
+                                                ? 'bg-[var(--accent-primary)]/15 ring-1 ring-[var(--accent-primary)]/25 ring-inset text-white font-bold'
+                                                : 'text-[var(--text-muted)] hover:bg-white/[0.05] hover:text-white ring-0 ring-transparent'}
                   `}
                                     >
                                         {active && (

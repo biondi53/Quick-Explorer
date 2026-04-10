@@ -115,7 +115,9 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                                     flexShrink: 0,
                                     flexGrow: 0,
                                     boxSizing: 'border-box',
-                                    position: 'relative'
+                                    position: 'relative',
+                                    minWidth: '140px',
+                                    maxWidth: '240px'
                                 }}
                                 className={`group flex items-center gap-1 h-full px-4 rounded-t-xl cursor-pointer transition-all no-drag select-none
                                     ${tab.id === activeTabId

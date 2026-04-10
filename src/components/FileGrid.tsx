@@ -153,8 +153,8 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                     transition-all duration-200 group h-full w-full relative
                     ${isClipboardItem ? 'opacity-40' : 'opacity-100'}
                     ${isSelected
-                        ? 'bg-[var(--accent-primary)]/10'
-                        : 'hover:bg-white/[0.04]'
+                        ? 'bg-[var(--accent-primary)]/15 ring-1 ring-[var(--accent-primary)]/25 ring-inset'
+                        : 'hover:bg-white/[0.04] ring-0 ring-transparent'
                     }
                 `}
                 onMouseDown={(e) => {
