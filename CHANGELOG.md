@@ -1,3 +1,15 @@
+# 🚀 Quick Explorer v0.1.32
+*Changelog - April 10, 2026*
+
+## 🎨 QuickPreview & UI Refinements
+- **💎 Dynamic Glassmorphism**: Implemented a responsive backdrop-blur and transparency system for QuickPreview controls. Floating elements now remain ultra-translucent by default and shift to a dark blurred state on hover, prioritizing media visibility.
+- **🚀 "Open With" Integration**: Added a native "Open With" button to the QuickPreview header, allowing instant file launching in external applications without leaving the viewer.
+- **✨ Themed Context Shadows**: Restored accented depth to context menus using the system's `--accent-glow` variable, providing both better separation from the background and a premium aesthetic.
+- **🎯 Enhanced Selection Visibility**: Optimized the selection state with a 15% opacity background and a 25% opacity ring border, making multi-selection significantly clearer across all views (Grid, List, Sidebar).
+- **🖱️ Tab Navigation Polish**: Fixed a usability issue where tabs with short names were difficult to target. Set a standardized 140px minimum width for all tabs while maintaining the smooth pop-layout animations.
+
+---
+
 # 🚀 Quick Explorer v0.1.31
 *Changelog - March 20, 2026*
 
@@ -357,4 +369,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.29*
+*Quick Explorer Project © 2026 - Versión 0.1.32*
