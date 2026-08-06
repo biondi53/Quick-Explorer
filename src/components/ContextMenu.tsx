@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { ExternalLink, Copy, Trash, FileSearch, Scissors, Clipboard, Pin, PinOff, Pencil, FolderOpen, ArrowRight, Archive, RotateCcw } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
@@ -32,6 +33,8 @@ interface MenuItem {
 export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClose, onAction, allowRename, fromSidebar, recycleBinStatus, tabs, activeTabId, isDeepSearch }: ContextMenuProps & { fromSidebar?: boolean }) {
     const { t } = useTranslation();
     const menuRef = useRef<HTMLDivElement>(null);
+    const submenuRef = useRef<HTMLDivElement>(null);
+    const submenuAnchorRef = useRef<HTMLDivElement>(null);
     const [canPaste, setCanPaste] = useState(false);
     const [pos, setPos] = useState({ left: x, top: y, opacity: 0 });
     const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
@@ -96,6 +99,24 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
             setPos({ left: finalX, top: finalY, opacity: 1 });
         }
     }, [x, y]);
+
+    useLayoutEffect(() => {
+        if (submenuRef.current && submenuAnchorRef.current) {
+            const menuWidth = 256;
+            const margin = 12;
+            const submenu = submenuRef.current;
+            const anchor = submenuAnchorRef.current.getBoundingClientRect();
+            const opensLeft = pos.left + menuWidth + menuWidth > window.innerWidth;
+            const baseLeft = opensLeft ? anchor.left - menuWidth + 4 : anchor.right - 4;
+            const height = submenu.offsetHeight;
+            const overflow = anchor.top + height - (window.innerHeight - margin);
+            const allowedShift = Math.max(0, anchor.top - margin);
+            const shift = overflow > 0 ? Math.min(overflow, allowedShift) : 0;
+
+            submenu.style.left = `${baseLeft}px`;
+            submenu.style.top = `${anchor.top - shift}px`;
+        }
+    }, [activeSubmenu, otherTabs.length, pos.left]);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -180,16 +201,27 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
     return (
         <div
             ref={menuRef}
-            className="fixed z-50 w-64 bg-[#05060f]/98 backdrop-blur-3xl rounded-xl py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_20px_var(--accent-glow)] animate-in fade-in zoom-in-95 duration-100 ease-out select-none transition-opacity"
-            style={{ left: pos.left, top: pos.top, opacity: pos.opacity }}
+            className="fixed z-50 w-64 border border-white/10 rounded-xl py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_20px_var(--accent-glow)] animate-in fade-in zoom-in-95 duration-100 ease-out select-none transition-opacity"
+            style={{ 
+                left: pos.left, 
+                top: pos.top, 
+                opacity: pos.opacity,
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                backgroundColor: 'rgba(10, 11, 20, 0.35)'
+            }}
         >
             {items.filter(item => !item.hidden).map((item, idx) => (
                 item.type === 'separator' ? (
                     <div key={`sep-${idx}`} className="h-px bg-white/[0.03] my-1 mx-4" />
                 ) : (
                     <div key={item.id} className="relative group/item"
+                        ref={activeSubmenu === item.id ? submenuAnchorRef : undefined}
                         onMouseEnter={() => item.hasSubmenu && !item.disabled && setActiveSubmenu(item.id || null)}
-                        onMouseLeave={() => item.hasSubmenu && setActiveSubmenu(null)}
+                        onMouseLeave={(e) => {
+                            if (submenuRef.current && e.relatedTarget instanceof Node && submenuRef.current.contains(e.relatedTarget)) return;
+                            item.hasSubmenu && setActiveSubmenu(null);
+                        }}
                     >
                         <button
                             onClick={() => {
@@ -224,10 +256,18 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
                             </div>
                         </button>
 
-                        {/* Submenu */}
-                        {item.hasSubmenu && activeSubmenu === item.id && (
+                        {/* Submenu (portal: fuera del menú con backdrop-filter, así su blur aplica) */}
+                        {item.hasSubmenu && activeSubmenu === item.id && createPortal((
                             <div
-                                className="absolute left-[calc(100%-4px)] top-0 w-64 bg-[#05060f]/98 backdrop-blur-3xl rounded-xl py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_20px_var(--accent-glow)] animate-in fade-in slide-in-from-left-2 duration-100"
+                                ref={submenuRef}
+                                className="fixed z-[60] w-64 border border-white/10 rounded-xl py-1.5 shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_20px_var(--accent-glow)] animate-in fade-in slide-in-from-left-2 duration-100"
+                                onMouseEnter={() => setActiveSubmenu(item.id || null)}
+                                onMouseLeave={() => setActiveSubmenu(null)}
+                                style={{
+                                    backdropFilter: 'blur(20px)',
+                                    WebkitBackdropFilter: 'blur(20px)',
+                                    backgroundColor: 'rgba(10, 11, 20, 0.35)'
+                                }}
                             >
                                 {otherTabs.map(tab => (
                                     <button
@@ -243,7 +283,7 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
                                     </button>
                                 ))}
                             </div>
-                        )}
+                        ), document.body)}
                     </div>
                 )
             ))}
