@@ -86,8 +86,14 @@ const ColumnMenu = ({ x, y, visibleColumns, onToggle, onClose }: ColumnMenuProps
     return (
         <div
             ref={menuRef}
-            className="fixed z-[100] w-64 bg-[#05060f]/98 backdrop-blur-3xl rounded-xl py-2 shadow-[0_10px_40px_rgba(0,0,0,0.8)] animate-in fade-in zoom-in-95 duration-100"
-            style={{ left: x, top: y }}
+            className="fixed z-[100] w-64 border border-white/10 rounded-xl py-2 shadow-[0_10px_40px_rgba(0,0,0,0.8),0_0_15px_var(--accent-glow)] animate-in fade-in zoom-in-95 duration-100"
+            style={{ 
+                left: x, 
+                top: y,
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                backgroundColor: 'rgba(10, 11, 20, 0.35)'
+            }}
         >
             <div className="px-3 mb-2 text-[11px] font-black text-[var(--text-muted)] uppercase tracking-widest">{t('settings.visible_columns')}</div>
             {(Object.keys(COLUMN_CONFIG) as SortColumn[]).map(col => (

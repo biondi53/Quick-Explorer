@@ -58,8 +58,14 @@ export default function InputContextMenu({ x, y, onClose, onAction, showPasteAnd
     return (
         <div
             ref={menuRef}
-            className="fixed z-[100] w-56 bg-[#0f111a]/95 backdrop-blur-3xl border border-white/10 rounded-xl py-1.5 shadow-[0_10px_35px_rgba(0,0,0,0.7),0_0_15px_var(--accent-glow)] animate-in fade-in zoom-in-95 duration-100 ease-out select-none opacity-0"
-            style={{ left: x, top: y }}
+            className="fixed z-[100] w-56 border border-white/10 rounded-xl py-1.5 shadow-[0_10px_35px_rgba(0,0,0,0.7),0_0_15px_var(--accent-glow)] animate-in fade-in zoom-in-95 duration-100 ease-out select-none opacity-0"
+            style={{ 
+                left: x, 
+                top: y,
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                backgroundColor: 'rgba(10, 11, 20, 0.35)'
+            }}
             onMouseDown={(e) => e.preventDefault()}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
         >
