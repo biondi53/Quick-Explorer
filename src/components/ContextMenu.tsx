@@ -120,7 +120,11 @@ export default function ContextMenu({ x, y, selectedFiles, pinnedFolders, onClos
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+            const target = e.target as Node;
+            if (
+                menuRef.current && !menuRef.current.contains(target) &&
+                submenuRef.current && !submenuRef.current.contains(target)
+            ) {
                 onClose();
             }
         };
