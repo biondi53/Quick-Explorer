@@ -964,12 +964,20 @@ export default function App() {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, file, fromSidebar: false });
 
-    if (file && currentTab) {
-      const isAlreadySelected = currentTab.selectedFiles.some(f => f.path === file.path);
-      if (!isAlreadySelected) {
+    if (currentTab) {
+      if (file) {
+        const isAlreadySelected = currentTab.selectedFiles.some(f => f.path === file.path);
+        if (!isAlreadySelected) {
+          updateTab(currentTab.id, {
+            selectedFiles: [file],
+            lastSelectedFile: file
+          });
+        }
+      } else {
+        // Right-click on empty space: clear selection so ContextMenu ("file") derives null → paste/properties menu
         updateTab(currentTab.id, {
-          selectedFiles: [file],
-          lastSelectedFile: file
+          selectedFiles: [],
+          lastSelectedFile: null
         });
       }
     }
@@ -1384,6 +1392,12 @@ export default function App() {
 
       // Escape key handling (global)
       if (e.key === 'Escape') {
+        if (contextMenu) {
+          setContextMenu(null);
+          e.preventDefault();
+          return;
+        }
+
         let handled = false;
 
         if (showQuickPreview) {
@@ -1488,7 +1502,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo, showQuickPreview, isEditingPath, handleRenameCancel, handleClearSelection, handleCopy, handleCut, handlePaste, handleSelectAll, handleDelete, handleRename]);
+  }, [addTab, closeTab, tabs.length, activeTabId, currentTab, refreshCurrentTab, autoSearchOnKey, sortedFiles, navigateTo, showQuickPreview, isEditingPath, handleRenameCancel, handleClearSelection, handleCopy, handleCut, handlePaste, handleSelectAll, handleDelete, handleRename, contextMenu]);
 
   // Duplicate handlers below removed
 
