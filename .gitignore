@@ -37,3 +37,6 @@ DO NOT TOUCH - FileExplorer EXAMPLE/
 # Superpowers / Worktrees
 .worktrees/
 .superpowers/
+
+# Capturas de pantalla (verificacion visual, nunca al repo)
+Screenshot_*
