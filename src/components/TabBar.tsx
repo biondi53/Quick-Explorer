@@ -5,6 +5,7 @@ import WindowControls from './WindowControls';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tab } from '../types';
 import { useTabDragHover } from '../hooks/useTabDragHover';
+import { useThresholdWindowDrag } from '../hooks/useThresholdWindowDrag';
 import { useTranslation } from '../i18n/useTranslation';
 
 
@@ -20,6 +21,7 @@ interface TabBarProps {
 export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab /*, onReorder */ }: TabBarProps) {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const { handleDragOver, handleDragLeave } = useTabDragHover(onTabClick);
+    const { onMouseDown: handleTabDragStart, shouldSwallowClick } = useThresholdWindowDrag();
     const { t } = useTranslation();
 
     // Auto-scroll active tab into view
@@ -97,8 +99,12 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                                 exit={{ opacity: 0, scale: 0.9, width: 0 }}
                                 transition={{ type: "spring", stiffness: 500, damping: 30, opacity: { duration: 0.15 } }}
                                 data-tab-id={tab.id}
-                                onClick={() => onTabClick(tab.id)}
+                                onClick={() => {
+                                    if (shouldSwallowClick()) return;
+                                    onTabClick(tab.id);
+                                }}
                                 onMouseDown={(e) => {
+                                    handleTabDragStart(e);
                                     if (e.button === 1) {
                                         e.stopPropagation();
                                         e.preventDefault();
