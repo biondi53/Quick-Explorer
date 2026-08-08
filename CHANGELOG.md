@@ -1,3 +1,26 @@
+# 🚀 Quick Explorer v0.1.33
+*Changelog - August 8, 2026*
+
+## 🖱️ Window Drag & Context Menu Polish
+- **🖱️ Drag Window from Any Tab**: Grabbing any tab now drags the window using the same native mechanics, with a 5px threshold so a simple click still selects the tab (click ≠ drag) — no more needing to grab an empty title area.
+- **🎯 Empty-Area Right-Click**: Right-clicking on empty space in the file panel now clears the selection and shows the paste/properties menu instead of re-deriving the last selected file. No accidental actions on stale selections.
+
+## 🧠 Context Menu Reliability
+- **📐 Vertical Submenu Intelligence**: The "Move to…" submenu now measures its own height and opens upward when it doesn't fit below, preventing crash-prone cut-off positioning (same technique as the main and input menus).
+- **🔀 Portaled Submenu**: The submenu renders into a portal at document level so its glass blur applies correctly, and it stays open/closed predictably with its own mouse enter/leave handling.
+- **🚪 Hardenable Dismissal**: Fixed cases where the menu stayed open: outside-click now covers the portaled submenu, and Escape closes the context menu first before any other handler.
+- **💎 Unified Frosted Glass**: Context menus and input menus share a single frosted glass treatment for a coherent look.
+
+## 🎨 Ambient Glass Refinement
+- **🌌 Single App-Wide Background**: Replaced per-panel mica-style layers with one continuous ambient gradient (accent top → deep black bottom) across the whole window. Panels are now transparent, so the background flows seamlessly behind the sidebar, tabbar, and main content.
+- **📋 Sticky Header Continuity**: The sticky column header in table view paints the exact ambient gradient behind itself (self-healing hook), removing the dark band that used to appear when scrolling.
+
+## 🧪 Testing & Housekeeping
+- **🛡️ Context Menu Regression Tests**: Added a regression suite covering outside-click and Escape dismissal of the file menu (2 tests, green).
+- **🗂️ Repo Hygiene**: Local screenshots are now ignored by Git and never versioned.
+
+---
+
 # 🚀 Quick Explorer v0.1.32
 *Changelog - April 10, 2026*
 
@@ -369,4 +392,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.32*
+*Quick Explorer Project © 2026 - Versión 0.1.33*

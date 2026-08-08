@@ -1,71 +1,131 @@
 
-> d-speedexplorer@0.1.7 tauri
+> d-speedexplorer@0.1.33 tauri
 > tauri build
 
         Info Looking up installed tauri packages to check mismatched versions...
      Running beforeBuildCommand `npm run build`
 
-> d-speedexplorer@0.1.7 build
+> d-speedexplorer@0.1.33 build
 > tsc && vite build
 
 [36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
 transforming...
-[32mÔ£ô[39m 1732 modules transformed.
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+[32mÔ£ô[39m 2143 modules transformed.
 rendering chunks...
+[plugin vite:reporter] 
+(!) D:/SpeedExplorer/node_modules/@tauri-apps/api/event.js is dynamically imported by D:/SpeedExplorer/src/App.tsx but also statically imported by D:/SpeedExplorer/node_modules/@tauri-apps/api/window.js, D:/SpeedExplorer/src/App.tsx, D:/SpeedExplorer/src/hooks/useTabs.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) D:/SpeedExplorer/src/utils/ghostIcon.ts is dynamically imported by D:/SpeedExplorer/src/components/FileTable.tsx but also statically imported by D:/SpeedExplorer/src/components/FileGrid.tsx, dynamic import will not move module into another chunk.
+
 computing gzip size...
-[2mdist/[22m[32mindex.html                 [39m[1m[2m  0.52 kB[22m[1m[22m[2m Ôöé gzip:  0.36 kB[22m
-[2mdist/[22m[35massets/index-BONdOjkF.css  [39m[1m[2m 62.48 kB[22m[1m[22m[2m Ôöé gzip:  9.91 kB[22m
-[2mdist/[22m[36massets/index-76XbC8T6.js   [39m[1m[2m  0.12 kB[22m[1m[22m[2m Ôöé gzip:  0.13 kB[22m
-[2mdist/[22m[36massets/index-CfBik5Tz.js   [39m[1m[2m331.52 kB[22m[1m[22m[2m Ôöé gzip: 99.54 kB[22m
-[32mÔ£ô built in 8.42s[39m
-   Compiling windows v0.61.3
-   Compiling windows-core v0.52.0
-   Compiling tauri-plugin-drag v2.1.0
-   Compiling windows-implement v0.52.0
-   Compiling windows-interface v0.52.0
-   Compiling base64 v0.21.7
-   Compiling windows v0.52.0
-   Compiling d-speedexplorer v0.1.7 (D:\SpeedExplorer\src-tauri)
-   Compiling drag v2.1.0
-   Compiling webview2-com-sys v0.38.2
-   Compiling tao v0.34.5
-   Compiling webview2-com v0.38.2
-   Compiling tauri-runtime v2.9.2
-   Compiling wry v0.53.5
-   Compiling tauri-runtime-wry v2.9.3
-   Compiling tauri v2.9.5
-   Compiling tauri-plugin-fs v2.4.5
-   Compiling tauri-plugin-opener v2.5.3
-   Compiling tauri-plugin-process v2.3.1
-   Compiling tauri-plugin-dialog v2.6.0
-warning: unused import: `tauri::Runtime`
-    --> src\lib.rs:1549:21
-     |
-1549 |                 use tauri::Runtime;
-     |                     ^^^^^^^^^^^^^^
-     |
-     = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+[2mdist/[22m[32mindex.html                 [39m[1m[2m  0.52 kB[22m[1m[22m[2m Ôöé gzip:   0.36 kB[22m
+[2mdist/[22m[35massets/index-C5JLogT-.css  [39m[1m[2m 76.25 kB[22m[1m[22m[2m Ôöé gzip:  11.31 kB[22m
+[2mdist/[22m[36massets/index-CYvMRH6j.js   [39m[1m[2m  0.12 kB[22m[1m[22m[2m Ôöé gzip:   0.13 kB[22m
+[2mdist/[22m[36massets/index-6IZIjEs1.js   [39m[1m[33m555.25 kB[39m[22m[2m Ôöé gzip: 169.38 kB[22m
 
-error[E0599]: no variant named `DragOver` found for enum `tauri::WindowEvent`
-    --> src\lib.rs:1537:37
-     |
-1537 |                 tauri::WindowEvent::DragOver { position, .. } => {
-     |                                     ^^^^^^^^ variant not found in `tauri::WindowEvent`
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[32mÔ£ô built in 19.31s[39m
+   Compiling d-speedexplorer v0.1.33 (D:\SpeedExplorer\src-tauri)
+warning: unused import: `APP_HANDLE`
+ --> src\search_engine\index_manager.rs:8:13
+  |
+8 | use crate::{APP_HANDLE, FileEntry};
+  |             ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
-error[E0599]: no variant named `DragEnter` found for enum `tauri::WindowEvent`
-    --> src\lib.rs:1540:37
-     |
-1540 |                 tauri::WindowEvent::DragEnter { position, .. } => {
-     |                                     ^^^^^^^^^ variant not found in `tauri::WindowEvent`
+warning: unused import: `tauri::Manager`
+ --> src\search_engine\index_manager.rs:3:5
+  |
+3 | use tauri::Manager;
+  |     ^^^^^^^^^^^^^^
 
-error[E0599]: no variant or associated item named `DragLeave` found for enum `tauri::WindowEvent` in the current scope
-    --> src\lib.rs:1543:37
+warning: unnecessary `unsafe` block
+    --> src\lib.rs:1047:23
      |
-1543 |                 tauri::WindowEvent::DragLeave => println!("[RUST DIAGNOSTIC] DragLeave"),
-     |                                     ^^^^^^^^^ variant or associated item not found in `tauri::WindowEvent`
+1035 |     unsafe {
+     |     ------ because it's nested under this `unsafe` block
+...
+1047 |                 match unsafe {
+     |                       ^^^^^^ unnecessary `unsafe` block
+     |
+     = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
 
-For more information about this error, try `rustc --explain E0599`.
-warning: `d-speedexplorer` (lib) generated 1 warning
-error: could not compile `d-speedexplorer` (lib) due to 3 previous errors; 1 warning emitted
-failed to build app: failed to build app
-       Error failed to build app: failed to build app
+warning: variable does not need to be mutable
+    --> src\lib.rs:1594:17
+     |
+1594 |             let mut query = STORAGE_PROPERTY_QUERY {
+     |                 ----^^^^^
+     |                 |
+     |                 help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `get_video_thumbnail` is never used
+    --> src\lib.rs:1005:10
+     |
+1005 | async fn get_video_thumbnail(
+     |          ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `get_thumbnail` is never used
+    --> src\lib.rs:1017:10
+     |
+1017 | async fn get_thumbnail(
+     |          ^^^^^^^^^^^^^
+
+warning: methods `remove_child` and `shrink` are never used
+   --> src\search_engine\art_core.rs:181:8
+    |
+ 32 | impl ARTNode {
+    | ------------ methods in this implementation
+...
+181 |     fn remove_child(&mut self, key: KeyType) -> Option<Box<ARTNode>> {
+    |        ^^^^^^^^^^^^
+...
+261 |     fn shrink(&mut self) -> Result<Self, String> {
+    |        ^^^^^^
+
+warning: method `remove_child` is never used
+   --> src\search_engine\art_core.rs:573:8
+    |
+550 | impl Node256 {
+    | ------------ method in this implementation
+...
+573 |     fn remove_child(&mut self, key: KeyType) -> Option<Box<ARTNode>> {
+    |        ^^^^^^^^^^^^
+
+warning: methods `clear` and `is_empty` are never used
+   --> src\search_engine\art_core.rs:796:12
+    |
+617 | impl ART {
+    | -------- methods in this implementation
+...
+796 |     pub fn clear(&mut self) {
+    |            ^^^^^
+...
+802 |     pub fn is_empty(&self) -> bool { self.path_count == 0 }
+    |            ^^^^^^^^
+
+warning: `d-speedexplorer` (lib) generated 9 warnings (run `cargo fix --lib -p d-speedexplorer` to apply 2 suggestions)
+    Finished `release` profile [optimized] target(s) in 3m 00s
+       Built application at: D:\SpeedExplorer\src-tauri\target\release\d-speedexplorer.exe
+        Info Patching binary "D:\\SpeedExplorer\\src-tauri\\target\\release\\d-speedexplorer.exe" for type msi
+        Info Target: x64
+     Running candle for "D:\\SpeedExplorer\\src-tauri\\target\\release\\wix\\x64\\main.wxs"
+     Running light to produce D:\SpeedExplorer\src-tauri\target\release\bundle\msi\Quick Explorer_0.1.33_x64_en-US.msi
+        Info Patching binary "D:\\SpeedExplorer\\src-tauri\\target\\release\\d-speedexplorer.exe" for type nsis
+        Info Target: x64
+     Running makensis to produce D:\SpeedExplorer\src-tauri\target\release\bundle\nsis\Quick Explorer_0.1.33_x64-setup.exe
+    Finished 2 bundles at:
+        D:\SpeedExplorer\src-tauri\target\release\bundle\msi\Quick Explorer_0.1.33_x64_en-US.msi
+        D:\SpeedExplorer\src-tauri\target\release\bundle\nsis\Quick Explorer_0.1.33_x64-setup.exe
+
