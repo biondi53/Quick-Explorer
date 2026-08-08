@@ -492,10 +492,83 @@ const FileTable = memo(({
     };
 
     const scrollTimeoutRef = useRef<any>(null);
+    const headerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         return () => {
             if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+        };
+    }, []);
+
+    // Ambient del header de columnas: pinta el degradado del viewport
+    // alineado al rect real del header (getBoundingClientRect), en vez de
+    // confiar en background-attachment: fixed (se rompe con compositing).
+    // El degradado se construye como string literal con los valores ya
+    // resueltos (--accent-rgb, --bg-deep): sin var() anidados en el estilo
+    // inline. El hook es autocurativo: sondea con rAF hasta que el header
+    // exista (el primer mount puede ser el estado vacío, sin header), y
+    // luego cualquier scroll/resize/theme no cambia la pintura.
+    useEffect(() => {
+        let rafId = 0;
+        let probeId = 0;
+        let ro: ResizeObserver | null = null;
+        let observed = false;
+
+        const paint = () => {
+            rafId = 0;
+            const el = headerRef.current;
+            if (!el) return;
+            const cs = getComputedStyle(document.documentElement);
+            const accent = cs.getPropertyValue('--accent-rgb').trim() || '99, 102, 241';
+            const base = cs.getPropertyValue('--bg-deep').trim() || '#000105';
+            const top = el.getBoundingClientRect().top;
+            el.style.backgroundImage =
+                `linear-gradient(180deg, rgba(${accent},0.24) 0%, ` +
+                `rgba(${accent},0.10) 30%, rgba(${accent},0.04) 55%, ` +
+                `rgba(${accent},0) 80%)`;
+            el.style.backgroundSize = '100vw 100vh';
+            el.style.backgroundPosition = `0px ${-top}px`;
+            el.style.backgroundRepeat = 'no-repeat';
+            el.style.backgroundColor = base;
+            if (!observed && el.parentElement) {
+                ro = new ResizeObserver(schedule);
+                ro.observe(el.parentElement);
+                observed = true;
+            }
+        };
+
+        const probe = () => {
+            probeId = 0;
+            if (headerRef.current) {
+                paint();
+                return;
+            }
+            probeId = requestAnimationFrame(probe);
+        };
+
+        const schedule = () => {
+            if (rafId) return;
+            rafId = requestAnimationFrame(paint);
+        };
+
+        window.addEventListener('resize', schedule);
+        window.addEventListener('scroll', schedule, true);
+        const themeObserver = new MutationObserver(schedule);
+        themeObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['data-theme'],
+        });
+        const settleTimer = setTimeout(schedule, 400);
+        probe();
+
+        return () => {
+            cancelAnimationFrame(rafId);
+            cancelAnimationFrame(probeId);
+            clearTimeout(settleTimer);
+            themeObserver.disconnect();
+            if (ro) ro.disconnect();
+            window.removeEventListener('resize', schedule);
+            window.removeEventListener('scroll', schedule, true);
         };
     }, []);
 
@@ -634,7 +707,8 @@ const FileTable = memo(({
         >
             {/* Table Header */}
             <div
-                className="sticky top-0 bg-[var(--bg-deep)] z-20 px-2 h-11 shrink-0 grid items-center gap-2"
+                ref={headerRef}
+                className="sticky top-0 glass-bar-opaque z-20 px-2 h-11 shrink-0 grid items-center gap-2 border-b border-white/5"
                 style={{ gridTemplateColumns: gridTemplate }}
                 onContextMenu={handleHeaderContextMenu}
             >

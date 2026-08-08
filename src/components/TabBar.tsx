@@ -49,7 +49,7 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
 
     return (
         <div
-            className="relative h-10 bg-[var(--bg-deep)] z-20"
+            className="relative h-10 z-20 border-b border-white/5"
             style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(0, 1fr) auto auto',
@@ -121,7 +121,7 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNe
                                 }}
                                 className={`group flex items-center gap-1 h-full px-4 rounded-t-xl cursor-pointer transition-all no-drag select-none
                                     ${tab.id === activeTabId
-                                        ? 'bg-[var(--bg-surface)] text-white'
+                                        ? 'bg-white/[0.04] text-white'
                                         : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}`}
                             >
                                 {tab.id === activeTabId && (

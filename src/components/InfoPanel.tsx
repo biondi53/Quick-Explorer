@@ -41,7 +41,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
     if (selectedFiles.length === 0) {
         return (
             <aside
-                className="flex flex-col bg-[var(--bg-surface)] items-center justify-center text-[var(--text-muted)] p-8 text-center"
+                className="flex flex-col items-center justify-center text-[var(--text-muted)] p-8 text-center"
                 style={{ width }}
                 onContextMenu={(e) => e.preventDefault()}
             >
@@ -61,7 +61,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
 
         return (
             <aside
-                className="flex flex-col bg-[var(--bg-surface)] h-full select-none"
+                className="flex flex-col h-full select-none"
                 style={{ width }}
                 onContextMenu={(e) => e.preventDefault()}
             >
@@ -89,7 +89,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
 
     return (
         <aside
-            className="flex flex-col bg-[var(--bg-surface)] h-full overflow-hidden select-none"
+            className="flex flex-col h-full overflow-hidden select-none"
             style={{ width }}
             onContextMenu={(e) => e.preventDefault()}
         >

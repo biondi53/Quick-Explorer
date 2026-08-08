@@ -159,7 +159,7 @@ const Sidebar = memo(({ onNavigate, onOpenInNewTab, onContextMenu, currentPath, 
 
     return (
         <aside
-            className="flex flex-col bg-[var(--bg-sidebar)] h-full select-none"
+            className="flex flex-col h-full select-none"
             style={{ width }}
             onMouseEnter={() => {
                 onRefreshRecycleBin();

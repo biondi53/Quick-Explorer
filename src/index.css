@@ -10,8 +10,6 @@
 
   /* Default (Deep Black) - Absolute Minimalism */
   --bg-deep: #000105;
-  --bg-surface: #0a0b14;
-  --bg-sidebar: #000105;
   --accent-primary: #6366f1;
   --accent-rgb: 99, 102, 241;
   --accent-secondary: #06b6d4;
@@ -24,14 +22,23 @@
 
   --border-active: rgba(99, 102, 241, 0.7);
   --mica-bg: #000105;
+
+  /* Ambient compartido: ÚNICO fondo de la app (degradado vertical
+     acento arriba → negro abajo). Lo usan .mica-container (raíz) y, vía JS
+     con coordenadas px del viewport, .glass-bar-opaque (header sticky
+     de columnas) para que pinte EXACTAMENTE el mismo fondo en su zona. */
+  --mica-ambient:
+    linear-gradient(180deg,
+      rgba(var(--accent-rgb), 0.24) 0%,
+      rgba(var(--accent-rgb), 0.10) 30%,
+      rgba(var(--accent-rgb), 0.04) 55%,
+      rgba(var(--accent-rgb), 0) 80%);
 }
 
 /* 2. Theme Overrides */
 :root[data-theme='emerald'] {
   /* Lush Jungle Green */
   --bg-deep: #05140b;
-  --bg-surface: rgba(10, 30, 20, 0.7);
-  --bg-sidebar: rgba(6, 22, 12, 0.6);
   --accent-primary: #10b981;
   --accent-rgb: 16, 185, 129;
   --accent-secondary: #a3e635;
@@ -43,8 +50,6 @@
 :root[data-theme='sunset'] {
   /* Deep Copper/Espresso */
   --bg-deep: #1a0f0a;
-  --bg-surface: rgba(40, 20, 10, 0.7);
-  --bg-sidebar: rgba(30, 14, 8, 0.6);
   --accent-primary: #f97316;
   --accent-rgb: 249, 115, 22;
   --accent-secondary: #fbbf24;
@@ -56,8 +61,6 @@
 :root[data-theme='cyber'] {
   /* Vivid Deep Violet */
   --bg-deep: #130a1c;
-  --bg-surface: rgba(40, 15, 50, 0.7);
-  --bg-sidebar: rgba(25, 10, 35, 0.6);
   --accent-primary: #d946ef;
   --accent-rgb: 217, 70, 239;
   --accent-secondary: #818cf8;
@@ -69,8 +72,6 @@
 :root[data-theme='monochrome'] {
   /* Stealth Monochrome */
   --bg-deep: #000000;
-  --bg-surface: rgba(18, 18, 18, 0.7);
-  --bg-sidebar: rgba(10, 10, 10, 0.6);
   --accent-primary: #e5e5e5;
   --accent-rgb: 229, 229, 229;
   --accent-secondary: #a3a3a3;
@@ -98,11 +99,34 @@ body {
   height: 100%;
 }
 
-/* Mica Effect Simulation */
+/* ÚNICO fondo de la app: la raíz pinta el ambient (degradado vertical
+   acento → negro). Los paneles son transparentes, sin blur ni grano:
+   no existen líneas divisorias entre secciones. */
 .mica-container {
-  background: var(--mica-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background-image: var(--mica-ambient);
+  background-color: var(--mica-bg);
+}
+
+/* Paneles: transparentes (fondo único). Se conservan las clases como no-op
+   para no romper código que aún las referencia. */
+.glass-surface {
+  background: transparent;
+}
+
+.glass-header {
+  background: transparent;
+}
+
+/* Header de columnas: el degradado del viewport lo pinta FileTable
+   (hook ambient) como string literal en JS, alineado al rect real del
+   header: backgroundSize 100vw 100vh, backgroundPosition 0px -top.
+   NO usar background-attachment: fixed (se degrada con ancestros
+   compuestos: transform/opacity/will-change).
+   La base --bg-deep es opaca: funciona como fallback si el hook aún no
+   pintó y garantiza que las filas nunca se vean a través. */
+.glass-bar-opaque {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background-color: var(--bg-deep);
 }
 
 /* Custom Scrollbars */

@@ -1855,7 +1855,7 @@ export default function App() {
 
 
 
-          <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg-surface)] transition-all duration-300">
+          <main className="flex-1 flex flex-col min-w-0 transition-all duration-300">
             {/* Tab Bar */}
             <TabBar
               tabs={tabs}
@@ -2344,28 +2344,23 @@ export default function App() {
                         custom={direction}
                         variants={{
                           enter: {
-                            opacity: 0,
-                            scale: 0.98
+                            opacity: 0
                           },
                           center: {
                             zIndex: 1,
-                            opacity: 1,
-                            scale: 1
+                            opacity: 1
                           },
                           exit: {
                             zIndex: 0,
-                            opacity: 0,
-                            scale: 0.98
+                            opacity: 0
                           }
                         }}
                         initial="enter"
                         animate="center"
                         exit="exit"
                         transition={{
-                          opacity: { duration: 0.25 },
-                          scale: { duration: 0.3 }
+                          opacity: { duration: 0.25 }
                         }}
-                        style={{ willChange: "transform, opacity" }}
                         className="flex-1 flex flex-col min-h-0 min-w-0"
                       >
                         {currentTab?.viewMode === 'grid' ? (
