@@ -1251,7 +1251,7 @@ export default function App() {
   const handleContextMenuAction = async (action: string, data?: any) => {
     if (!currentTab) return;
     const selectedFiles = currentTab.selectedFiles;
-    const file = selectedFiles.length === 1 ? selectedFiles[0] : null;
+    const file = contextMenu?.file ?? (selectedFiles.length === 1 ? selectedFiles[0] : null);
 
     if (action === 'move-to-tab' && data) {
       const { targetPath, tabId } = data;
@@ -1525,13 +1525,6 @@ export default function App() {
       dimensions: null
     };
     setContextMenu({ x: e.clientX, y: e.clientY, file: mockFile, fromSidebar: true });
-
-    if (currentTab) {
-      updateTab(currentTab.id, {
-        selectedFiles: [mockFile],
-        lastSelectedFile: mockFile
-      });
-    }
   };
 
   const saveConfig = (newConfig: QuickAccessConfig, newSortConfig?: SortConfig, newShowHidden?: boolean, newAutoSearch?: boolean, newFocusNewTab?: boolean, newToolbarMode?: ToolbarMode, closePanel = true) => {
@@ -2519,7 +2512,7 @@ export default function App() {
               y={contextMenu.y}
               onClose={() => setContextMenu(null)}
               onAction={handleContextMenuAction}
-              selectedFiles={currentTab?.selectedFiles || []}
+              selectedFiles={contextMenu.file ? [contextMenu.file] : (currentTab?.selectedFiles || [])}
               pinnedFolders={quickAccessConfig.pinnedFolders}
               allowRename={true}
 
