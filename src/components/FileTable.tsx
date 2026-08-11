@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronUp, ChevronDown, Check, SearchX, Search } from 'lucide-react';
 import { getIconComponent } from '../utils/fileIcons';
 import { useTranslation } from '../i18n/useTranslation';
-import { isPreviewable } from '../utils/previewUtils';
+import { isPreviewable, THUMBNAIL_EXTS } from '../utils/previewUtils';
 
 import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
@@ -159,9 +159,6 @@ const FileTable = memo(({
         return new Set(selectedFiles.map(f => f.path));
     }, [selectedFiles]);
 
-    const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
-    const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
-
     const handleDragStart = async (paths: string[], element?: HTMLElement) => {
         if (paths.length === 0) return;
 
@@ -181,9 +178,7 @@ const FileTable = memo(({
             let thumbnailBase64: string | undefined;
             if (!primaryFile.is_dir) {
                 const ext = primaryFile.name.split('.').pop()?.toLowerCase() || '';
-                const isImage = IMAGE_EXTS.includes(ext);
-                const isVideo = VIDEO_EXTS.includes(ext);
-                if (isImage || isVideo) {
+                if (THUMBNAIL_EXTS.includes(ext)) {
                     try {
                         const protocolUrl = `http://thumbnail.localhost/?path=${encodeURIComponent(primaryFile.path)}&s=256&m=${primaryFile.modified_timestamp}`;
                         const controller = new AbortController();

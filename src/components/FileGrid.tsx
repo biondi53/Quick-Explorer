@@ -14,7 +14,7 @@ import { FileEntry, ClipboardInfo } from '../types';
 import { startDrag } from '@crabnebula/tauri-plugin-drag';
 import { createGhostIcon } from '../utils/ghostIcon';
 import { DRAG_ICON_BASE64 } from '../utils/dragIcon';
-import { isPreviewable } from '../utils/previewUtils';
+import { isPreviewable, THUMBNAIL_EXTS, VIDEO_EXTS } from '../utils/previewUtils';
 
 interface FileGridProps {
     files: FileEntry[];
@@ -47,14 +47,11 @@ interface FileGridProps {
 const ITEM_SIZE = 160;
 const GAP = 8;
 
-const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
-const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
-
-// Load thumbnails for images and videos (IShellItemImageFactory handles both)
+// Load thumbnails for images, engine-rendered formats and videos (IShellItemImageFactory + preview engine)
 const shouldLoadThumbnail = (file: FileEntry) => {
     if (file.is_dir) return false;
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    return IMAGE_EXTS.includes(ext) || VIDEO_EXTS.includes(ext);
+    return THUMBNAIL_EXTS.includes(ext);
 };
 
 // No explicit thumbnail manager needed. The browser's native HTTP connection pool handles `http://` streams natively.
@@ -187,7 +184,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                 <div className="w-28 h-28 flex items-center justify-center mb-2 relative">
                     {/* Placeholder Layer (Minimalist: Icon or Skeleton) */}
                     <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-500 ${isLoaded ? 'opacity-0' : 'opacity-100'}`}>
-                        {shouldLoadThumbnail(file) ? (
+                        {shouldLoadThumbnail(file) && !thumbnail ? (
                             // Subtle Skeleton Pulse for images/videos
                             <div className="w-16 h-16 rounded-xl bg-white/5 animate-pulse" />
                         ) : (
@@ -216,6 +213,7 @@ const GridItem = memo(({ file, isSelected, onMouseDown, onClick, onOpen, onOpenI
                                 }}
                                 onError={() => {
                                     setIsLoaded(false);
+                                    setThumbnail(null);
                                 }}
                             />
                             {file.source && (
@@ -528,10 +526,8 @@ export default function FileGrid({
             let thumbnailBase64: string | undefined;
             if (!primaryFile.is_dir) {
                 const ext = primaryFile.name.split('.').pop()?.toLowerCase() || '';
-                const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif'];
-                const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'mpg', 'mpeg'];
 
-                if (IMAGE_EXTS.includes(ext) || VIDEO_EXTS.includes(ext)) {
+                if (THUMBNAIL_EXTS.includes(ext)) {
                     try {
                         const url = `http://thumbnail.localhost/?path=${encodeURIComponent(primaryFile.path)}&s=256&m=${primaryFile.modified_timestamp}`;
                         const controller = new AbortController();

@@ -3,7 +3,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { Trash, RotateCw, Lock, Play, Pause, Volume2, VolumeX, ExternalLink } from 'lucide-react';
 import { FileEntry } from '../types';
 import { useTranslation } from '../i18n/useTranslation';
-import { IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS, TEXT_EXTS } from '../utils/previewUtils';
+import { IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS, TEXT_EXTS, ENGINE_IMAGE_EXTS, thumbnailUrl } from '../utils/previewUtils';
 
 interface QuickPreviewProps {
     file: FileEntry;
@@ -55,6 +55,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
     const ext = file.path.split('.').pop()?.toLowerCase() || '';
 
     const isImage = IMAGE_EXTS.includes(ext);
+    const isEngineImage = ENGINE_IMAGE_EXTS.includes(ext);
     const isVideo = VIDEO_EXTS.includes(ext);
     const isAudio = AUDIO_EXTS.includes(ext);
     const isText = TEXT_EXTS.includes(ext);
@@ -387,7 +388,7 @@ const QuickPreview: React.FC<QuickPreviewProps> = ({ file, onClose, onNavigate, 
         }
 
         if (isImage) {
-            const src = convertFileSrc(file.path);
+            const src = isEngineImage ? thumbnailUrl(file, 1600) : convertFileSrc(file.path);
             return (
                 <img
                     ref={mediaRef as React.Ref<HTMLImageElement>}

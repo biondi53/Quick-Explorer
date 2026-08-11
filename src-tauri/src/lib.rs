@@ -37,6 +37,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 mod commands;
 mod drop_overlay;
 mod extraction;
+mod office_com;
+mod preview_engine;
 mod search_engine;
 mod sta_worker;
 
@@ -956,7 +958,50 @@ async fn get_thumbnail_bytes(
 
     let mut result_bytes: Option<Vec<u8>> = None;
 
-    if let Ok(bytes) = generate_shell_thumbnail(&path, size) {
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let is_office_format = !is_video && preview_engine::is_office_ext(&ext);
+    let is_engine_format = !is_video && preview_engine::is_engine_ext(&ext);
+
+    if is_office_format {
+        // 1. Real page-1 thumbnail from the Office shell provider (no icon fallback)
+        if let Ok(bytes) = generate_shell_thumbnail(&path, size, false) {
+            result_bytes = Some(bytes);
+        }
+        if result_bytes.is_some() {
+            log::debug!("[THUMB] office {} <- shell", ext);
+        }
+        // 2. Embedded docProps thumbnail (no Word needed)
+        if result_bytes.is_none() {
+            result_bytes = preview_engine::render_preview(path.clone(), size.min(1600)).await;
+            if result_bytes.is_some() {
+                log::debug!("[THUMB] office {} <- docProps", ext);
+            }
+        }
+        // 3. Live page-1 render via Office COM -> PDF -> engine
+        if result_bytes.is_none() && office_com::kind_is_renderable(&ext) {
+            result_bytes = office_com::render_office_page1(path.clone(), &ext).await;
+            if result_bytes.is_some() {
+                log::debug!("[THUMB] office {} <- COM page-1", ext);
+            }
+        }
+        // 4. Icon (same as Explorer)
+        if result_bytes.is_none() {
+            if let Ok(bytes) = generate_shell_thumbnail(&path, size, true) {
+                result_bytes = Some(bytes);
+            }
+        }
+    } else if is_engine_format {
+        result_bytes = preview_engine::render_preview(path.clone(), size.min(1600)).await;
+        if result_bytes.is_none() {
+            if let Ok(bytes) = generate_shell_thumbnail(&path, size, true) {
+                result_bytes = Some(bytes);
+            }
+        }
+    } else if let Ok(bytes) = generate_shell_thumbnail(&path, size, true) {
         result_bytes = Some(bytes);
     }
 
@@ -988,6 +1033,10 @@ async fn get_thumbnail_bytes(
                 result_bytes = Some(output.stdout);
             }
         }
+    }
+
+    if result_bytes.is_none() && !is_office_format {
+        result_bytes = preview_engine::render_preview(path.clone(), size.min(1600)).await;
     }
 
     if let Some(bytes) = result_bytes {
@@ -1025,7 +1074,11 @@ async fn get_thumbnail(
     Ok(format!("data:image/jpeg;base64,{}", base64_img))
 }
 
-fn generate_shell_thumbnail(path: &str, size: u32) -> Result<Vec<u8>, String> {
+fn generate_shell_thumbnail(
+    path: &str,
+    size: u32,
+    allow_icon_fallback: bool,
+) -> Result<Vec<u8>, String> {
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, SelectObject, BITMAP,
@@ -1085,15 +1138,19 @@ fn generate_shell_thumbnail(path: &str, size: u32) -> Result<Vec<u8>, String> {
             cy: size as i32,
         };
 
-        let hbitmap: HBITMAP =
-            if let Ok(h) = image_factory.GetImage(thumb_size, SIIGBF_THUMBNAILONLY) {
-                h
-            } else if let Ok(h) = image_factory.GetImage(thumb_size, SIIGBF_ICONONLY) {
+        let hbitmap: HBITMAP = if let Ok(h) = image_factory.GetImage(thumb_size, SIIGBF_THUMBNAILONLY) {
+            h
+        } else if allow_icon_fallback {
+            if let Ok(h) = image_factory.GetImage(thumb_size, SIIGBF_ICONONLY) {
                 h
             } else {
                 CoUninitialize();
                 return Err("Failed to get image".to_string());
-            };
+            }
+        } else {
+            CoUninitialize();
+            return Err("Shell thumbnail not available".to_string());
+        };
 
         let mut bmp = BITMAP::default();
         let result = GetObjectW(
@@ -1260,6 +1317,14 @@ async fn get_file_dimensions(path: String) -> Result<Option<FileDimensionsResult
                 }
             }
 
+            if let Some((w, h)) = preview_engine::probe_dimensions(&path) {
+                CoUninitialize();
+                return Ok(Some(FileDimensionsResult {
+                    dimensions: format!("{}x{}", w, h),
+                    source: "engine".to_string(),
+                }));
+            }
+
             CoUninitialize();
             Ok(None)
         }
@@ -1383,7 +1448,7 @@ fn get_clipboard_info(state: tauri::State<'_, ClipboardCache>) -> Result<Clipboa
 
             if ["png", "jpg", "jpeg", "bmp", "webp", "gif"].contains(&ext.as_str()) {
                 // Use shell thumbnail (fast, uses Windows cache) instead of image::open
-                if let Ok(bytes) = generate_shell_thumbnail(&paths[0], 1200) {
+                if let Ok(bytes) = generate_shell_thumbnail(&paths[0], 1200, true) {
                     let base64_img = base64::engine::general_purpose::STANDARD.encode(&bytes);
                     info.has_image = true;
                     info.image_data = Some(format!("data:image/jpeg;base64,{}", base64_img));
@@ -2002,6 +2067,7 @@ pub fn run() {
                     Ok(bytes) => {
                         let response = tauri::http::Response::builder()
                             .header("Access-Control-Allow-Origin", "*")
+                            .header("Cache-Control", "no-store")
                             .header("Content-Type", "image/jpeg")
                             .status(200)
                             .body(bytes)

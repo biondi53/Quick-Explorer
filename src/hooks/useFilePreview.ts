@@ -46,7 +46,7 @@ export function useFilePreview(filePath: string | null, type: FileType, modified
             setState(prev => ({ ...prev, isLoading: true }));
 
             try {
-                const protocolUrl = `http://thumbnail.localhost/?path=${encodeURIComponent(filePath)}&s=256&m=${modified}`;
+                const protocolUrl = `http://thumbnail.localhost/?path=${encodeURIComponent(filePath)}&s=256&m=${modified}&v=2`;
 
                 // Fetch dimensions AND source from backend
                 const dimsResult = await invoke<{ dimensions: string; source: string } | null>('get_file_dimensions', { path: filePath });

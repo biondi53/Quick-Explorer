@@ -1,3 +1,23 @@
+# 🚀 Quick Explorer v0.1.34
+*Changelog - August 11, 2026*
+
+## 🖼️ Real Page-1 Thumbnails for Office Documents
+- **📄 Word & PowerPoint First-Page Previews**: Docx and pptx files now show the actual first page as their thumbnail — the real content, not the file icon. A fallback chain picks the best source: Windows shell preview → embedded `docProps` thumbnail → Office COM export to PDF → first page rendered → icon.
+- **⚡ Never Stale**: Thumbnails are cached in a disk cache (keyed by file + modification time), so the second look is instant and updates when the file changes.
+- **🐞 Fixed Wrong-Thumbnail Bug**: The engine no longer picks "the largest embedded image" (which could show a logo or screenshot instead of the document); it now fails over to the icon instead of showing misleading content.
+
+## 🧮 Excel (xlsx) Balanced Approach
+- **📊 Parity with the Best Thumbnailers**: Excel would need a printer to paginate a sheet into a preview (an Office quirk). Instead, xlsx files show an icon — unless they carry an embedded preview picture — matching SageThumbs and Windows Explorer behavior. Excel is never launched just to peek at a thumbnail, keeping browsing fast.
+
+## 🔧 Stability & Performance
+- **🛡️ Office COM Done Right**: Dedicated STA thread, 12s timeout with instance abandonment, no dialog popups, read-only opens. A bad file can't hang the browser.
+- **🍪 Cache Hardening**: Thumbnail responses are served with `Cache-Control: no-store` plus a cache-busting version param, so an updated file never shows a stale preview again.
+
+## 🧪 Testing
+- **✅ Engine suite green**: 20/20 tests, including the new `ooxml_no_thumb_returns_none` regression covering the removed "largest media" fallback.
+
+---
+
 # 🚀 Quick Explorer v0.1.33
 *Changelog - August 8, 2026*
 
@@ -392,4 +412,4 @@
 - `Escape` → Clear search and selection
 
 ---
-*Quick Explorer Project © 2026 - Versión 0.1.33*
+*Quick Explorer Project © 2026 - Versión 0.1.34*

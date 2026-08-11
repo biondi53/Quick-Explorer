@@ -25,7 +25,7 @@ const InfoPanel = memo(({ selectedFiles, width }: InfoPanelProps) => {
         if (firstSelected && !firstSelected.is_dir) {
             if (/\.(mp4|mkv|webm|avi|mov|wmv|flv|mpg|mpeg)$/i.test(firstSelected.name)) {
                 return 'video';
-            } else if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|ico)$/i.test(firstSelected.name)) {
+            } else if (/\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|ico|heic|heif|tif|tiff|exr|hdr|dds|tga|psd|psb|pnm|pdf|doc|docx|docm|xls|xlsx|xlsm|ppt|pptx|pptm|odt|ods|odp)$/i.test(firstSelected.name)) {
                 return 'image';
             }
         }
