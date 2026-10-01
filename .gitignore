@@ -26,7 +26,11 @@ dist-ssr
 # Rust / Cargo
 /target
 /src-tauri/target
-Cargo.lock
+# Cargo.lock NO se ignora a proposito: fija las versiones exactas de cada
+# dependencia para que un revisor pueda reproducir el build y auditar el
+# riesgo de supply-chain. Es un binario de aplicacion, no una libreria.
+# El unico lock ignorado es el del crate vendorizado, que no usa el workspace.
+crates/drag/Cargo.lock
 
 # Tauri bundle
 src-tauri/dump.rdb
