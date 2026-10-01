@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Quick Explorer",
+  "version": "0.1.34",
+  "identifier": "com.nico.d-speedexplorer",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1422/",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Quick Explorer",
+        "width": 1370,
+        "height": 800,
+        "minWidth": 1370,
+        "minHeight": 600,
+        "maximized": false,
+        "transparent": false,
+        "shadow": true,
+        "visible": false,
+        "dragDropEnabled": false,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**",
+          "\\\\?\\**",
+          "C:\\**",
+          "D:\\**",
+          "E:\\**",
+          "F:\\**"
+        ]
+      },
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' asset: thumbnail: https://asset.localhost http://asset.localhost https://thumbnail.localhost http://thumbnail.localhost https://* http://* data: blob: filesystem:; connect-src 'self' ipc: http://ipc.localhost http://thumbnail.localhost; media-src 'self' asset: https://asset.localhost http://asset.localhost blob:;"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "icons/32x32.png"
+    ]
+  }
+}

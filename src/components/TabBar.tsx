@@ -1,0 +1,201 @@
+import { useRef, useEffect } from 'react';
+import { X, Plus } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import WindowControls from './WindowControls';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Tab } from '../types';
+import { useTabDragHover } from '../hooks/useTabDragHover';
+import { useThresholdWindowDrag } from '../hooks/useThresholdWindowDrag';
+import { useTranslation } from '../i18n/useTranslation';
+
+
+interface TabBarProps {
+    tabs: Tab[];
+    activeTabId: string;
+    onTabClick: (tabId: string) => void;
+    onTabClose: (tabId: string) => void;
+    onNewTab: () => void;
+    // onReorder: (newTabs: Tab[]) => void;
+}
+
+export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose, onNewTab /*, onReorder */ }: TabBarProps) {
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const { handleDragOver, handleDragLeave } = useTabDragHover(onTabClick);
+    const { onMouseDown: handleTabDragStart, shouldSwallowClick } = useThresholdWindowDrag();
+    const { t } = useTranslation();
+
+    // Auto-scroll active tab into view
+    useEffect(() => {
+        if (!activeTabId || !scrollContainerRef.current) return;
+
+        // Small delay to ensure the DOM has updated (especially for new tabs)
+        const timeoutId = setTimeout(() => {
+            const activeElement = scrollContainerRef.current?.querySelector(`[data-tab-id="${activeTabId}"]`);
+            if (activeElement) {
+                activeElement.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest',
+                    inline: 'nearest'
+                });
+            }
+        }, 50);
+
+        return () => clearTimeout(timeoutId);
+    }, [activeTabId]);
+    const getTabName = (path: string) => {
+        if (!path) return t('sidebar.this_pc');
+        if (path === 'shell:RecycleBin') return t('sidebar.recycle_bin');
+        const parts = path.split('\\').filter(Boolean);
+        return parts[parts.length - 1] || path;
+    };
+
+    return (
+        <div
+            className="relative h-10 z-20 border-b border-white/5"
+            style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+                gap: '4px',
+                paddingLeft: '8px',
+                paddingRight: '8px',
+            }}
+            onMouseDown={(e) => {
+                if (e.defaultPrevented) return;
+
+                const target = e.target as HTMLElement;
+                if (target.closest('.no-drag, button')) return;
+
+                if (e.detail === 2 && e.button === 0) {
+                    getCurrentWindow().toggleMaximize();
+                } else if (e.button === 0) {
+                    getCurrentWindow().startDragging();
+                }
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+        >
+            {/* 1. Tabs Area - scroll container */}
+            <div
+                ref={scrollContainerRef}
+                className="flex items-stretch no-scrollbar"
+                style={{
+                    overflow: 'hidden',
+                    overflowX: 'auto',
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none',
+                    minWidth: 0,
+                }}
+            >
+                <div
+                    className="flex items-stretch"
+                    style={{ display: 'flex', flexWrap: 'nowrap', gap: '4px' }}
+                >
+                    <AnimatePresence initial={false} mode="popLayout">
+                        {tabs.map((tab) => (
+                            <motion.div
+                                key={tab.id}
+                                layout
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.9, width: 0 }}
+                                transition={{ type: "spring", stiffness: 500, damping: 30, opacity: { duration: 0.15 } }}
+                                data-tab-id={tab.id}
+                                onClick={() => {
+                                    if (shouldSwallowClick()) return;
+                                    onTabClick(tab.id);
+                                }}
+                                onMouseDown={(e) => {
+                                    handleTabDragStart(e);
+                                    if (e.button === 1) {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        onTabClose(tab.id);
+                                    }
+                                }}
+                                onDragOver={(e) => handleDragOver(e, tab.id)}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    handleDragLeave();
+                                }}
+                                style={{
+                                    flexShrink: 0,
+                                    flexGrow: 0,
+                                    boxSizing: 'border-box',
+                                    position: 'relative',
+                                    minWidth: '140px',
+                                    maxWidth: '240px'
+                                }}
+                                className={`group flex items-center gap-1 h-full px-4 rounded-t-xl cursor-pointer transition-all no-drag select-none
+                                    ${tab.id === activeTabId
+                                        ? 'bg-white/[0.04] text-white'
+                                        : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}`}
+                            >
+                                {tab.id === activeTabId && (
+                                    <motion.div
+                                        layoutId="activeTab"
+                                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                                        style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            height: '2px',
+                                            backgroundColor: 'var(--accent-primary)',
+                                            zIndex: 10
+                                        }}
+                                    />
+                                )}
+                                <span
+                                    className={`text-[11px] uppercase tracking-wider ${tab.id === activeTabId ? 'font-black' : 'font-bold'}`}
+                                    style={{
+                                        flex: '1 1 0%',
+                                        minWidth: 0,
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}
+                                >
+                                    {getTabName(tab.path)}
+                                </span>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onTabClose(tab.id);
+                                    }}
+                                    className={`p-0.5 rounded hover:bg-white/10 transition-opacity flex-shrink-0
+                                        ${tab.id === activeTabId ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100'}`}
+                                >
+                                    <X size={12} />
+                                </button>
+                            </motion.div>
+                        ))}
+                    </AnimatePresence>
+                    <div className="flex items-center ml-1">
+                        <button
+                            onClick={onNewTab}
+                            className="p-1.5 rounded-lg hover:bg-white/5 text-[var(--text-muted)] hover:text-white transition-colors no-drag h-8 w-8 flex items-center justify-center my-auto"
+                            title="New Tab (Ctrl+T)"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. Drag spacer - expands to fill remaining space */}
+            <div className="min-w-[20px]" style={{ flex: '1 1 auto' }} />
+
+            {/* 4. Window Controls - fixed size */}
+            <div className="flex items-center">
+                <WindowControls />
+            </div>
+
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                .no-scrollbar::-webkit-scrollbar {
+                    display: none;
+                }
+            `}} />
+        </div >
+    );
+}

@@ -1,0 +1,96 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust / Cargo
+/target
+/src-tauri/target
+# Cargo.lock NO se ignora a proposito: fija las versiones exactas de cada
+# dependencia para que un revisor pueda reproducir el build y auditar el
+# riesgo de supply-chain. Es un binario de aplicacion, no una libreria.
+# El unico lock ignorado es el del crate vendorizado, que no usa el workspace.
+crates/drag/Cargo.lock
+
+# Tauri bundle
+src-tauri/dump.rdb
+
+# External Reference
+DO NOT TOUCH - FileExplorer EXAMPLE/
+
+# Superpowers / Worktrees
+.worktrees/
+.superpowers/
+
+# Capturas de pantalla (verificacion visual, nunca al repo)
+Screenshot_*
+
+# --- Publicacion: nada de esto debe volver al remoto ---
+
+# Logs y artefactos del compilador
+build_logs.txt
+tauri_logs.txt
+test_output.txt
+check_out*.txt
+build_errors*.txt
+check.json
+/src-tauri/test_t.rs
+
+# Backups de archivos fuente
+*.bak
+*.ico.bak
+
+# Snapshots viejos de componentes en la raiz
+/v0.1.*.tsx
+
+# Imagenes de trabajo (usar src-tauri/icons/ y public/)
+FINAL*.png
+FINAL*.ico
+/favicon2.ico
+/img/Cuadrado2.png
+/img/FINAL*.png
+
+# Changelogs generados por el flujo de release
+changelog_*.html
+changelog_*.md
+LATEST_RELEASE_BODY.md
+release_notes.md
+
+# Changelogs generados
+/scripts/generate_changelog.cjs
+
+# Notas de trabajo y knowledge base personal
+.agent/
+.opencode/
+.atl/
+/docs/knowledge_base/
+/docs/superpowers/
+
+# Scripts de debug puntual
+check_names.ps1
+debug_verbs.ps1
+test_restore.ps1
+
+# Copias de respaldo de iconos
+src-tauri/icons_backup/
+src-tauri/icons/Backup/
